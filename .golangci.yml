@@ -1,0 +1,59 @@
+version: "2"
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - asasalint
+    - asciicheck
+    - containedctx
+    - copyloopvar
+    - gocritic
+    - gocyclo
+    - gosec
+    - dogsled
+    - errname
+    - errorlint
+    - fatcontext
+    - goconst
+    - gosmopolitan
+    - iface
+    - importas
+    - mirror
+    - misspell
+    - nilerr
+    - nilnesserr
+    - nolintlint
+    - perfsprint
+    - prealloc
+    - reassign
+    - rowserrcheck
+    - spancheck
+    - testifylint
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+
+  settings:
+    gocyclo:
+      min-complexity: 20
+
+    gosec:
+      excludes:
+        - G104  # Already checked by other linters
+        - G107  # Potential HTTP request with variable url - URLs from config/constants
+        - G117  # Exported struct fields matching secret patterns - config structs need these fields
+        - G304  # Potential file inclusion via variable - file paths from config
+
+    testifylint:
+      disable:
+        - float-compare
+        - suite-method-signature
+
+  exclusions:
+    rules:
+      - linters:
+          - gosec
+        path: _test\.go
