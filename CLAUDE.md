@@ -4,7 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Go project. <!-- TODO: Add project description -->
+Desktop photo viewer and sorter built with Go + Fyne. Dark theme. Cross-platform (Mac, Windows; Linux optional).
+
+### Core Concept
+
+Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only JPEGs but all file operations (delete) apply to both the JPEG and its RAW pair.
+
+### UI Layout
+
+- **Left panel**: File browser with directory tree (GoLand-style). Shows only non-RAW files. Sorting by name/time. "Today" button. Color indicators displayed before filenames.
+- **Center**: Photo viewer. Color indicators shown as colored circles in top-left corner of the photo.
+- **Top bar**: Action buttons — Favorite, Red, Green, Blue, Delete.
+- **Right-click context menu** on photo: same actions as top bar.
+
+### Features
+
+- **Favorites**: Modifies EXIF Rating field in the JPEG file (visible in OS file explorer and on camera).
+- **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
+- **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
+- **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
+- **Navigation**: Arrow keys (Right/Down = next, Left/Up = previous) and left mouse click on photo = next. Stays on last/first photo at boundaries.
+
+### Keyboard Shortcuts (layout-independent)
+
+- `R` — toggle Red
+- `G` — toggle Green
+- `B` — toggle Blue
+- `D` — delete (opens confirmation dialog: `D` = yes, `N`/`Esc` = no)
+- Arrow keys — navigate photos
+
+### Tech Stack
+
+- Go + Fyne (GUI framework)
+- EXIF: `dsoprea/go-exif/v3` + `dsoprea/go-jpeg-image-structure/v2`
+- Utilities: `robdavid/genutil-go/slices` (Map/Filter/Fold)
+- Testing: `stretchr/testify`
+- JSON files for color labels
+- Linting: `golangci-lint` (go.mod tool dependency)
 
 ## Commands
 
@@ -21,7 +57,7 @@ go test -v ./path/to/package/...
 go test -v -run TestSpecificFunction ./path/to/package
 
 # Run linting
-golangci-lint run --fix
+go tool golangci-lint run --fix
 
 # Build
 go build ./...
@@ -33,10 +69,9 @@ go build ./...
 - Use meaningful variable names (avoid single-letter except for common cases like `i`, `err`)
 - Functions should be focused and ideally under 50 lines
 - Use table-driven tests where appropriate
-- Always handle errors explicitly; use `pkg/errors` for error wrapping
-- Use `shopspring/decimal` for financial calculations (never float64)
+- Always handle errors explicitly; use `fmt.Errorf` with `%w` for error wrapping
 - Prefer utility functions over manual loops:
-  - Use `slices.Map`, `slices.Filter`, `slices.Reduce` from `github.com/robdavid/genutil-go/slices`
+  - Use `slices.Map`, `slices.Filter`, `slices.Fold` from `github.com/robdavid/genutil-go/slices`
   - Use functional programming utilities from helper packages where appropriate
 
 ### Code Comments Policy

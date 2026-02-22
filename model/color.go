@@ -1,0 +1,68 @@
+package model
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+type ColorLabel string
+
+const (
+	ColorRed   ColorLabel = "red"
+	ColorGreen ColorLabel = "green"
+	ColorBlue  ColorLabel = "blue"
+)
+
+const ColorsFileName = ".photo-colors.json"
+
+type ColorMap map[string][]ColorLabel
+
+func LoadColors(dir string) (ColorMap, error) {
+	path := filepath.Join(dir, ColorsFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(ColorMap), nil
+		}
+		return nil, fmt.Errorf("reading colors file: %w", err)
+	}
+	var cm ColorMap
+	if err := json.Unmarshal(data, &cm); err != nil {
+		return nil, fmt.Errorf("parsing colors file: %w", err)
+	}
+	return cm, nil
+}
+
+func SaveColors(dir string, cm ColorMap) error {
+	path := filepath.Join(dir, ColorsFileName)
+	data, err := json.MarshalIndent(cm, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling colors: %w", err)
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+func (cm ColorMap) HasColor(filename string, color ColorLabel) bool {
+	for _, c := range cm[filename] {
+		if c == color {
+			return true
+		}
+	}
+	return false
+}
+
+func (cm ColorMap) ToggleColor(filename string, color ColorLabel) {
+	colors := cm[filename]
+	for i, c := range colors {
+		if c == color {
+			cm[filename] = append(colors[:i], colors[i+1:]...)
+			if len(cm[filename]) == 0 {
+				delete(cm, filename)
+			}
+			return
+		}
+	}
+	cm[filename] = append(colors, color)
+}

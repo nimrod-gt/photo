@@ -46,6 +46,7 @@ linters:
         - G107  # Potential HTTP request with variable url - URLs from config/constants
         - G117  # Exported struct fields matching secret patterns - config structs need these fields
         - G304  # Potential file inclusion via variable - file paths from config
+        - G703  # Path traversal via taint - temp files in same directory
 
     testifylint:
       disable:
