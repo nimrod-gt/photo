@@ -26,19 +26,24 @@ func (p Photo) HasRAW() bool {
 	return len(p.RAWPath) != 0
 }
 
-func IsRAWExtension(ext string) bool {
-	for _, rawExt := range rawExtensions {
-		if strings.EqualFold(ext, rawExt) {
-			return true
+func rawExtensionVariants() []string {
+	seen := make(map[string]struct{})
+	var variants []string
+	for _, ext := range rawExtensions {
+		for _, v := range []string{ext, strings.ToUpper(ext), strings.ToLower(ext)} {
+			if _, ok := seen[v]; !ok {
+				seen[v] = struct{}{}
+				variants = append(variants, v)
+			}
 		}
 	}
-	return false
+	return variants
 }
 
 func findRAWPair(jpegPath string) string {
 	ext := filepath.Ext(jpegPath)
 	base := strings.TrimSuffix(jpegPath, ext)
-	for _, rawExt := range rawExtensions {
+	for _, rawExt := range rawExtensionVariants() {
 		candidate := base + rawExt
 		if candidate == jpegPath {
 			continue

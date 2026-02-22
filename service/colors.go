@@ -2,11 +2,13 @@ package service
 
 import (
 	"path/filepath"
+	"sync"
 
 	"photo/model"
 )
 
 type ColorService struct {
+	mu     sync.Mutex
 	colors map[string]model.ColorMap
 }
 
@@ -17,6 +19,9 @@ func NewColorService() *ColorService {
 }
 
 func (s *ColorService) GetColors(photo model.Photo) ([]model.ColorLabel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dir := filepath.Dir(photo.JPEGPath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
@@ -26,6 +31,9 @@ func (s *ColorService) GetColors(photo model.Photo) ([]model.ColorLabel, error) 
 }
 
 func (s *ColorService) ToggleColor(photo model.Photo, color model.ColorLabel) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dir := filepath.Dir(photo.JPEGPath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
@@ -39,6 +47,9 @@ func (s *ColorService) ToggleColor(photo model.Photo, color model.ColorLabel) er
 }
 
 func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dir := filepath.Dir(photo.JPEGPath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
@@ -48,6 +59,9 @@ func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool
 }
 
 func (s *ColorService) RemoveColors(photo model.Photo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dir := filepath.Dir(photo.JPEGPath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
@@ -65,6 +79,9 @@ func (s *ColorService) RemoveColors(photo model.Photo) error {
 }
 
 func (s *ColorService) InvalidateCache(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	delete(s.colors, dir)
 }
 

@@ -20,11 +20,12 @@ type Application struct {
 	deleter      *service.Deleter
 	navigator    *service.Navigator
 
-	toolbar     *ui.Toolbar
-	fileBrowser *ui.FileBrowser
-	viewer      *ui.Viewer
-	mainWindow  *ui.MainWindow
-	contextMenu *fyne.Menu
+	toolbar         *ui.Toolbar
+	fileBrowser     *ui.FileBrowser
+	viewer          *ui.Viewer
+	mainWindow      *ui.MainWindow
+	contextMenu     *fyne.Menu
+	deleteDialogOpen bool
 }
 
 func New() *Application {
@@ -170,14 +171,20 @@ func (a *Application) handleSecondaryTap(pos fyne.Position) {
 }
 
 func (a *Application) handleDelete() {
+	if a.deleteDialogOpen {
+		return
+	}
+
 	photo, ok := a.navigator.Current()
 	if !ok {
 		return
 	}
 
+	a.deleteDialogOpen = true
 	dialog.ShowConfirm("Delete Photo",
 		"Delete "+photo.Name+"? This will also delete the RAW pair.",
 		func(confirmed bool) {
+			a.deleteDialogOpen = false
 			if !confirmed {
 				return
 			}

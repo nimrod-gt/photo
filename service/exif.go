@@ -96,6 +96,11 @@ func (s *ExifService) SetRating(jpegPath string, rating uint16) error {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("writing JPEG: %w", err)
 	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("syncing temp file: %w", err)
+	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("closing temp file: %w", err)
