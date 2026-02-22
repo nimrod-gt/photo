@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
 
@@ -23,6 +24,7 @@ type Application struct {
 	fileBrowser *ui.FileBrowser
 	viewer      *ui.Viewer
 	mainWindow  *ui.MainWindow
+	contextMenu *fyne.Menu
 }
 
 func New() *Application {
@@ -52,7 +54,16 @@ func (a *Application) Run() {
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
-		OnTapped: a.handleNext,
+		OnTapped:          a.handleNext,
+		OnSecondaryTapped: a.handleSecondaryTap,
+	})
+
+	a.contextMenu = ui.NewContextMenu(ui.ContextMenuCallbacks{
+		OnFavorite: a.handleFavorite,
+		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete:   a.handleDelete,
 	})
 
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.toolbar, a.fileBrowser, a.viewer)
@@ -114,22 +125,22 @@ func (a *Application) handlePhotoSelected(photo model.Photo) {
 	if idx < 0 {
 		return
 	}
-	if p, ok := a.navigator.GoTo(idx); ok {
+	if p, _, ok := a.navigator.GoTo(idx); ok {
 		a.showPhoto(p)
 	}
 }
 
 func (a *Application) handleNext() {
-	if photo, ok := a.navigator.Next(); ok {
+	if photo, idx, ok := a.navigator.Next(); ok {
 		a.showPhoto(photo)
-		a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
+		a.fileBrowser.SelectIndex(idx)
 	}
 }
 
 func (a *Application) handlePrevious() {
-	if photo, ok := a.navigator.Previous(); ok {
+	if photo, idx, ok := a.navigator.Previous(); ok {
 		a.showPhoto(photo)
-		a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
+		a.fileBrowser.SelectIndex(idx)
 	}
 }
 
@@ -154,6 +165,10 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	a.updateColorIndicators(photo)
 }
 
+func (a *Application) handleSecondaryTap(pos fyne.Position) {
+	ui.ShowContextMenu(a.contextMenu, a.mainWindow.Window().Canvas(), pos)
+}
+
 func (a *Application) handleDelete() {
 	photo, ok := a.navigator.Current()
 	if !ok {
@@ -173,13 +188,14 @@ func (a *Application) handleDelete() {
 			if err := a.colorService.RemoveColors(photo); err != nil {
 				log.Printf("Failed to remove color labels: %v", err)
 			}
-			if next, ok := a.navigator.RemoveCurrent(); ok {
+			next, idx, photos, ok := a.navigator.RemoveCurrent()
+			if ok {
 				a.showPhoto(next)
 			} else {
 				a.viewer.Clear()
 			}
-			a.fileBrowser.SetPhotos(a.navigator.Photos())
-			a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
+			a.fileBrowser.SetPhotos(photos)
+			a.fileBrowser.SelectIndex(idx)
 		},
 		a.mainWindow.Window(),
 	)
