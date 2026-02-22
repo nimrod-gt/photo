@@ -47,6 +47,23 @@ func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool
 	return cm.HasColor(photo.Name, color), nil
 }
 
+func (s *ColorService) RemoveColors(photo model.Photo) error {
+	dir := filepath.Dir(photo.JPEGPath)
+	cm, err := s.loadOrGet(dir)
+	if err != nil {
+		return err
+	}
+
+	if _, exists := cm[photo.Name]; !exists {
+		return nil
+	}
+
+	delete(cm, photo.Name)
+	s.colors[dir] = cm
+
+	return model.SaveColors(dir, cm)
+}
+
 func (s *ColorService) InvalidateCache(dir string) {
 	delete(s.colors, dir)
 }

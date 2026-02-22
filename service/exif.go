@@ -21,7 +21,10 @@ func (s *ExifService) GetRating(jpegPath string) (uint16, error) {
 		return 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
 	}
 
-	sl := intfc.(*jpegstructure.SegmentList)
+	sl, ok := intfc.(*jpegstructure.SegmentList)
+	if !ok {
+		return 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
+	}
 
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
@@ -58,7 +61,10 @@ func (s *ExifService) SetRating(jpegPath string, rating uint16) error {
 		return fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
 	}
 
-	sl := intfc.(*jpegstructure.SegmentList)
+	sl, ok := intfc.(*jpegstructure.SegmentList)
+	if !ok {
+		return fmt.Errorf("unexpected parse result for %s", jpegPath)
+	}
 
 	rootIb, err := sl.ConstructExifBuilder()
 	if err != nil {
@@ -71,6 +77,11 @@ func (s *ExifService) SetRating(jpegPath string, rating uint16) error {
 
 	if err := sl.SetExif(rootIb); err != nil {
 		return fmt.Errorf("setting EXIF: %w", err)
+	}
+
+	origInfo, err := os.Stat(jpegPath)
+	if err != nil {
+		return fmt.Errorf("stat original file: %w", err)
 	}
 
 	dir := filepath.Dir(jpegPath)
@@ -88,6 +99,11 @@ func (s *ExifService) SetRating(jpegPath string, rating uint16) error {
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if err := os.Chmod(tempPath, origInfo.Mode()); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("setting permissions: %w", err)
 	}
 
 	if err := os.Rename(tempPath, jpegPath); err != nil {

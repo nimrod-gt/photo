@@ -176,6 +176,8 @@ github.com/dsoprea/go-exif/v3 v3.0.1 h1:/IE4iW7gvY7BablV1XY0unqhMv26EYpOquVMwoBo
 github.com/dsoprea/go-exif/v3 v3.0.1/go.mod h1:10HkA1Wz3h398cDP66L+Is9kKDmlqlIJGPv8pk4EWvc=
 github.com/dsoprea/go-iptc v0.0.0-20200609062250-162ae6b44feb h1:gwjJjUr6FY7zAWVEueFPrcRHhd9+IK81TcItbqw2du4=
 github.com/dsoprea/go-iptc v0.0.0-20200609062250-162ae6b44feb/go.mod h1:kYIdx9N9NaOyD7U6D+YtExN7QhRm+5kq7//yOsRXQtM=
+github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413 h1:YDRiMEm32T60Kpm35YzOK9ZHgjsS1Qrid+XskNcsdp8=
+github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413/go.mod h1:kYIdx9N9NaOyD7U6D+YtExN7QhRm+5kq7//yOsRXQtM=
 github.com/dsoprea/go-jpeg-image-structure/v2 v2.0.0-20221012074422-4f3f7e934102 h1:gmTXQdSuuuORRFPTS2uaYpAXU5oUNkXdeYSlZe5NvsE=
 github.com/dsoprea/go-jpeg-image-structure/v2 v2.0.0-20221012074422-4f3f7e934102/go.mod h1:WaARaUjQuSuDCDFAiU/GwzfxMTJBulfEhqEA2Tx6B4Y=
 github.com/dsoprea/go-logging v0.0.0-20190624164917-c4f10aab7696/go.mod h1:Nm/x2ZUNRW6Fe5C3LxdY1PyZY5wmDv/s5dkPJ/VB3iA=
@@ -184,6 +186,8 @@ github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd h1:l+vLbuxptsC6
 github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd/go.mod h1:7I+3Pe2o/YSU88W0hWlm9S22W7XI1JFNJ86U0zPKMf8=
 github.com/dsoprea/go-photoshop-info-format v0.0.0-20200609050348-3db9b63b202c h1:7j5aWACOzROpr+dvMtu8GnI97g9ShLWD72XIELMgn+c=
 github.com/dsoprea/go-photoshop-info-format v0.0.0-20200609050348-3db9b63b202c/go.mod h1:pqKB+ijp27cEcrHxhXVgUUMlSDRuGJJp1E+20Lj5H0E=
+github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d h1:dg6UMHa50VI01WuPWXPbNJpO8QSyvIF5T5n2IZiqX3A=
+github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d/go.mod h1:pqKB+ijp27cEcrHxhXVgUUMlSDRuGJJp1E+20Lj5H0E=
 github.com/dsoprea/go-utility v0.0.0-20200711062821-fab8125e9bdf/go.mod h1:95+K3z2L0mqsVYd6yveIv1lmtT3tcQQ3dVakPySffW8=
 github.com/dsoprea/go-utility/v2 v2.0.0-20200717064901-2fccff4aa15e/go.mod h1:uAzdkPTub5Y9yQwXe8W4m2XuP0tK4a9Q/dantD0+uaU=
 github.com/dsoprea/go-utility/v2 v2.0.0-20221003142440-7a1927d49d9d/go.mod h1:LVjRU0RNUuMDqkPTxcALio0LWPFPXxxFCvVGVAwEpFc=
@@ -229,6 +233,8 @@ github.com/go-errors/errors v1.0.2/go.mod h1:psDX2osz5VnTOnFWbDeWwS7yejl+uV3FEWE
 github.com/go-errors/errors v1.1.1/go.mod h1:psDX2osz5VnTOnFWbDeWwS7yejl+uV3FEWEp4lssFEs=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
+github.com/go-errors/errors v1.5.1 h1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=
+github.com/go-errors/errors v1.5.1/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 h1:5BVwOaUSBTlVZowGO6VZGw2H/zl9nrd3eCZfYV+NfQA=
 github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71/go.mod h1:9YTyiznxEY1fVinfM7RvRcjRHbw2xLBJ3AAGIT0I4Nw=
 github.com/go-gl/glfw v0.0.0-20190409004039-e6da0acd62b1/go.mod h1:vR7hzQXu2zJy9AVAgeJqvqgH9Q5CA+iKCZ2gyEVpxRU=
@@ -292,6 +298,8 @@ github.com/golang/geo v0.0.0-20190916061304-5b978397cfec/go.mod h1:QZ0nwyI2jOfgR
 github.com/golang/geo v0.0.0-20200319012246-673a6f80352d/go.mod h1:QZ0nwyI2jOfgRAoBvP+ab5aRr7c9x7lhGEJrKvBwjWI=
 github.com/golang/geo v0.0.0-20210211234256-740aa86cb551 h1:gtexQ/VGyN+VVFRXSFiguSNcXmS6rkKT+X7FdIrTtfo=
 github.com/golang/geo v0.0.0-20210211234256-740aa86cb551/go.mod h1:QZ0nwyI2jOfgRAoBvP+ab5aRr7c9x7lhGEJrKvBwjWI=
+github.com/golang/geo v0.0.0-20260129164528-943061e2742c h1:ysO2h2Odnl1AJM1I2Lm/fa6JvO0pECMSt2CwBaa+ITo=
+github.com/golang/geo v0.0.0-20260129164528-943061e2742c/go.mod h1:Mymr9kRGDc64JPr03TSZmuIBODZ3KyswLzm1xL0HFA8=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
 github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=
 github.com/golang/groupcache v0.0.0-20191227052852-215e87163ea7/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=

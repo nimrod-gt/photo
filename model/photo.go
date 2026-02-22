@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var rawExtensions = []string{".ARW", ".arw"}
+var rawExtensions = []string{".ARW"}
 
 type Photo struct {
 	JPEGPath string

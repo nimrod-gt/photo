@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	fyne.io/fyne/v2 v2.7.3
-	github.com/dsoprea/go-exif/v3 v3.0.1
 	github.com/dsoprea/go-jpeg-image-structure/v2 v2.0.0-20221012074422-4f3f7e934102
 )
 
@@ -63,9 +62,10 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/dsoprea/go-iptc v0.0.0-20200609062250-162ae6b44feb // indirect
+	github.com/dsoprea/go-exif/v3 v3.0.1 // indirect
+	github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413 // indirect
 	github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd // indirect
-	github.com/dsoprea/go-photoshop-info-format v0.0.0-20200609050348-3db9b63b202c // indirect
+	github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d // indirect
 	github.com/dsoprea/go-utility/v2 v2.0.0-20221003172846-a3e1774ef349 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
@@ -80,7 +80,7 @@ require (
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
-	github.com/go-errors/errors v1.4.2 // indirect
+	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
 	github.com/go-text/render v0.2.0 // indirect
@@ -98,7 +98,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/godoc-lint/godoc-lint v0.11.2 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
-	github.com/golang/geo v0.0.0-20210211234256-740aa86cb551 // indirect
+	github.com/golang/geo v0.0.0-20260129164528-943061e2742c // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golangci/asciicheck v0.5.0 // indirect
 	github.com/golangci/dupl v0.0.0-20250308024227-f665c8d69b32 // indirect

@@ -6,7 +6,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/storage"
+	"fyne.io/fyne/v2/widget"
 
 	"photo/model"
 )
@@ -36,9 +36,8 @@ func (v *Viewer) Container() *fyne.Container {
 }
 
 func (v *Viewer) ShowPhoto(photo model.Photo) {
-	uri := storage.NewFileURI(photo.JPEGPath)
 	v.image.Resource = nil
-	v.image.File = uri.Path()
+	v.image.File = photo.JPEGPath
 	v.image.FillMode = canvas.ImageFillContain
 	v.image.Refresh()
 }
@@ -66,11 +65,14 @@ func (v *Viewer) build() {
 
 	v.indicators = container.NewHBox()
 
+	overlay := newTappableOverlay(v.callbacks)
+
 	indicatorOverlay := container.NewStack(
 		v.image,
 		container.NewVBox(
 			v.indicators,
 		),
+		overlay,
 	)
 
 	v.container = container.NewStack(indicatorOverlay)
@@ -88,3 +90,38 @@ func colorLabelToColor(label model.ColorLabel) color.Color {
 		return color.NRGBA{R: 128, G: 128, B: 128, A: 255}
 	}
 }
+
+type tappableOverlay struct {
+	widget.BaseWidget
+	callbacks ViewerCallbacks
+}
+
+func newTappableOverlay(callbacks ViewerCallbacks) *tappableOverlay {
+	o := &tappableOverlay{callbacks: callbacks}
+	o.ExtendBaseWidget(o)
+	return o
+}
+
+func (o *tappableOverlay) CreateRenderer() fyne.WidgetRenderer {
+	return &tappableOverlayRenderer{}
+}
+
+func (o *tappableOverlay) Tapped(_ *fyne.PointEvent) {
+	if o.callbacks.OnTapped != nil {
+		o.callbacks.OnTapped()
+	}
+}
+
+func (o *tappableOverlay) TappedSecondary(ev *fyne.PointEvent) {
+	if o.callbacks.OnSecondaryTapped != nil {
+		o.callbacks.OnSecondaryTapped(ev.AbsolutePosition)
+	}
+}
+
+type tappableOverlayRenderer struct{}
+
+func (r *tappableOverlayRenderer) Destroy()                             {}
+func (r *tappableOverlayRenderer) Layout(_ fyne.Size)                   {}
+func (r *tappableOverlayRenderer) MinSize() fyne.Size                   { return fyne.NewSize(0, 0) }
+func (r *tappableOverlayRenderer) Objects() []fyne.CanvasObject         { return nil }
+func (r *tappableOverlayRenderer) Refresh()                             {}

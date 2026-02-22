@@ -41,7 +41,10 @@ func SaveColors(dir string, cm ColorMap) error {
 	if err != nil {
 		return fmt.Errorf("marshaling colors: %w", err)
 	}
-	return os.WriteFile(path, data, 0600)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("writing colors file: %w", err)
+	}
+	return nil
 }
 
 func (cm ColorMap) HasColor(filename string, color ColorLabel) bool {

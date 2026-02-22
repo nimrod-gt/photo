@@ -170,18 +170,17 @@ func (a *Application) handleDelete() {
 				log.Printf("Failed to delete photo: %v", err)
 				return
 			}
+			if err := a.colorService.RemoveColors(photo); err != nil {
+				log.Printf("Failed to remove color labels: %v", err)
+			}
 			if next, ok := a.navigator.RemoveCurrent(); ok {
 				a.showPhoto(next)
 			} else {
 				a.viewer.Clear()
 			}
-			a.fileBrowser.SetPhotos(a.getNavigatorPhotos())
+			a.fileBrowser.SetPhotos(a.navigator.Photos())
 			a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
 		},
 		a.mainWindow.Window(),
 	)
-}
-
-func (a *Application) getNavigatorPhotos() []model.Photo {
-	return a.navigator.Photos()
 }
