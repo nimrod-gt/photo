@@ -10,7 +10,6 @@ import (
 
 type FileBrowserCallbacks struct {
 	OnPhotoSelected func(photo model.Photo)
-	OnDirChanged    func(dir string)
 }
 
 type FileBrowser struct {

@@ -60,6 +60,19 @@ func (n *Navigator) GoTo(index int) (model.Photo, bool) {
 	return n.Current()
 }
 
+func (n *Navigator) Photos() []model.Photo {
+	return n.photos
+}
+
+func (n *Navigator) FindIndex(jpegPath string) int {
+	for i, p := range n.photos {
+		if p.JPEGPath == jpegPath {
+			return i
+		}
+	}
+	return -1
+}
+
 func (n *Navigator) RemoveCurrent() (model.Photo, bool) {
 	if n.current < 0 || n.current >= len(n.photos) {
 		return model.Photo{}, false

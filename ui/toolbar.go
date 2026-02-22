@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -55,5 +56,5 @@ func (t *Toolbar) build() {
 		}
 	})
 
-	t.container = NewHBox(favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
+	t.container = container.NewHBox(favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
 }

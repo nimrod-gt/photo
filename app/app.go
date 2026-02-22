@@ -110,11 +110,12 @@ func (a *Application) updateColorIndicators(photo model.Photo) {
 }
 
 func (a *Application) handlePhotoSelected(photo model.Photo) {
-	for i := 0; i < a.navigator.Count(); i++ {
-		if p, ok := a.navigator.GoTo(i); ok && p.JPEGPath == photo.JPEGPath {
-			a.showPhoto(p)
-			return
-		}
+	idx := a.navigator.FindIndex(photo.JPEGPath)
+	if idx < 0 {
+		return
+	}
+	if p, ok := a.navigator.GoTo(idx); ok {
+		a.showPhoto(p)
 	}
 }
 
@@ -182,14 +183,5 @@ func (a *Application) handleDelete() {
 }
 
 func (a *Application) getNavigatorPhotos() []model.Photo {
-	var photos []model.Photo
-	for i := 0; i < a.navigator.Count(); i++ {
-		if p, ok := a.navigator.GoTo(i); ok {
-			photos = append(photos, p)
-		}
-	}
-	if current := a.navigator.CurrentIndex(); current >= 0 {
-		a.navigator.GoTo(current)
-	}
-	return photos
+	return a.navigator.Photos()
 }

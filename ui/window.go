@@ -11,10 +11,6 @@ const (
 	leftPanelWidth      = 250
 )
 
-func NewHBox(objects ...fyne.CanvasObject) *fyne.Container {
-	return container.NewHBox(objects...)
-}
-
 type MainWindow struct {
 	window      fyne.Window
 	toolbar     *Toolbar

@@ -1,14 +1,12 @@
 package model
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
 
-var rawExtensions = map[string]bool{
-	".arw": true,
-	".ARW": true,
-}
+var rawExtensions = []string{".ARW", ".arw"}
 
 type Photo struct {
 	JPEGPath string
@@ -29,15 +27,23 @@ func (p Photo) HasRAW() bool {
 }
 
 func IsRAWExtension(ext string) bool {
-	return rawExtensions[ext]
+	for _, rawExt := range rawExtensions {
+		if strings.EqualFold(ext, rawExt) {
+			return true
+		}
+	}
+	return false
 }
 
 func findRAWPair(jpegPath string) string {
 	ext := filepath.Ext(jpegPath)
 	base := strings.TrimSuffix(jpegPath, ext)
-	for rawExt := range rawExtensions {
+	for _, rawExt := range rawExtensions {
 		candidate := base + rawExt
-		if candidate != jpegPath {
+		if candidate == jpegPath {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
 			return candidate
 		}
 	}

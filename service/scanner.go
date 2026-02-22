@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"photo/model"
 )
@@ -52,13 +53,19 @@ func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
 			return photos[i].Name < photos[j].Name
 		})
 	case SortByTime:
+		modTimes := make(map[string]time.Time, len(photos))
+		for _, p := range photos {
+			if info, err := os.Stat(p.JPEGPath); err == nil {
+				modTimes[p.JPEGPath] = info.ModTime()
+			}
+		}
 		sort.Slice(photos, func(i, j int) bool {
-			iInfo, _ := os.Stat(photos[i].JPEGPath)
-			jInfo, _ := os.Stat(photos[j].JPEGPath)
-			if iInfo == nil || jInfo == nil {
+			ti, oki := modTimes[photos[i].JPEGPath]
+			tj, okj := modTimes[photos[j].JPEGPath]
+			if !oki || !okj {
 				return photos[i].Name < photos[j].Name
 			}
-			return iInfo.ModTime().Before(jInfo.ModTime())
+			return ti.Before(tj)
 		})
 	}
 }
