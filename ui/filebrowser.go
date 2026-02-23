@@ -150,6 +150,10 @@ func (fb *FileBrowser) SetRoot(root string) {
 	fb.dirTree.SetRoot(root)
 }
 
+func (fb *FileBrowser) OpenDirectory(path string) {
+	fb.dirTree.OpenPath(path)
+}
+
 func (fb *FileBrowser) SetSortState(order service.SortOrder, descending bool) {
 	arrow := " \u2191"
 	if descending {

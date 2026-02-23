@@ -2,6 +2,7 @@ package ui
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -113,6 +114,28 @@ func (dt *DirTree) SetRoot(root string) {
 	dt.mu.Unlock()
 	dt.tree.Refresh()
 	dt.tree.OpenBranch(root)
+}
+
+func (dt *DirTree) OpenPath(path string) {
+	dt.mu.RLock()
+	root := dt.root
+	dt.mu.RUnlock()
+
+	if len(root) == 0 || len(path) == 0 {
+		return
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return
+	}
+
+	current := root
+	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, seg)
+		dt.tree.OpenBranch(current)
+	}
+	dt.tree.ScrollTo(path)
 }
 
 func (dt *DirTree) Widget() *widget.Tree {

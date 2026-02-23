@@ -20,6 +20,8 @@ import (
 var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 
 type Application struct {
+	fyneApp fyne.App
+
 	scanner        *service.Scanner
 	exifService    *service.ExifService
 	colorService   *service.ColorService
@@ -51,7 +53,8 @@ func New() *Application {
 }
 
 func (a *Application) Run() {
-	fyneApp := fyneapp.NewWithID("com.photo.viewer")
+	a.fyneApp = fyneapp.NewWithID("com.photo.viewer")
+	fyneApp := a.fyneApp
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
@@ -136,17 +139,41 @@ func (a *Application) handleChooseFolder() {
 			return
 		}
 		root := uri.Path()
+		a.fyneApp.Preferences().SetString("lastRoot", root)
 		a.fileBrowser.SetRoot(root)
 		a.loadDirectory(root)
 	}, a.mainWindow.Window())
 }
 
+func isValidDirectory(path string) bool {
+	if len(path) == 0 {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 func (a *Application) loadInitialDirectory() {
+	lastRoot := a.fyneApp.Preferences().String("lastRoot")
+	lastDir := a.fyneApp.Preferences().String("lastDirectory")
+
+	if isValidDirectory(lastRoot) {
+		a.fileBrowser.SetRoot(lastRoot)
+		if isValidDirectory(lastDir) {
+			a.fileBrowser.OpenDirectory(lastDir)
+			a.loadDirectory(lastDir)
+		} else {
+			a.loadDirectory(lastRoot)
+		}
+		return
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		a.showError("Failed to get home directory", err)
 		return
 	}
+	a.fyneApp.Preferences().SetString("lastRoot", home)
 	a.fileBrowser.SetRoot(home)
 	a.loadDirectory(home)
 }
@@ -159,6 +186,8 @@ func (a *Application) loadDirectory(dir string) {
 		a.showError("Failed to scan directory", err)
 		return
 	}
+
+	a.fyneApp.Preferences().SetString("lastDirectory", dir)
 
 	a.scanner.SortPhotos(photos, a.sortOrder)
 	if a.sortDescending {
