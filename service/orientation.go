@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
+	xdraw "golang.org/x/image/draw"
 )
 
 func LoadOrientedImage(path string) (image.Image, error) {
@@ -199,5 +200,26 @@ func transverse(img image.Image) *image.NRGBA {
 			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
 		}
 	}
+	return dst
+}
+
+func downscaleToFit(img image.Image, maxSize image.Point) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxSize.X && h <= maxSize.Y {
+		return img
+	}
+
+	scaleX := float64(maxSize.X) / float64(w)
+	scaleY := float64(maxSize.Y) / float64(h)
+	scale := scaleX
+	if scaleY < scale {
+		scale = scaleY
+	}
+
+	newW := int(float64(w) * scale)
+	newH := int(float64(h) * scale)
+	dst := image.NewNRGBA(image.Rect(0, 0, newW, newH))
+	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, xdraw.Over, nil)
 	return dst
 }

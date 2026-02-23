@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"os"
 
@@ -20,6 +21,7 @@ type Application struct {
 	colorService *service.ColorService
 	deleter      *service.Deleter
 	navigator    *service.Navigator
+	imageCache   *service.ImageCache
 
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
@@ -43,6 +45,8 @@ func New() *Application {
 func (a *Application) Run() {
 	fyneApp := fyneapp.NewWithID("com.photo.viewer")
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
+
+	a.imageCache = service.NewImageCache(image.Point{X: 3840, Y: 2160})
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
 		OnFavorite: a.handleFavorite,
@@ -119,6 +123,8 @@ func (a *Application) loadInitialDirectory() {
 }
 
 func (a *Application) loadDirectory(dir string) {
+	a.imageCache.Clear()
+
 	photos, err := a.scanner.ScanDirectory(dir)
 	if err != nil {
 		a.showError("Failed to scan directory", err)
@@ -137,7 +143,7 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	img, err := service.LoadOrientedImage(photo.ImagePath)
+	img, err := a.imageCache.Load(photo.ImagePath)
 	if err != nil {
 		a.viewer.Clear()
 		a.showError("Failed to load image", err)
@@ -147,6 +153,21 @@ func (a *Application) showPhoto(photo model.Photo) {
 	a.updateColorIndicators(photo)
 	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
 	a.favoriteMenuItem.Disabled = !photo.IsJPEG()
+	a.prefetchAdjacent()
+}
+
+func (a *Application) prefetchAdjacent() {
+	var keep []string
+	if cur, ok := a.navigator.Current(); ok {
+		keep = append(keep, cur.ImagePath)
+	}
+	for _, offset := range []int{-2, -1, 1, 2} {
+		if p, ok := a.navigator.Peek(offset); ok {
+			keep = append(keep, p.ImagePath)
+			a.imageCache.Prefetch(p.ImagePath)
+		}
+	}
+	a.imageCache.EvictExcept(keep)
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {

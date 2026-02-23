@@ -141,6 +141,64 @@ func TestNavigator_GoTo(t *testing.T) {
 	})
 }
 
+func TestNavigator_Peek(t *testing.T) {
+	t.Run("forward", func(t *testing.T) {
+		nav := NewNavigator()
+		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
+		p, ok := nav.Peek(1)
+		assert.True(t, ok)
+		assert.Equal(t, "b.jpg", p.Name)
+		p, ok = nav.Peek(2)
+		assert.True(t, ok)
+		assert.Equal(t, "c.jpg", p.Name)
+	})
+
+	t.Run("backward", func(t *testing.T) {
+		nav := NewNavigator()
+		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
+		nav.GoTo(2)
+		p, ok := nav.Peek(-1)
+		assert.True(t, ok)
+		assert.Equal(t, "b.jpg", p.Name)
+		p, ok = nav.Peek(-2)
+		assert.True(t, ok)
+		assert.Equal(t, "a.jpg", p.Name)
+	})
+
+	t.Run("zero offset returns current", func(t *testing.T) {
+		nav := NewNavigator()
+		nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
+		nav.GoTo(1)
+		p, ok := nav.Peek(0)
+		assert.True(t, ok)
+		assert.Equal(t, "b.jpg", p.Name)
+	})
+
+	t.Run("out of bounds", func(t *testing.T) {
+		nav := NewNavigator()
+		nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
+		_, ok := nav.Peek(5)
+		assert.False(t, ok)
+		_, ok = nav.Peek(-1)
+		assert.False(t, ok)
+	})
+
+	t.Run("empty navigator", func(t *testing.T) {
+		nav := NewNavigator()
+		_, ok := nav.Peek(0)
+		assert.False(t, ok)
+	})
+
+	t.Run("does not move cursor", func(t *testing.T) {
+		nav := NewNavigator()
+		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
+		nav.Peek(2)
+		p, ok := nav.Current()
+		assert.True(t, ok)
+		assert.Equal(t, "a.jpg", p.Name)
+	})
+}
+
 func TestNavigator_FindIndex(t *testing.T) {
 	nav := NewNavigator()
 	nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
