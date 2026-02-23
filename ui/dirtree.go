@@ -5,6 +5,8 @@ import (
 	"sync"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"photo/service"
@@ -28,16 +30,39 @@ func NewDirTree(scanner *service.Scanner, onSelected func(string)) *DirTree {
 		dt.childUIDs,
 		dt.isBranch,
 		func(branch bool) fyne.CanvasObject {
-			return widget.NewLabel("placeholder")
+			icon := canvas.NewImageFromResource(iconFolderClosed)
+			icon.FillMode = canvas.ImageFillContain
+			icon.SetMinSize(fyne.NewSize(16, 16))
+			return container.NewHBox(icon, widget.NewLabel("placeholder"))
 		},
 		func(uid widget.TreeNodeID, branch bool, obj fyne.CanvasObject) {
-			obj.(*widget.Label).SetText(filepath.Base(uid))
+			box := obj.(*fyne.Container)
+			icon := box.Objects[0].(*canvas.Image)
+			label := box.Objects[1].(*widget.Label)
+			label.SetText(filepath.Base(uid))
+			switch {
+			case !branch:
+				icon.Resource = iconFolderLeaf
+			case dt.tree.IsBranchOpen(uid):
+				icon.Resource = iconFolderOpen
+			default:
+				icon.Resource = iconFolderClosed
+			}
+			icon.Refresh()
 		},
 	)
 	dt.tree.OnSelected = func(uid widget.TreeNodeID) {
+		if dt.isBranch(uid) {
+			if dt.tree.IsBranchOpen(uid) {
+				dt.tree.CloseBranch(uid)
+			} else {
+				dt.tree.OpenBranch(uid)
+			}
+		}
 		if onSelected != nil {
 			onSelected(uid)
 		}
+		dt.tree.UnselectAll()
 	}
 
 	return dt
