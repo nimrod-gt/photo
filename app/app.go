@@ -20,7 +20,7 @@ type Application struct {
 	deleter      *service.Deleter
 	navigator    *service.Navigator
 
-	toolbar         *ui.Toolbar
+	actionPanel     *ui.ActionPanel
 	fileBrowser     *ui.FileBrowser
 	viewer          *ui.Viewer
 	mainWindow      *ui.MainWindow
@@ -42,7 +42,7 @@ func (a *Application) Run() {
 	fyneApp := fyneapp.New()
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
-	a.toolbar = ui.NewToolbar(ui.ToolbarCallbacks{
+	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
 		OnFavorite: a.handleFavorite,
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
@@ -67,7 +67,7 @@ func (a *Application) Run() {
 		OnDelete:   a.handleDelete,
 	})
 
-	a.mainWindow = ui.NewMainWindow(fyneApp, a.toolbar, a.fileBrowser, a.viewer)
+	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },

@@ -13,18 +13,18 @@ const (
 
 type MainWindow struct {
 	window      fyne.Window
-	toolbar     *Toolbar
+	actionPanel *ActionPanel
 	fileBrowser *FileBrowser
 	viewer      *Viewer
 }
 
-func NewMainWindow(app fyne.App, toolbar *Toolbar, fileBrowser *FileBrowser, viewer *Viewer) *MainWindow {
+func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer) *MainWindow {
 	w := app.NewWindow("Photo Viewer")
 	w.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 
 	mw := &MainWindow{
 		window:      w,
-		toolbar:     toolbar,
+		actionPanel: actionPanel,
 		fileBrowser: fileBrowser,
 		viewer:      viewer,
 	}
@@ -41,11 +41,10 @@ func (mw *MainWindow) Show() {
 }
 
 func (mw *MainWindow) build() {
-	leftPanel := mw.fileBrowser.Container()
+	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewer.Container())
 
-	split := container.NewHSplit(leftPanel, mw.viewer.Container())
+	split := container.NewHSplit(mw.fileBrowser.Container(), rightPanel)
 	split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
 
-	content := container.NewBorder(mw.toolbar.Container(), nil, nil, nil, split)
-	mw.window.SetContent(content)
+	mw.window.SetContent(split)
 }

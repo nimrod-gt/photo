@@ -3,10 +3,11 @@ package ui
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
-type ToolbarCallbacks struct {
+type ActionPanelCallbacks struct {
 	OnFavorite func()
 	OnRed      func()
 	OnGreen    func()
@@ -14,47 +15,47 @@ type ToolbarCallbacks struct {
 	OnDelete   func()
 }
 
-type Toolbar struct {
+type ActionPanel struct {
 	container *fyne.Container
-	callbacks ToolbarCallbacks
+	callbacks ActionPanelCallbacks
 }
 
-func NewToolbar(callbacks ToolbarCallbacks) *Toolbar {
-	t := &Toolbar{callbacks: callbacks}
-	t.build()
-	return t
+func NewActionPanel(callbacks ActionPanelCallbacks) *ActionPanel {
+	p := &ActionPanel{callbacks: callbacks}
+	p.build()
+	return p
 }
 
-func (t *Toolbar) Container() *fyne.Container {
-	return t.container
+func (p *ActionPanel) Container() *fyne.Container {
+	return p.container
 }
 
-func (t *Toolbar) build() {
-	favBtn := widget.NewButton("Favorite", func() {
-		if t.callbacks.OnFavorite != nil {
-			t.callbacks.OnFavorite()
+func (p *ActionPanel) build() {
+	favBtn := widget.NewButtonWithIcon("Favorite", iconHeart, func() {
+		if p.callbacks.OnFavorite != nil {
+			p.callbacks.OnFavorite()
 		}
 	})
-	redBtn := widget.NewButton("Red", func() {
-		if t.callbacks.OnRed != nil {
-			t.callbacks.OnRed()
+	redBtn := widget.NewButtonWithIcon("Red", iconRedCircle, func() {
+		if p.callbacks.OnRed != nil {
+			p.callbacks.OnRed()
 		}
 	})
-	greenBtn := widget.NewButton("Green", func() {
-		if t.callbacks.OnGreen != nil {
-			t.callbacks.OnGreen()
+	greenBtn := widget.NewButtonWithIcon("Green", iconGreenCircle, func() {
+		if p.callbacks.OnGreen != nil {
+			p.callbacks.OnGreen()
 		}
 	})
-	blueBtn := widget.NewButton("Blue", func() {
-		if t.callbacks.OnBlue != nil {
-			t.callbacks.OnBlue()
+	blueBtn := widget.NewButtonWithIcon("Blue", iconBlueCircle, func() {
+		if p.callbacks.OnBlue != nil {
+			p.callbacks.OnBlue()
 		}
 	})
-	deleteBtn := widget.NewButton("Delete", func() {
-		if t.callbacks.OnDelete != nil {
-			t.callbacks.OnDelete()
+	deleteBtn := widget.NewButtonWithIcon("Delete", theme.DeleteIcon(), func() {
+		if p.callbacks.OnDelete != nil {
+			p.callbacks.OnDelete()
 		}
 	})
 
-	t.container = container.NewHBox(favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(5, favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
 }
