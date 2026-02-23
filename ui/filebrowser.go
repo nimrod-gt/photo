@@ -6,21 +6,26 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"photo/model"
+	"photo/service"
 )
 
 type FileBrowserCallbacks struct {
-	OnPhotoSelected func(photo model.Photo)
+	OnPhotoSelected     func(photo model.Photo)
+	OnDirectorySelected func(dir string)
+	OnChooseFolder      func()
 }
 
 type FileBrowser struct {
 	container *fyne.Container
 	list      *widget.List
+	dirTree   *DirTree
 	photos    []model.Photo
 	callbacks FileBrowserCallbacks
 }
 
-func NewFileBrowser(callbacks FileBrowserCallbacks) *FileBrowser {
+func NewFileBrowser(scanner *service.Scanner, callbacks FileBrowserCallbacks) *FileBrowser {
 	fb := &FileBrowser{callbacks: callbacks}
+	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
 	fb.build()
 	return fb
 }
@@ -38,6 +43,10 @@ func (fb *FileBrowser) SelectIndex(index int) {
 	if index >= 0 && index < len(fb.photos) {
 		fb.list.Select(index)
 	}
+}
+
+func (fb *FileBrowser) SetRoot(root string) {
+	fb.dirTree.SetRoot(root)
 }
 
 func (fb *FileBrowser) build() {
@@ -61,5 +70,15 @@ func (fb *FileBrowser) build() {
 		}
 	}
 
-	fb.container = container.NewStack(fb.list)
+	chooseBtn := widget.NewButton("Open Folder...", func() {
+		if fb.callbacks.OnChooseFolder != nil {
+			fb.callbacks.OnChooseFolder()
+		}
+	})
+
+	treeWithBtn := container.NewBorder(chooseBtn, nil, nil, nil, fb.dirTree.Widget())
+	split := container.NewVSplit(treeWithBtn, fb.list)
+	split.SetOffset(0.4)
+
+	fb.container = container.NewStack(split)
 }

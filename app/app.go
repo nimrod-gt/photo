@@ -39,7 +39,7 @@ func New() *Application {
 }
 
 func (a *Application) Run() {
-	fyneApp := fyneapp.New()
+	fyneApp := fyneapp.NewWithID("com.photo.viewer")
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
@@ -50,8 +50,10 @@ func (a *Application) Run() {
 		OnDelete:   a.handleDelete,
 	})
 
-	a.fileBrowser = ui.NewFileBrowser(ui.FileBrowserCallbacks{
-		OnPhotoSelected: a.handlePhotoSelected,
+	a.fileBrowser = ui.NewFileBrowser(a.scanner, ui.FileBrowserCallbacks{
+		OnPhotoSelected:     a.handlePhotoSelected,
+		OnDirectorySelected: a.handleDirectorySelected,
+		OnChooseFolder:      a.handleChooseFolder,
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
@@ -82,12 +84,28 @@ func (a *Application) Run() {
 	a.mainWindow.Show()
 }
 
+func (a *Application) handleDirectorySelected(dir string) {
+	a.loadDirectory(dir)
+}
+
+func (a *Application) handleChooseFolder() {
+	dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+		if err != nil || uri == nil {
+			return
+		}
+		root := uri.Path()
+		a.fileBrowser.SetRoot(root)
+		a.loadDirectory(root)
+	}, a.mainWindow.Window())
+}
+
 func (a *Application) loadInitialDirectory() {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("Failed to get home directory: %v", err)
 		return
 	}
+	a.fileBrowser.SetRoot(home)
 	a.loadDirectory(home)
 }
 
