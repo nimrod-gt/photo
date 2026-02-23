@@ -5,6 +5,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"photo/model"
 )
 
 type ActionPanelCallbacks struct {
@@ -19,6 +21,9 @@ type ActionPanel struct {
 	container *fyne.Container
 	callbacks ActionPanelCallbacks
 	favBtn    *widget.Button
+	redBtn    *widget.Button
+	greenBtn  *widget.Button
+	blueBtn   *widget.Button
 }
 
 func NewActionPanel(callbacks ActionPanelCallbacks) *ActionPanel {
@@ -50,23 +55,43 @@ func (p *ActionPanel) SetFavoriteActive(active bool) {
 	p.favBtn.Refresh()
 }
 
+func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
+	var btn *widget.Button
+	switch label {
+	case model.ColorRed:
+		btn = p.redBtn
+	case model.ColorGreen:
+		btn = p.greenBtn
+	case model.ColorBlue:
+		btn = p.blueBtn
+	default:
+		return
+	}
+	if active {
+		btn.Importance = widget.HighImportance
+	} else {
+		btn.Importance = widget.MediumImportance
+	}
+	btn.Refresh()
+}
+
 func (p *ActionPanel) build() {
 	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeartOutline, func() {
 		if p.callbacks.OnFavorite != nil {
 			p.callbacks.OnFavorite()
 		}
 	})
-	redBtn := widget.NewButtonWithIcon("Red", iconRedCircle, func() {
+	p.redBtn = widget.NewButtonWithIcon("Red", iconRedCircle, func() {
 		if p.callbacks.OnRed != nil {
 			p.callbacks.OnRed()
 		}
 	})
-	greenBtn := widget.NewButtonWithIcon("Green", iconGreenCircle, func() {
+	p.greenBtn = widget.NewButtonWithIcon("Green", iconGreenCircle, func() {
 		if p.callbacks.OnGreen != nil {
 			p.callbacks.OnGreen()
 		}
 	})
-	blueBtn := widget.NewButtonWithIcon("Blue", iconBlueCircle, func() {
+	p.blueBtn = widget.NewButtonWithIcon("Blue", iconBlueCircle, func() {
 		if p.callbacks.OnBlue != nil {
 			p.callbacks.OnBlue()
 		}
@@ -77,5 +102,5 @@ func (p *ActionPanel) build() {
 		}
 	})
 
-	p.container = container.NewGridWithColumns(5, p.favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(5, p.favBtn, p.redBtn, p.greenBtn, p.blueBtn, deleteBtn)
 }

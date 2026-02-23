@@ -200,6 +200,14 @@ func (a *Application) updateColorIndicators(photo model.Photo) {
 		return
 	}
 	a.viewer.SetColorIndicators(colors)
+	a.updateColorButtonStates(colors)
+}
+
+func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
+	activeSet := ui.ColorSet(colors)
+	a.actionPanel.SetColorActive(model.ColorRed, activeSet[model.ColorRed])
+	a.actionPanel.SetColorActive(model.ColorGreen, activeSet[model.ColorGreen])
+	a.actionPanel.SetColorActive(model.ColorBlue, activeSet[model.ColorBlue])
 }
 
 func (a *Application) handlePhotoSelected(photo model.Photo) {

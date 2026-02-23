@@ -46,7 +46,11 @@ func (v *Viewer) ShowPhoto(img image.Image) {
 
 func (v *Viewer) SetColorIndicators(colors []model.ColorLabel) {
 	v.indicators.RemoveAll()
-	for _, c := range colors {
+	has := ColorSet(colors)
+	for _, c := range colorOrder {
+		if !has[c] {
+			continue
+		}
 		circle := canvas.NewCircle(colorLabelToColor(c))
 		circle.Resize(fyne.NewSize(colorIndicatorSize, colorIndicatorSize))
 		v.indicators.Add(circle)

@@ -6,6 +6,16 @@ import (
 	"photo/model"
 )
 
+var colorOrder = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
+
+func ColorSet(colors []model.ColorLabel) map[model.ColorLabel]bool {
+	set := make(map[model.ColorLabel]bool, len(colors))
+	for _, c := range colors {
+		set[c] = true
+	}
+	return set
+}
+
 func colorLabelToColor(label model.ColorLabel) color.Color {
 	switch label {
 	case model.ColorRed:

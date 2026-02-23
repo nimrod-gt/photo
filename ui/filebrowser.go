@@ -23,7 +23,6 @@ import (
 const (
 	thumbnailWidth  float32 = 48
 	thumbnailHeight float32 = 36
-	colorDotSize    float32 = 8
 	dateFontSize    float32 = 11
 )
 
@@ -198,27 +197,26 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 	star.TextSize = 14
 	star.Hide()
 
-	dot1 := canvas.NewCircle(color.Transparent)
-	dot1.Resize(fyne.NewSize(colorDotSize, colorDotSize))
+	dot1 := canvas.NewText("\u25CF", color.Transparent)
+	dot1.TextSize = 12
 	dot1.Hide()
-	dot2 := canvas.NewCircle(color.Transparent)
-	dot2.Resize(fyne.NewSize(colorDotSize, colorDotSize))
+	dot2 := canvas.NewText("\u25CF", color.Transparent)
+	dot2.TextSize = 12
 	dot2.Hide()
-	dot3 := canvas.NewCircle(color.Transparent)
-	dot3.Resize(fyne.NewSize(colorDotSize, colorDotSize))
+	dot3 := canvas.NewText("\u25CF", color.Transparent)
+	dot3.TextSize = 12
 	dot3.Hide()
 
 	dotsContainer := container.NewHBox(dot1, dot2, dot3)
 
-	indicators := container.NewHBox(star, dotsContainer)
-
-	topRow := container.NewBorder(nil, nil, nil, indicators, nameLabel)
+	topRow := container.NewBorder(nil, nil, nil, star, nameLabel)
 
 	dateText := canvas.NewText("", color.NRGBA{R: 160, G: 160, B: 160, A: 255})
 	dateText.TextSize = dateFontSize
-	datePadded := container.New(layout.NewCustomPaddedLayout(0, 0, theme.InnerPadding(), 0), dateText)
+	dateContent := container.New(layout.NewCustomPaddedLayout(0, 0, theme.InnerPadding(), 0), dateText)
+	dateRow := container.NewBorder(nil, nil, nil, dotsContainer, dateContent)
 
-	textBox := container.NewVBox(topRow, datePadded)
+	textBox := container.NewVBox(topRow, dateRow)
 
 	return container.NewBorder(nil, nil, thumb, nil,
 		container.New(layout.NewStackLayout(), textBox),
@@ -240,14 +238,14 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 	textStack := root.Objects[0].(*fyne.Container)
 	textBox := textStack.Objects[0].(*fyne.Container)
 	topRow := textBox.Objects[0].(*fyne.Container)
-	datePadded := textBox.Objects[1].(*fyne.Container)
-	dateText := datePadded.Objects[0].(*canvas.Text)
-	indicators := topRow.Objects[1].(*fyne.Container)
+	dateRow := textBox.Objects[1].(*fyne.Container)
+	dateContent := dateRow.Objects[0].(*fyne.Container)
+	dateText := dateContent.Objects[0].(*canvas.Text)
 
 	updateThumbnail(thumb, meta.Thumbnail)
 	topRow.Objects[0].(*widget.Label).SetText(photo.Name)
-	updateStar(indicators.Objects[0].(*canvas.Text), meta.Favorite)
-	updateColorDots(indicators.Objects[1].(*fyne.Container), meta.Colors)
+	updateStar(topRow.Objects[1].(*canvas.Text), meta.Favorite)
+	updateColorDots(dateRow.Objects[1].(*fyne.Container), meta.Colors)
 	updateDateText(dateText, meta.Date)
 }
 
@@ -272,16 +270,19 @@ func updateStar(star *canvas.Text, favorite bool) {
 
 func updateColorDots(dotsContainer *fyne.Container, colors []model.ColorLabel) {
 	for _, obj := range dotsContainer.Objects {
-		obj.(*canvas.Circle).Hide()
+		obj.(*canvas.Text).Hide()
 	}
-	for i, c := range colors {
-		if i >= len(dotsContainer.Objects) {
-			break
+	has := ColorSet(colors)
+	idx := 0
+	for _, c := range colorOrder {
+		if !has[c] || idx >= len(dotsContainer.Objects) {
+			continue
 		}
-		dot := dotsContainer.Objects[i].(*canvas.Circle)
-		dot.FillColor = colorLabelToColor(c)
+		dot := dotsContainer.Objects[idx].(*canvas.Text)
+		dot.Color = colorLabelToColor(c)
 		dot.Show()
 		dot.Refresh()
+		idx++
 	}
 }
 
