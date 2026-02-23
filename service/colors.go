@@ -78,6 +78,22 @@ func (s *ColorService) RemoveColors(photo model.Photo) error {
 	return model.SaveColors(dir, cm)
 }
 
+func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cm, err := s.loadOrGet(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(model.ColorMap, len(cm))
+	for k, v := range cm {
+		result[k] = v
+	}
+	return result, nil
+}
+
 func (s *ColorService) InvalidateCache(dir string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

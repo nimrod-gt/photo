@@ -19,12 +19,13 @@ import (
 var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 
 type Application struct {
-	scanner      *service.Scanner
-	exifService  *service.ExifService
-	colorService *service.ColorService
-	deleter      *service.Deleter
-	navigator    *service.Navigator
-	imageCache   *service.ImageCache
+	scanner        *service.Scanner
+	exifService    *service.ExifService
+	colorService   *service.ColorService
+	deleter        *service.Deleter
+	navigator      *service.Navigator
+	imageCache     *service.ImageCache
+	metadataLoader *service.MetadataLoader
 
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
@@ -36,12 +37,14 @@ type Application struct {
 }
 
 func New() *Application {
+	exifService := service.NewExifService()
 	return &Application{
-		scanner:      service.NewScanner(),
-		exifService:  service.NewExifService(),
-		colorService: service.NewColorService(),
-		deleter:      service.NewDeleter(),
-		navigator:    service.NewNavigator(),
+		scanner:        service.NewScanner(),
+		exifService:    exifService,
+		colorService:   service.NewColorService(),
+		deleter:        service.NewDeleter(),
+		navigator:      service.NewNavigator(),
+		metadataLoader: service.NewMetadataLoader(exifService),
 	}
 }
 
@@ -57,7 +60,7 @@ func (a *Application) Run() {
 		OnDelete:   a.handleDelete,
 	})
 
-	a.fileBrowser = ui.NewFileBrowser(a.scanner, ui.FileBrowserCallbacks{
+	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.metadataLoader, a.colorService, ui.FileBrowserCallbacks{
 		OnPhotoSelected:     a.handlePhotoSelected,
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
@@ -252,6 +255,7 @@ func (a *Application) handleFavorite() {
 		return
 	}
 	a.updateFavoriteState(photo)
+	a.refreshFileBrowserItem(photo)
 }
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {
@@ -263,6 +267,17 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 		a.showError("Failed to toggle color", err)
 	}
 	a.updateColorIndicators(photo)
+	a.refreshFileBrowserItem(photo)
+}
+
+func (a *Application) refreshFileBrowserItem(photo model.Photo) {
+	idx := a.navigator.FindIndex(photo.ImagePath)
+	if idx < 0 {
+		return
+	}
+	colors, _ := a.colorService.GetColors(photo)
+	rating, _ := a.exifService.GetRating(photo.ImagePath)
+	a.fileBrowser.RefreshItemMeta(idx, colors, rating > 0)
 }
 
 func (a *Application) handleSecondaryTap(pos fyne.Position) {
