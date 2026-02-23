@@ -16,9 +16,10 @@ type MainWindow struct {
 	actionPanel *ActionPanel
 	fileBrowser *FileBrowser
 	viewer      *Viewer
+	notifier    *Notifier
 }
 
-func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer) *MainWindow {
+func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, notifier *Notifier) *MainWindow {
 	w := app.NewWindow("Photo Viewer")
 	w.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 
@@ -27,6 +28,7 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 		actionPanel: actionPanel,
 		fileBrowser: fileBrowser,
 		viewer:      viewer,
+		notifier:    notifier,
 	}
 	mw.build()
 	return mw
@@ -36,14 +38,19 @@ func (mw *MainWindow) Window() fyne.Window {
 	return mw.window
 }
 
+func (mw *MainWindow) ShowError(msg string) {
+	mw.notifier.ShowError(msg)
+}
+
 func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }
 
 func (mw *MainWindow) build() {
 	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewer.Container())
+	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
-	split := container.NewHSplit(mw.fileBrowser.Container(), rightPanel)
+	split := container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)
 	split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
 
 	mw.window.SetContent(split)

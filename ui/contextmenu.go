@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -14,7 +15,7 @@ type ContextMenuCallbacks struct {
 }
 
 func NewContextMenu(callbacks ContextMenuCallbacks) (*fyne.Menu, *fyne.MenuItem) {
-	favItem := fyne.NewMenuItem("Favorite", func() {
+	favItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() {
 		if callbacks.OnFavorite != nil {
 			callbacks.OnFavorite()
 		}
@@ -22,23 +23,23 @@ func NewContextMenu(callbacks ContextMenuCallbacks) (*fyne.Menu, *fyne.MenuItem)
 	menu := fyne.NewMenu("",
 		favItem,
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Red", func() {
+		fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() {
 			if callbacks.OnRed != nil {
 				callbacks.OnRed()
 			}
 		}),
-		fyne.NewMenuItem("Green", func() {
+		fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() {
 			if callbacks.OnGreen != nil {
 				callbacks.OnGreen()
 			}
 		}),
-		fyne.NewMenuItem("Blue", func() {
+		fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() {
 			if callbacks.OnBlue != nil {
 				callbacks.OnBlue()
 			}
 		}),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Delete", func() {
+		fyne.NewMenuItemWithIcon("Delete", theme.DeleteIcon(), func() {
 			if callbacks.OnDelete != nil {
 				callbacks.OnDelete()
 			}

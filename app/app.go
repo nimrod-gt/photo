@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -70,7 +71,8 @@ func (a *Application) Run() {
 		OnDelete:   a.handleDelete,
 	})
 
-	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer)
+	notifier := ui.NewNotifier()
+	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
@@ -83,6 +85,12 @@ func (a *Application) Run() {
 
 	a.loadInitialDirectory()
 	a.mainWindow.Show()
+}
+
+func (a *Application) showError(msg string, err error) {
+	full := fmt.Sprintf("%s: %v", msg, err)
+	log.Println(full)
+	a.mainWindow.ShowError(full)
 }
 
 func (a *Application) handleDirectorySelected(dir string) {
@@ -103,7 +111,7 @@ func (a *Application) handleChooseFolder() {
 func (a *Application) loadInitialDirectory() {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Failed to get home directory: %v", err)
+		a.showError("Failed to get home directory", err)
 		return
 	}
 	a.fileBrowser.SetRoot(home)
@@ -113,7 +121,7 @@ func (a *Application) loadInitialDirectory() {
 func (a *Application) loadDirectory(dir string) {
 	photos, err := a.scanner.ScanDirectory(dir)
 	if err != nil {
-		log.Printf("Failed to scan directory: %v", err)
+		a.showError("Failed to scan directory", err)
 		return
 	}
 
@@ -138,7 +146,7 @@ func (a *Application) showPhoto(photo model.Photo) {
 func (a *Application) updateColorIndicators(photo model.Photo) {
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
-		log.Printf("Failed to get colors: %v", err)
+		a.showError("Failed to get colors", err)
 		return
 	}
 	a.viewer.SetColorIndicators(colors)
@@ -177,7 +185,7 @@ func (a *Application) handleFavorite() {
 		return
 	}
 	if err := a.exifService.ToggleFavorite(photo.ImagePath); err != nil {
-		log.Printf("Failed to toggle favorite: %v", err)
+		a.showError("Failed to toggle favorite", err)
 	}
 }
 
@@ -187,7 +195,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 		return
 	}
 	if err := a.colorService.ToggleColor(photo, color); err != nil {
-		log.Printf("Failed to toggle color: %v", err)
+		a.showError("Failed to toggle color", err)
 	}
 	a.updateColorIndicators(photo)
 }
@@ -219,11 +227,11 @@ func (a *Application) handleDelete() {
 				return
 			}
 			if err := a.deleter.Delete(photo); err != nil {
-				log.Printf("Failed to delete photo: %v", err)
+				a.showError("Failed to delete photo", err)
 				return
 			}
 			if err := a.colorService.RemoveColors(photo); err != nil {
-				log.Printf("Failed to remove color labels: %v", err)
+				a.showError("Failed to remove color labels", err)
 			}
 			next, idx, photos, ok := a.navigator.RemoveCurrent()
 			if ok {
