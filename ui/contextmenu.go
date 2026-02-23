@@ -14,30 +14,39 @@ type ContextMenuCallbacks struct {
 	OnDelete   func()
 }
 
-func NewContextMenu(callbacks ContextMenuCallbacks) (*fyne.Menu, *fyne.MenuItem) {
+type ContextMenuItems struct {
+	Menu     *fyne.Menu
+	Favorite *fyne.MenuItem
+	Red      *fyne.MenuItem
+	Green    *fyne.MenuItem
+	Blue     *fyne.MenuItem
+}
+
+func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 	favItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() {
 		if callbacks.OnFavorite != nil {
 			callbacks.OnFavorite()
 		}
 	})
+	redItem := fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() {
+		if callbacks.OnRed != nil {
+			callbacks.OnRed()
+		}
+	})
+	greenItem := fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() {
+		if callbacks.OnGreen != nil {
+			callbacks.OnGreen()
+		}
+	})
+	blueItem := fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() {
+		if callbacks.OnBlue != nil {
+			callbacks.OnBlue()
+		}
+	})
 	menu := fyne.NewMenu("",
 		favItem,
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() {
-			if callbacks.OnRed != nil {
-				callbacks.OnRed()
-			}
-		}),
-		fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() {
-			if callbacks.OnGreen != nil {
-				callbacks.OnGreen()
-			}
-		}),
-		fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() {
-			if callbacks.OnBlue != nil {
-				callbacks.OnBlue()
-			}
-		}),
+		redItem, greenItem, blueItem,
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItemWithIcon("Delete", theme.DeleteIcon(), func() {
 			if callbacks.OnDelete != nil {
@@ -45,7 +54,13 @@ func NewContextMenu(callbacks ContextMenuCallbacks) (*fyne.Menu, *fyne.MenuItem)
 			}
 		}),
 	)
-	return menu, favItem
+	return ContextMenuItems{
+		Menu:     menu,
+		Favorite: favItem,
+		Red:      redItem,
+		Green:    greenItem,
+		Blue:     blueItem,
+	}
 }
 
 func ShowContextMenu(menu *fyne.Menu, canvas fyne.Canvas, pos fyne.Position) {

@@ -31,8 +31,7 @@ type Application struct {
 	fileBrowser      *ui.FileBrowser
 	viewer           *ui.Viewer
 	mainWindow       *ui.MainWindow
-	contextMenu      *fyne.Menu
-	favoriteMenuItem *fyne.MenuItem
+	contextMenuItems ui.ContextMenuItems
 	deleteDialogOpen bool
 }
 
@@ -71,7 +70,7 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
-	a.contextMenu, a.favoriteMenuItem = ui.NewContextMenu(ui.ContextMenuCallbacks{
+	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnFavorite: a.handleFavorite,
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
@@ -208,6 +207,9 @@ func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
 	a.actionPanel.SetColorActive(model.ColorRed, activeSet[model.ColorRed])
 	a.actionPanel.SetColorActive(model.ColorGreen, activeSet[model.ColorGreen])
 	a.actionPanel.SetColorActive(model.ColorBlue, activeSet[model.ColorBlue])
+	a.contextMenuItems.Red.Checked = activeSet[model.ColorRed]
+	a.contextMenuItems.Green.Checked = activeSet[model.ColorGreen]
+	a.contextMenuItems.Blue.Checked = activeSet[model.ColorBlue]
 }
 
 func (a *Application) handlePhotoSelected(photo model.Photo) {
@@ -236,18 +238,18 @@ func (a *Application) handlePrevious() {
 
 func (a *Application) updateFavoriteState(photo model.Photo) {
 	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
-	a.favoriteMenuItem.Disabled = !photo.IsJPEG()
+	a.contextMenuItems.Favorite.Disabled = !photo.IsJPEG()
 
 	if !photo.IsJPEG() {
 		a.actionPanel.SetFavoriteActive(false)
-		a.favoriteMenuItem.Checked = false
+		a.contextMenuItems.Favorite.Checked = false
 		return
 	}
 
 	rating, _ := a.exifService.GetRating(photo.ImagePath)
 	active := rating > 0
 	a.actionPanel.SetFavoriteActive(active)
-	a.favoriteMenuItem.Checked = active
+	a.contextMenuItems.Favorite.Checked = active
 }
 
 func (a *Application) handleFavorite() {
@@ -289,7 +291,7 @@ func (a *Application) refreshFileBrowserItem(photo model.Photo) {
 }
 
 func (a *Application) handleSecondaryTap(pos fyne.Position) {
-	ui.ShowContextMenu(a.contextMenu, a.mainWindow.Window().Canvas(), pos)
+	ui.ShowContextMenu(a.contextMenuItems.Menu, a.mainWindow.Window().Canvas(), pos)
 }
 
 func (a *Application) handleDelete() {
