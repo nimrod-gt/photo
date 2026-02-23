@@ -30,12 +30,15 @@ type FileBrowserCallbacks struct {
 	OnPhotoSelected     func(photo model.Photo)
 	OnDirectorySelected func(dir string)
 	OnChooseFolder      func()
+	OnSortBy            func(order service.SortOrder)
 }
 
 type FileBrowser struct {
-	container  *fyne.Container
-	list       *widget.List
-	dirTree    *DirTree
+	container   *fyne.Container
+	list        *widget.List
+	nameSortBtn *widget.Button
+	timeSortBtn *widget.Button
+	dirTree     *DirTree
 	photos     []model.Photo
 	meta       []model.PhotoMeta
 	generation uint64
@@ -147,6 +150,26 @@ func (fb *FileBrowser) SetRoot(root string) {
 	fb.dirTree.SetRoot(root)
 }
 
+func (fb *FileBrowser) SetSortState(order service.SortOrder, descending bool) {
+	arrow := " \u2191"
+	if descending {
+		arrow = " \u2193"
+	}
+	if order == service.SortByName {
+		fb.nameSortBtn.SetText("Name" + arrow)
+		fb.nameSortBtn.Importance = widget.HighImportance
+		fb.timeSortBtn.SetText("Time")
+		fb.timeSortBtn.Importance = widget.MediumImportance
+	} else {
+		fb.nameSortBtn.SetText("Name")
+		fb.nameSortBtn.Importance = widget.MediumImportance
+		fb.timeSortBtn.SetText("Time" + arrow)
+		fb.timeSortBtn.Importance = widget.HighImportance
+	}
+	fb.nameSortBtn.Refresh()
+	fb.timeSortBtn.Refresh()
+}
+
 func (fb *FileBrowser) build() {
 	fb.list = widget.NewList(
 		func() int {
@@ -178,8 +201,23 @@ func (fb *FileBrowser) build() {
 		}
 	})
 
+	fb.nameSortBtn = widget.NewButton("Name \u2191", func() {
+		if fb.callbacks.OnSortBy != nil {
+			fb.callbacks.OnSortBy(service.SortByName)
+		}
+	})
+	fb.nameSortBtn.Importance = widget.HighImportance
+	fb.timeSortBtn = widget.NewButton("Time", func() {
+		if fb.callbacks.OnSortBy != nil {
+			fb.callbacks.OnSortBy(service.SortByTime)
+		}
+	})
+	fb.timeSortBtn.Importance = widget.MediumImportance
+	sortBar := container.NewGridWithColumns(2, fb.nameSortBtn, fb.timeSortBtn)
+
 	treeWithBtn := container.NewBorder(chooseBtn, nil, nil, nil, fb.dirTree.Widget())
-	split := container.NewVSplit(treeWithBtn, fb.list)
+	listWithSort := container.NewBorder(sortBar, nil, nil, nil, fb.list)
+	split := container.NewVSplit(treeWithBtn, listWithSort)
 	split.SetOffset(0.4)
 
 	fb.container = container.NewStack(split)

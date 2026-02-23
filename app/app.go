@@ -5,6 +5,7 @@ import (
 	"image"
 	"log"
 	"os"
+	"slices"
 
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
@@ -33,6 +34,8 @@ type Application struct {
 	mainWindow       *ui.MainWindow
 	contextMenuItems ui.ContextMenuItems
 	deleteDialogOpen bool
+	sortOrder        service.SortOrder
+	sortDescending   bool
 }
 
 func New() *Application {
@@ -63,6 +66,7 @@ func (a *Application) Run() {
 		OnPhotoSelected:     a.handlePhotoSelected,
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
+		OnSortBy:            a.handleSortBy,
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
@@ -89,6 +93,7 @@ func (a *Application) Run() {
 		OnDelete:   a.handleDelete,
 		OnNext:     a.handleNext,
 		OnPrevious: a.handlePrevious,
+		OnSort:     a.handleSortToggle,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -155,7 +160,10 @@ func (a *Application) loadDirectory(dir string) {
 		return
 	}
 
-	a.scanner.SortPhotos(photos, service.SortByName)
+	a.scanner.SortPhotos(photos, a.sortOrder)
+	if a.sortDescending {
+		reversePhotos(photos)
+	}
 	a.navigator.SetPhotos(photos)
 	a.fileBrowser.SetPhotos(photos)
 
@@ -294,6 +302,50 @@ func (a *Application) refreshFileBrowserItem(photo model.Photo) {
 
 func (a *Application) handleSecondaryTap(pos fyne.Position) {
 	ui.ShowContextMenu(a.contextMenuItems.Menu, a.mainWindow.Window().Canvas(), pos)
+}
+
+func (a *Application) handleSortBy(order service.SortOrder) {
+	if a.sortOrder == order {
+		a.sortDescending = !a.sortDescending
+	} else {
+		a.sortOrder = order
+		a.sortDescending = false
+	}
+	a.resortPhotos()
+}
+
+func (a *Application) handleSortToggle() {
+	if a.sortDescending {
+		if a.sortOrder == service.SortByName {
+			a.sortOrder = service.SortByTime
+		} else {
+			a.sortOrder = service.SortByName
+		}
+		a.sortDescending = false
+	} else {
+		a.sortDescending = true
+	}
+	a.resortPhotos()
+}
+
+func (a *Application) resortPhotos() {
+	photos := a.navigator.Photos()
+	a.scanner.SortPhotos(photos, a.sortOrder)
+	if a.sortDescending {
+		reversePhotos(photos)
+	}
+	a.navigator.SetPhotos(photos)
+	a.fileBrowser.SetPhotos(photos)
+	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
+
+	if photo, ok := a.navigator.Current(); ok {
+		a.showPhoto(photo)
+		a.fileBrowser.SelectIndex(0)
+	}
+}
+
+func reversePhotos(photos []model.Photo) {
+	slices.Reverse(photos)
 }
 
 func (a *Application) handleDelete() {
