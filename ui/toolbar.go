@@ -39,8 +39,19 @@ func (p *ActionPanel) SetFavoriteEnabled(enabled bool) {
 	}
 }
 
+func (p *ActionPanel) SetFavoriteActive(active bool) {
+	if active {
+		p.favBtn.SetIcon(iconHeart)
+		p.favBtn.Importance = widget.HighImportance
+	} else {
+		p.favBtn.SetIcon(iconHeartOutline)
+		p.favBtn.Importance = widget.MediumImportance
+	}
+	p.favBtn.Refresh()
+}
+
 func (p *ActionPanel) build() {
-	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeart, func() {
+	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeartOutline, func() {
 		if p.callbacks.OnFavorite != nil {
 			p.callbacks.OnFavorite()
 		}

@@ -169,6 +169,62 @@ func TestApplyOrientation(t *testing.T) {
 	}
 }
 
+func TestDownscaleToFit(t *testing.T) {
+	tests := []struct {
+		name        string
+		srcW, srcH  int
+		maxW, maxH  int
+		wantW       int
+		wantH       int
+		wantSameRef bool
+	}{
+		{
+			name: "already fits",
+			srcW: 100, srcH: 80,
+			maxW: 200, maxH: 200,
+			wantW: 100, wantH: 80,
+			wantSameRef: true,
+		},
+		{
+			name: "exact match",
+			srcW: 200, srcH: 200,
+			maxW: 200, maxH: 200,
+			wantW: 200, wantH: 200,
+			wantSameRef: true,
+		},
+		{
+			name: "landscape limited by width",
+			srcW: 400, srcH: 200,
+			maxW: 200, maxH: 200,
+			wantW: 200, wantH: 100,
+		},
+		{
+			name: "portrait limited by height",
+			srcW: 200, srcH: 400,
+			maxW: 200, maxH: 200,
+			wantW: 100, wantH: 200,
+		},
+		{
+			name: "both dimensions exceed",
+			srcW: 800, srcH: 600,
+			maxW: 400, maxH: 200,
+			wantW: 266, wantH: 200,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := makeTestImage(tt.srcW, tt.srcH)
+			dst := downscaleToFit(src, image.Point{X: tt.maxW, Y: tt.maxH})
+			assert.Equal(t, tt.wantW, dst.Bounds().Dx())
+			assert.Equal(t, tt.wantH, dst.Bounds().Dy())
+			if tt.wantSameRef {
+				assert.Same(t, src, dst)
+			}
+		})
+	}
+}
+
 func TestApplyOrientationIdentity(t *testing.T) {
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 1)
