@@ -19,6 +19,7 @@ func (l *MetadataLoader) LoadAsync(
 	ctx context.Context,
 	photos []model.Photo,
 	onLoaded func(index int, thumbnail image.Image, favorite bool),
+	onComplete func(),
 ) {
 	go func() {
 		for i, photo := range photos {
@@ -36,6 +37,9 @@ func (l *MetadataLoader) LoadAsync(
 				return
 			}
 			onLoaded(i, thumbnail, rating > 0)
+		}
+		if ctx.Err() == nil && onComplete != nil {
+			onComplete()
 		}
 	}()
 }

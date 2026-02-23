@@ -39,6 +39,8 @@ type Application struct {
 	deleteDialogOpen bool
 	sortOrder        service.SortOrder
 	sortDescending   bool
+	filterColors     map[model.ColorLabel]bool
+	filterFavorite   bool
 }
 
 func New() *Application {
@@ -50,6 +52,7 @@ func New() *Application {
 		deleter:        service.NewDeleter(),
 		navigator:      service.NewNavigator(),
 		metadataLoader: service.NewMetadataLoader(exifService),
+		filterColors:   make(map[model.ColorLabel]bool),
 	}
 }
 
@@ -71,6 +74,11 @@ func (a *Application) Run() {
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
 		OnSortBy:            a.handleSortBy,
+		OnFilterRed:         func() { a.handleFilterColor(model.ColorRed) },
+		OnFilterGreen:       func() { a.handleFilterColor(model.ColorGreen) },
+		OnFilterBlue:        func() { a.handleFilterColor(model.ColorBlue) },
+		OnFilterFavorite:    a.handleFilterFavorite,
+		OnFilteredChanged:   a.handleFilteredChanged,
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
@@ -90,15 +98,19 @@ func (a *Application) Run() {
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
-		OnFavorite:     a.handleFavorite,
-		OnRed:          func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:        func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:         func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:       a.handleDelete,
-		OnDeleteCancel: a.handleDeleteCancel,
-		OnNext:         a.handleNext,
-		OnPrevious:     a.handlePrevious,
-		OnSort:         a.handleSortToggle,
+		OnFavorite:       a.handleFavorite,
+		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete:         a.handleDelete,
+		OnDeleteCancel:   a.handleDeleteCancel,
+		OnNext:           a.handleNext,
+		OnPrevious:       a.handlePrevious,
+		OnSort:           a.handleSortToggle,
+		OnFilterRed:      func() { a.handleFilterColor(model.ColorRed) },
+		OnFilterGreen:    func() { a.handleFilterColor(model.ColorGreen) },
+		OnFilterBlue:     func() { a.handleFilterColor(model.ColorBlue) },
+		OnFilterFavorite: a.handleFilterFavorite,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -195,14 +207,11 @@ func (a *Application) loadDirectory(dir string) {
 	if a.sortDescending {
 		reversePhotos(photos)
 	}
-	a.navigator.SetPhotos(photos)
 	a.fileBrowser.SetPhotos(photos)
 
-	if photo, ok := a.navigator.Current(); ok {
-		a.showPhoto(photo)
-	} else {
-		a.viewer.Clear()
-	}
+	filtered := a.fileBrowser.FilteredPhotos()
+	a.navigator.SetPhotos(filtered)
+	a.showCurrentOrFirst()
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
@@ -307,6 +316,9 @@ func (a *Application) handleFavorite() {
 	}
 	a.updateFavoriteState(photo)
 	a.refreshFileBrowserItem(photo)
+	if a.hasActiveFilter() {
+		a.reapplyFilter()
+	}
 }
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {
@@ -319,6 +331,9 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	}
 	a.updateColorIndicators(photo)
 	a.refreshFileBrowserItem(photo)
+	if a.hasActiveFilter() {
+		a.reapplyFilter()
+	}
 }
 
 func (a *Application) refreshFileBrowserItem(photo model.Photo) {
@@ -360,23 +375,85 @@ func (a *Application) handleSortToggle() {
 }
 
 func (a *Application) resortPhotos() {
-	photos := a.navigator.Photos()
+	photos := a.fileBrowser.AllPhotos()
 	a.scanner.SortPhotos(photos, a.sortOrder)
 	if a.sortDescending {
 		reversePhotos(photos)
 	}
-	a.navigator.SetPhotos(photos)
 	a.fileBrowser.SetPhotos(photos)
 	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
 
-	if photo, ok := a.navigator.Current(); ok {
-		a.showPhoto(photo)
-		a.fileBrowser.SelectIndex(0)
-	}
+	filtered := a.fileBrowser.FilteredPhotos()
+	a.navigator.SetPhotos(filtered)
+	a.showCurrentOrFirst()
 }
 
 func reversePhotos(photos []model.Photo) {
 	slices.Reverse(photos)
+}
+
+func (a *Application) handleFilterColor(color model.ColorLabel) {
+	a.filterColors[color] = !a.filterColors[color]
+	a.reapplyFilter()
+}
+
+func (a *Application) handleFilterFavorite() {
+	a.filterFavorite = !a.filterFavorite
+	a.reapplyFilter()
+}
+
+func (a *Application) reapplyFilter() {
+	a.fileBrowser.SetFilter(a.filterColors, a.filterFavorite)
+	a.syncNavigatorToFiltered()
+}
+
+func (a *Application) handleFilteredChanged(photos []model.Photo) {
+	a.navigator.SetPhotos(photos)
+	a.showCurrentOrFirst()
+}
+
+func (a *Application) syncNavigatorToFiltered() {
+	var currentPath string
+	if cur, ok := a.navigator.Current(); ok {
+		currentPath = cur.ImagePath
+	}
+
+	filtered := a.fileBrowser.FilteredPhotos()
+	a.navigator.SetPhotos(filtered)
+
+	if len(currentPath) > 0 {
+		idx := a.navigator.FindIndex(currentPath)
+		if idx >= 0 {
+			if p, _, ok := a.navigator.GoTo(idx); ok {
+				a.showPhoto(p)
+				a.fileBrowser.SelectIndex(idx)
+				return
+			}
+		}
+	}
+
+	a.showCurrentOrFirst()
+}
+
+func (a *Application) showCurrentOrFirst() {
+	if photo, ok := a.navigator.Current(); ok {
+		a.showPhoto(photo)
+		a.fileBrowser.SelectIndex(0)
+	} else {
+		a.viewer.Clear()
+	}
+}
+
+func (a *Application) hasActiveFilter() bool {
+	if a.filterFavorite {
+		return true
+	}
+	for _, v := range a.filterColors {
+		if v {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Application) handleDelete() {
@@ -411,14 +488,23 @@ func (a *Application) handleDelete() {
 			if err := a.colorService.RemoveColors(photo); err != nil {
 				a.showError("Failed to remove color labels", err)
 			}
-			next, idx, photos, ok := a.navigator.RemoveCurrent()
-			if ok {
-				a.showPhoto(next)
+			prevIdx := a.navigator.FindIndex(photo.ImagePath)
+			a.fileBrowser.RemovePhoto(photo.ImagePath)
+			filtered := a.fileBrowser.FilteredPhotos()
+			a.navigator.SetPhotos(filtered)
+
+			if prevIdx >= len(filtered) {
+				prevIdx = len(filtered) - 1
+			}
+			if prevIdx < 0 {
+				prevIdx = 0
+			}
+			if p, navIdx, ok := a.navigator.GoTo(prevIdx); ok {
+				a.showPhoto(p)
+				a.fileBrowser.SelectIndex(navIdx)
 			} else {
 				a.viewer.Clear()
 			}
-			a.fileBrowser.SetPhotos(photos)
-			a.fileBrowser.SelectIndex(idx)
 		},
 		a.mainWindow.Window(),
 	)
