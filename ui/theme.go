@@ -32,8 +32,5 @@ func (t *DarkTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
 var blankIcon = fyne.NewStaticResource("blank.svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>`))
 
 func (t *DarkTheme) Size(name fyne.ThemeSizeName) float32 {
-	if name == theme.SizeNameInlineIcon {
-		return 0
-	}
 	return theme.DefaultTheme().Size(name)
 }

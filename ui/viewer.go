@@ -39,6 +39,7 @@ func (v *Viewer) ShowPhoto(photo model.Photo) {
 	v.image.Resource = nil
 	v.image.File = photo.ImagePath
 	v.image.FillMode = canvas.ImageFillContain
+	v.image.Show()
 	v.image.Refresh()
 }
 
@@ -53,9 +54,7 @@ func (v *Viewer) SetColorIndicators(colors []model.ColorLabel) {
 }
 
 func (v *Viewer) Clear() {
-	v.image.Resource = nil
-	v.image.File = ""
-	v.image.Refresh()
+	v.image.Hide()
 	v.indicators.RemoveAll()
 }
 
@@ -120,8 +119,8 @@ func (o *tappableOverlay) TappedSecondary(ev *fyne.PointEvent) {
 
 type tappableOverlayRenderer struct{}
 
-func (r *tappableOverlayRenderer) Destroy()                             {}
-func (r *tappableOverlayRenderer) Layout(_ fyne.Size)                   {}
-func (r *tappableOverlayRenderer) MinSize() fyne.Size                   { return fyne.NewSize(0, 0) }
-func (r *tappableOverlayRenderer) Objects() []fyne.CanvasObject         { return nil }
-func (r *tappableOverlayRenderer) Refresh()                             {}
+func (r *tappableOverlayRenderer) Destroy()                     {}
+func (r *tappableOverlayRenderer) Layout(_ fyne.Size)           {}
+func (r *tappableOverlayRenderer) MinSize() fyne.Size           { return fyne.NewSize(0, 0) }
+func (r *tappableOverlayRenderer) Objects() []fyne.CanvasObject { return nil }
+func (r *tappableOverlayRenderer) Refresh()                     {}

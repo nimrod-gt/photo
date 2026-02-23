@@ -123,6 +123,8 @@ func (a *Application) loadDirectory(dir string) {
 
 	if photo, ok := a.navigator.Current(); ok {
 		a.showPhoto(photo)
+	} else {
+		a.viewer.Clear()
 	}
 }
 
