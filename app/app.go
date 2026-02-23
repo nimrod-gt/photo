@@ -35,6 +35,7 @@ type Application struct {
 	viewer           *ui.Viewer
 	mainWindow       *ui.MainWindow
 	contextMenuItems ui.ContextMenuItems
+	deleteDialog     *dialog.ConfirmDialog
 	deleteDialogOpen bool
 	sortOrder        service.SortOrder
 	sortDescending   bool
@@ -89,14 +90,15 @@ func (a *Application) Run() {
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
-		OnFavorite: a.handleFavorite,
-		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:   a.handleDelete,
-		OnNext:     a.handleNext,
-		OnPrevious: a.handlePrevious,
-		OnSort:     a.handleSortToggle,
+		OnFavorite:     a.handleFavorite,
+		OnRed:          func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:        func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:         func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete:       a.handleDelete,
+		OnDeleteCancel: a.handleDeleteCancel,
+		OnNext:         a.handleNext,
+		OnPrevious:     a.handlePrevious,
+		OnSort:         a.handleSortToggle,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -379,6 +381,7 @@ func reversePhotos(photos []model.Photo) {
 
 func (a *Application) handleDelete() {
 	if a.deleteDialogOpen {
+		a.deleteDialog.Confirm()
 		return
 	}
 
@@ -392,10 +395,12 @@ func (a *Application) handleDelete() {
 	if photo.HasRAW() {
 		message += " This will also delete the RAW pair."
 	}
-	dialog.ShowConfirm("Delete Photo",
+	message += "\n\nConfirm(D)  Cancel(N)"
+	a.deleteDialog = dialog.NewConfirm("Delete Photo",
 		message,
 		func(confirmed bool) {
 			a.deleteDialogOpen = false
+			a.deleteDialog = nil
 			if !confirmed {
 				return
 			}
@@ -417,4 +422,13 @@ func (a *Application) handleDelete() {
 		},
 		a.mainWindow.Window(),
 	)
+	a.deleteDialog.Show()
+}
+
+func (a *Application) handleDeleteCancel() {
+	if a.deleteDialogOpen {
+		a.deleteDialog.Hide()
+		a.deleteDialogOpen = false
+		a.deleteDialog = nil
+	}
 }
