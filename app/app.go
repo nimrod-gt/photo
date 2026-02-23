@@ -9,11 +9,14 @@ import (
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
+	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"photo/model"
 	"photo/service"
 	"photo/ui"
 )
+
+var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 
 type Application struct {
 	scanner      *service.Scanner
@@ -45,8 +48,6 @@ func New() *Application {
 func (a *Application) Run() {
 	fyneApp := fyneapp.NewWithID("com.photo.viewer")
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
-
-	a.imageCache = service.NewImageCache(image.Point{X: 3840, Y: 2160})
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
 		OnFavorite: a.handleFavorite,
@@ -87,8 +88,28 @@ func (a *Application) Run() {
 		OnPrevious: a.handlePrevious,
 	})
 
+	a.imageCache = service.NewImageCache(monitorSize())
+
 	a.loadInitialDirectory()
 	a.mainWindow.Show()
+}
+
+func monitorSize() (size image.Point) {
+	size = defaultMaxImageSize
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("monitorSize: recovered from panic: %v", r)
+		}
+	}()
+	mon := glfw.GetPrimaryMonitor()
+	if mon == nil {
+		return
+	}
+	mode := mon.GetVideoMode()
+	if mode == nil {
+		return
+	}
+	return image.Point{X: mode.Width, Y: mode.Height}
 }
 
 func (a *Application) showError(msg string, err error) {
@@ -151,8 +172,7 @@ func (a *Application) showPhoto(photo model.Photo) {
 	}
 	a.viewer.ShowPhoto(img)
 	a.updateColorIndicators(photo)
-	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
-	a.favoriteMenuItem.Disabled = !photo.IsJPEG()
+	a.updateFavoriteState(photo)
 	a.prefetchAdjacent()
 }
 
@@ -203,6 +223,22 @@ func (a *Application) handlePrevious() {
 	}
 }
 
+func (a *Application) updateFavoriteState(photo model.Photo) {
+	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
+	a.favoriteMenuItem.Disabled = !photo.IsJPEG()
+
+	if !photo.IsJPEG() {
+		a.actionPanel.SetFavoriteActive(false)
+		a.favoriteMenuItem.Checked = false
+		return
+	}
+
+	rating, _ := a.exifService.GetRating(photo.ImagePath)
+	active := rating > 0
+	a.actionPanel.SetFavoriteActive(active)
+	a.favoriteMenuItem.Checked = active
+}
+
 func (a *Application) handleFavorite() {
 	photo, ok := a.navigator.Current()
 	if !ok {
@@ -213,7 +249,9 @@ func (a *Application) handleFavorite() {
 	}
 	if err := a.exifService.ToggleFavorite(photo.ImagePath); err != nil {
 		a.showError("Failed to toggle favorite", err)
+		return
 	}
+	a.updateFavoriteState(photo)
 }
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {

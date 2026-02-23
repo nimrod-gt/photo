@@ -1,18 +1,26 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"image"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func stubCache(loader func(string) (image.Image, error)) *ImageCache {
+	c := NewImageCache(image.Point{X: 100, Y: 100})
+	c.loadImage = func(_ context.Context, path string) (image.Image, error) {
+		return loader(path)
+	}
+	return c
+}
+
+func stubCacheCtx(loader func(context.Context, string) (image.Image, error)) *ImageCache {
 	c := NewImageCache(image.Point{X: 100, Y: 100})
 	c.loadImage = loader
 	return c
@@ -98,24 +106,26 @@ func TestImageCache_Prefetch(t *testing.T) {
 
 		_, _ = c.Load("/photo.jpg")
 		c.Prefetch("/photo.jpg")
-		time.Sleep(10 * time.Millisecond)
 		assert.Equal(t, int32(1), calls.Load())
 	})
 
 	t.Run("skips in-flight prefetch", func(t *testing.T) {
 		var calls atomic.Int32
 		started := make(chan struct{})
+		proceed := make(chan struct{})
 		c := stubCache(func(string) (image.Image, error) {
 			calls.Add(1)
 			close(started)
-			time.Sleep(50 * time.Millisecond)
+			<-proceed
 			return fakeImage(10, 10), nil
 		})
 
 		c.Prefetch("/photo.jpg")
 		<-started
 		c.Prefetch("/photo.jpg")
-		time.Sleep(100 * time.Millisecond)
+		close(proceed)
+
+		_, _ = c.Load("/photo.jpg")
 		assert.Equal(t, int32(1), calls.Load())
 	})
 }
@@ -129,8 +139,8 @@ func TestImageCache_WaitInFlight(t *testing.T) {
 	})
 
 	c.Prefetch("/photo.jpg")
+
 	go func() {
-		time.Sleep(20 * time.Millisecond)
 		close(proceed)
 	}()
 
@@ -180,11 +190,30 @@ func TestImageCache_Clear(t *testing.T) {
 	assert.Equal(t, int32(3), calls.Load())
 }
 
+func TestImageCache_ClearCancelsInFlight(t *testing.T) {
+	started := make(chan struct{})
+	proceed := make(chan struct{})
+	ctxCh := make(chan context.Context, 1)
+	c := stubCacheCtx(func(ctx context.Context, _ string) (image.Image, error) {
+		ctxCh <- ctx
+		close(started)
+		<-proceed
+		return fakeImage(10, 10), nil
+	})
+
+	c.Prefetch("/photo.jpg")
+	<-started
+	captured := <-ctxCh
+	c.Clear()
+	close(proceed)
+
+	require.Error(t, captured.Err())
+}
+
 func TestImageCache_ConcurrentAccess(t *testing.T) {
 	var calls atomic.Int32
-	c := stubCache(func(path string) (image.Image, error) {
+	c := stubCache(func(string) (image.Image, error) {
 		calls.Add(1)
-		time.Sleep(5 * time.Millisecond)
 		return fakeImage(10, 10), nil
 	})
 

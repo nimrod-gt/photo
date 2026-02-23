@@ -1,30 +1,35 @@
 package service
 
 import (
+	"context"
 	"image"
 	"sync"
 )
 
 type cacheEntry struct {
-	img  image.Image
-	err  error
-	done chan struct{}
+	img    image.Image
+	err    error
+	done   chan struct{}
+	cancel context.CancelFunc
 }
 
 type ImageCache struct {
 	mu        sync.Mutex
 	items     map[string]*cacheEntry
-	loadImage func(string) (image.Image, error)
+	loadImage func(context.Context, string) (image.Image, error)
 }
 
 func NewImageCache(maxSize image.Point) *ImageCache {
 	c := &ImageCache{
 		items: make(map[string]*cacheEntry),
 	}
-	c.loadImage = func(path string) (image.Image, error) {
+	c.loadImage = func(ctx context.Context, path string) (image.Image, error) {
 		img, err := LoadOrientedImage(path)
 		if err != nil {
 			return nil, err
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
 		}
 		return downscaleToFit(img, maxSize), nil
 	}
@@ -39,11 +44,12 @@ func (c *ImageCache) Load(path string) (image.Image, error) {
 		return entry.img, entry.err
 	}
 
-	entry := &cacheEntry{done: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	entry := &cacheEntry{done: make(chan struct{}), cancel: cancel}
 	c.items[path] = entry
 	c.mu.Unlock()
 
-	entry.img, entry.err = c.loadImage(path)
+	entry.img, entry.err = c.loadImage(ctx, path)
 	close(entry.done)
 	return entry.img, entry.err
 }
@@ -55,13 +61,14 @@ func (c *ImageCache) Prefetch(path string) {
 		return
 	}
 
-	entry := &cacheEntry{done: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	entry := &cacheEntry{done: make(chan struct{}), cancel: cancel}
 	c.items[path] = entry
 	c.mu.Unlock()
 
 	go func() {
 		defer close(entry.done)
-		entry.img, entry.err = c.loadImage(path)
+		entry.img, entry.err = c.loadImage(ctx, path)
 	}()
 }
 
@@ -74,8 +81,16 @@ func (c *ImageCache) EvictExcept(keep []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for path := range c.items {
-		if _, ok := keepSet[path]; !ok {
+	for path, entry := range c.items {
+		if _, ok := keepSet[path]; ok {
+			continue
+		}
+		select {
+		case <-entry.done:
+			entry.cancel()
+			delete(c.items, path)
+		default:
+			entry.cancel()
 			delete(c.items, path)
 		}
 	}
@@ -85,5 +100,8 @@ func (c *ImageCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	for _, entry := range c.items {
+		entry.cancel()
+	}
 	c.items = make(map[string]*cacheEntry)
 }
