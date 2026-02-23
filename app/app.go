@@ -82,6 +82,7 @@ func (a *Application) Run() {
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
+		OnFavorite: a.handleFavorite,
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
@@ -176,6 +177,7 @@ func (a *Application) showPhoto(photo model.Photo) {
 	a.updateColorIndicators(photo)
 	a.updateFavoriteState(photo)
 	a.prefetchAdjacent()
+	a.mainWindow.Window().Canvas().Unfocus()
 }
 
 func (a *Application) prefetchAdjacent() {

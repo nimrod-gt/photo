@@ -1,8 +1,12 @@
 package ui
 
-import "fyne.io/fyne/v2"
+import (
+	"fyne.io/fyne/v2"
+	"github.com/go-gl/glfw/v3.3/glfw"
+)
 
 type ShortcutCallbacks struct {
+	OnFavorite func()
 	OnRed      func()
 	OnGreen    func()
 	OnBlue     func()
@@ -12,37 +16,24 @@ type ShortcutCallbacks struct {
 }
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
-	canvas.SetOnTypedRune(func(r rune) {
-		switch r {
-		case 'r', 'R':
-			if callbacks.OnRed != nil {
-				callbacks.OnRed()
-			}
-		case 'g', 'G':
-			if callbacks.OnGreen != nil {
-				callbacks.OnGreen()
-			}
-		case 'b', 'B':
-			if callbacks.OnBlue != nil {
-				callbacks.OnBlue()
-			}
-		case 'd', 'D':
-			if callbacks.OnDelete != nil {
-				callbacks.OnDelete()
-			}
-		}
-	})
+	scanActions := map[int]func(){
+		glfw.GetKeyScancode(glfw.KeyF): callbacks.OnFavorite,
+		glfw.GetKeyScancode(glfw.KeyR): callbacks.OnRed,
+		glfw.GetKeyScancode(glfw.KeyG): callbacks.OnGreen,
+		glfw.GetKeyScancode(glfw.KeyB): callbacks.OnBlue,
+		glfw.GetKeyScancode(glfw.KeyD): callbacks.OnDelete,
+	}
 
 	canvas.SetOnTypedKey(func(ev *fyne.KeyEvent) {
+		if action, ok := scanActions[ev.Physical.ScanCode]; ok {
+			action()
+			return
+		}
 		switch ev.Name {
 		case fyne.KeyRight, fyne.KeyDown:
-			if callbacks.OnNext != nil {
-				callbacks.OnNext()
-			}
+			callbacks.OnNext()
 		case fyne.KeyLeft, fyne.KeyUp:
-			if callbacks.OnPrevious != nil {
-				callbacks.OnPrevious()
-			}
+			callbacks.OnPrevious()
 		}
 	})
 }
