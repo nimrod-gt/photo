@@ -111,6 +111,7 @@ func (a *Application) Run() {
 		OnFilterGreen:    func() { a.handleFilterColor(model.ColorGreen) },
 		OnFilterBlue:     func() { a.handleFilterColor(model.ColorBlue) },
 		OnFilterFavorite: a.handleFilterFavorite,
+		OnHelp:           a.handleHelp,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -509,6 +510,10 @@ func (a *Application) handleDelete() {
 		a.mainWindow.Window(),
 	)
 	a.deleteDialog.Show()
+}
+
+func (a *Application) handleHelp() {
+	ui.ShowHelp(a.mainWindow.Window())
 }
 
 func (a *Application) handleDeleteCancel() {

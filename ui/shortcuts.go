@@ -19,6 +19,7 @@ type ShortcutCallbacks struct {
 	OnFilterGreen    func()
 	OnFilterBlue     func()
 	OnFilterFavorite func()
+	OnHelp           func()
 }
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
@@ -34,6 +35,7 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		glfw.GetKeyScancode(glfw.Key2):  callbacks.OnFilterGreen,
 		glfw.GetKeyScancode(glfw.Key3):  callbacks.OnFilterBlue,
 		glfw.GetKeyScancode(glfw.Key4):  callbacks.OnFilterFavorite,
+		glfw.GetKeyScancode(glfw.KeyH):  callbacks.OnHelp,
 	}
 
 	canvas.SetOnTypedKey(func(ev *fyne.KeyEvent) {
