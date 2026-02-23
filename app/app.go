@@ -137,7 +137,13 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	a.viewer.ShowPhoto(photo)
+	img, err := service.LoadOrientedImage(photo.ImagePath)
+	if err != nil {
+		a.viewer.Clear()
+		a.showError("Failed to load image", err)
+		return
+	}
+	a.viewer.ShowPhoto(img)
 	a.updateColorIndicators(photo)
 	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
 	a.favoriteMenuItem.Disabled = !photo.IsJPEG()

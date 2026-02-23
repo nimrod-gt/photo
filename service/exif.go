@@ -15,43 +15,51 @@ func NewExifService() *ExifService {
 }
 
 func (s *ExifService) GetRating(jpegPath string) (uint16, error) {
+	return s.getUint16Tag(jpegPath, "Rating", 0)
+}
+
+func (s *ExifService) GetOrientation(jpegPath string) (uint16, error) {
+	return s.getUint16Tag(jpegPath, "Orientation", 1)
+}
+
+func (s *ExifService) getUint16Tag(jpegPath, tagName string, defaultVal uint16) (uint16, error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseFile(jpegPath)
 	if err != nil {
-		return 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
+		return defaultVal, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
 	}
 
 	sl, ok := intfc.(*jpegstructure.SegmentList)
 	if !ok {
-		return 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
+		return defaultVal, fmt.Errorf("unexpected parse result for %s", jpegPath)
 	}
 
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
-		//nolint:nilerr // no EXIF data is not an error, just means no rating
-		return 0, nil
+		//nolint:nilerr // no EXIF data means default value
+		return defaultVal, nil
 	}
 
-	results, err := rootIfd.FindTagWithName("Rating")
+	results, err := rootIfd.FindTagWithName(tagName)
 	if err != nil {
-		//nolint:nilerr // tag not found is not an error, just means no rating
-		return 0, nil
+		//nolint:nilerr // tag not found means default value
+		return defaultVal, nil
 	}
 
 	if len(results) == 0 {
-		return 0, nil
+		return defaultVal, nil
 	}
 
 	value, err := results[0].Value()
 	if err != nil {
-		return 0, fmt.Errorf("reading rating value: %w", err)
+		return defaultVal, fmt.Errorf("reading %s value: %w", tagName, err)
 	}
 
 	if v, ok := value.([]uint16); ok && len(v) > 0 {
 		return v[0], nil
 	}
 
-	return 0, nil
+	return defaultVal, nil
 }
 
 func (s *ExifService) SetRating(jpegPath string, rating uint16) error {

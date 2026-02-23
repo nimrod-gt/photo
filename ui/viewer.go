@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image"
 	"image/color"
 
 	"fyne.io/fyne/v2"
@@ -35,9 +36,10 @@ func (v *Viewer) Container() *fyne.Container {
 	return v.container
 }
 
-func (v *Viewer) ShowPhoto(photo model.Photo) {
+func (v *Viewer) ShowPhoto(img image.Image) {
 	v.image.Resource = nil
-	v.image.File = photo.ImagePath
+	v.image.File = ""
+	v.image.Image = img
 	v.image.FillMode = canvas.ImageFillContain
 	v.image.Show()
 	v.image.Refresh()
