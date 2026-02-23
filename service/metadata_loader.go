@@ -1,0 +1,41 @@
+package service
+
+import (
+	"context"
+	"image"
+
+	"photo/model"
+)
+
+type MetadataLoader struct {
+	exif *ExifService
+}
+
+func NewMetadataLoader(exif *ExifService) *MetadataLoader {
+	return &MetadataLoader{exif: exif}
+}
+
+func (l *MetadataLoader) LoadAsync(
+	ctx context.Context,
+	photos []model.Photo,
+	onLoaded func(index int, thumbnail image.Image, favorite bool),
+) {
+	go func() {
+		for i, photo := range photos {
+			if ctx.Err() != nil {
+				return
+			}
+			if !photo.IsJPEG() {
+				continue
+			}
+			thumbnail, rating, err := l.exif.GetPhotoInfo(photo.ImagePath)
+			if err != nil {
+				continue
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			onLoaded(i, thumbnail, rating > 0)
+		}
+	}()
+}

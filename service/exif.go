@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"os"
 	"path/filepath"
 
@@ -134,6 +137,65 @@ func (s *ExifService) SetRating(jpegPath string, rating uint16) error {
 	}
 
 	return nil
+}
+
+func (s *ExifService) GetPhotoInfo(jpegPath string) (image.Image, uint16, error) {
+	jmp := jpegstructure.NewJpegMediaParser()
+	intfc, err := jmp.ParseFile(jpegPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
+	}
+
+	sl, ok := intfc.(*jpegstructure.SegmentList)
+	if !ok {
+		return nil, 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
+	}
+
+	rootIfd, _, err := sl.Exif()
+	if err != nil {
+		//nolint:nilerr // no EXIF data means no metadata to extract
+		return nil, 0, nil
+	}
+
+	thumbnail := extractThumbnail(rootIfd)
+	if thumbnail != nil {
+		orientation := ifdUint16(rootIfd, "Orientation", 1)
+		thumbnail = applyOrientation(thumbnail, orientation)
+	}
+
+	rating := ifdUint16(rootIfd, "Rating", 0)
+	return thumbnail, rating, nil
+}
+
+func extractThumbnail(rootIfd *exif.Ifd) image.Image {
+	if nextIfd := rootIfd.NextIfd(); nextIfd != nil {
+		if thumbData, err := nextIfd.Thumbnail(); err == nil && len(thumbData) > 0 {
+			if img, err := jpeg.Decode(bytes.NewReader(thumbData)); err == nil {
+				return img
+			}
+		}
+	}
+	if thumbData, err := rootIfd.Thumbnail(); err == nil && len(thumbData) > 0 {
+		if img, err := jpeg.Decode(bytes.NewReader(thumbData)); err == nil {
+			return img
+		}
+	}
+	return nil
+}
+
+func ifdUint16(ifd *exif.Ifd, tagName string, defaultVal uint16) uint16 {
+	results, err := ifd.FindTagWithName(tagName)
+	if err != nil || len(results) == 0 {
+		return defaultVal
+	}
+	value, err := results[0].Value()
+	if err != nil {
+		return defaultVal
+	}
+	if v, ok := value.([]uint16); ok && len(v) > 0 {
+		return v[0]
+	}
+	return defaultVal
 }
 
 func (s *ExifService) ToggleFavorite(jpegPath string) error {
