@@ -18,6 +18,7 @@ type ActionPanelCallbacks struct {
 type ActionPanel struct {
 	container *fyne.Container
 	callbacks ActionPanelCallbacks
+	favBtn    *widget.Button
 }
 
 func NewActionPanel(callbacks ActionPanelCallbacks) *ActionPanel {
@@ -30,8 +31,16 @@ func (p *ActionPanel) Container() *fyne.Container {
 	return p.container
 }
 
+func (p *ActionPanel) SetFavoriteEnabled(enabled bool) {
+	if enabled {
+		p.favBtn.Enable()
+	} else {
+		p.favBtn.Disable()
+	}
+}
+
 func (p *ActionPanel) build() {
-	favBtn := widget.NewButtonWithIcon("Favorite", iconHeart, func() {
+	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeart, func() {
 		if p.callbacks.OnFavorite != nil {
 			p.callbacks.OnFavorite()
 		}
@@ -57,5 +66,5 @@ func (p *ActionPanel) build() {
 		}
 	})
 
-	p.container = container.NewGridWithColumns(5, favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(5, p.favBtn, redBtn, greenBtn, blueBtn, deleteBtn)
 }

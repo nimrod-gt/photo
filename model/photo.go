@@ -8,18 +8,36 @@ import (
 
 var rawExtensions = []string{".ARW"}
 
-type Photo struct {
-	JPEGPath string
-	RAWPath  string
-	Name     string
+var supportedExtensions = map[string]bool{
+	".jpg":  true,
+	".jpeg": true,
+	".png":  true,
 }
 
-func NewPhoto(jpegPath string) Photo {
-	return Photo{
-		JPEGPath: jpegPath,
-		RAWPath:  findRAWPair(jpegPath),
-		Name:     filepath.Base(jpegPath),
+type Photo struct {
+	ImagePath string
+	RAWPath   string
+	Name      string
+}
+
+func NewPhoto(imagePath string) Photo {
+	p := Photo{
+		ImagePath: imagePath,
+		Name:      filepath.Base(imagePath),
 	}
+	if p.IsJPEG() {
+		p.RAWPath = findRAWPair(imagePath)
+	}
+	return p
+}
+
+func IsSupportedImage(ext string) bool {
+	return supportedExtensions[strings.ToLower(ext)]
+}
+
+func (p Photo) IsJPEG() bool {
+	ext := strings.ToLower(filepath.Ext(p.ImagePath))
+	return ext == ".jpg" || ext == ".jpeg"
 }
 
 func (p Photo) HasRAW() bool {

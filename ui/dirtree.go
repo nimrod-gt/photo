@@ -25,42 +25,8 @@ func NewDirTree(scanner *service.Scanner, onSelected func(string)) *DirTree {
 	}
 
 	dt.tree = widget.NewTree(
-		func(uid widget.TreeNodeID) []widget.TreeNodeID {
-			dt.mu.RLock()
-			root := dt.root
-			dt.mu.RUnlock()
-
-			if len(uid) == 0 {
-				if len(root) == 0 {
-					return nil
-				}
-				return []string{root}
-			}
-			dirs, err := dt.scanner.ListDirectories(uid)
-			if err != nil {
-				return nil
-			}
-
-			dt.mu.Lock()
-			for _, d := range dirs {
-				if _, ok := dt.hasChildren[d]; !ok {
-					children, _ := dt.scanner.ListDirectories(d)
-					dt.hasChildren[d] = len(children) > 0
-				}
-			}
-			dt.mu.Unlock()
-
-			return dirs
-		},
-		func(uid widget.TreeNodeID) bool {
-			dt.mu.RLock()
-			v, ok := dt.hasChildren[uid]
-			dt.mu.RUnlock()
-			if ok {
-				return v
-			}
-			return true
-		},
+		dt.childUIDs,
+		dt.isBranch,
 		func(branch bool) fyne.CanvasObject {
 			return widget.NewLabel("placeholder")
 		},
@@ -75,6 +41,44 @@ func NewDirTree(scanner *service.Scanner, onSelected func(string)) *DirTree {
 	}
 
 	return dt
+}
+
+func (dt *DirTree) childUIDs(uid widget.TreeNodeID) []widget.TreeNodeID {
+	dt.mu.RLock()
+	root := dt.root
+	dt.mu.RUnlock()
+
+	if len(uid) == 0 {
+		if len(root) == 0 {
+			return nil
+		}
+		return []string{root}
+	}
+	dirs, err := dt.scanner.ListDirectories(uid)
+	if err != nil {
+		return nil
+	}
+
+	dt.mu.Lock()
+	for _, d := range dirs {
+		if _, ok := dt.hasChildren[d]; !ok {
+			children, _ := dt.scanner.ListDirectories(d)
+			dt.hasChildren[d] = len(children) > 0
+		}
+	}
+	dt.mu.Unlock()
+
+	return dirs
+}
+
+func (dt *DirTree) isBranch(uid widget.TreeNodeID) bool {
+	dt.mu.RLock()
+	v, ok := dt.hasChildren[uid]
+	dt.mu.RUnlock()
+	if ok {
+		return v
+	}
+	return true
 }
 
 func (dt *DirTree) SetRoot(root string) {

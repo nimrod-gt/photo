@@ -13,7 +13,7 @@ import (
 )
 
 func testPhoto(dir, name string) model.Photo {
-	return model.Photo{JPEGPath: filepath.Join(dir, name), Name: name}
+	return model.Photo{ImagePath: filepath.Join(dir, name), Name: name}
 }
 
 func TestColorService_GetColors(t *testing.T) {

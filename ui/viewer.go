@@ -37,7 +37,7 @@ func (v *Viewer) Container() *fyne.Container {
 
 func (v *Viewer) ShowPhoto(photo model.Photo) {
 	v.image.Resource = nil
-	v.image.File = photo.JPEGPath
+	v.image.File = photo.ImagePath
 	v.image.FillMode = canvas.ImageFillContain
 	v.image.Refresh()
 }

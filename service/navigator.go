@@ -86,12 +86,12 @@ func (n *Navigator) Photos() []model.Photo {
 	return result
 }
 
-func (n *Navigator) FindIndex(jpegPath string) int {
+func (n *Navigator) FindIndex(imagePath string) int {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	for i, p := range n.photos {
-		if p.JPEGPath == jpegPath {
+		if p.ImagePath == imagePath {
 			return i
 		}
 	}

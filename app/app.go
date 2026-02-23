@@ -20,11 +20,12 @@ type Application struct {
 	deleter      *service.Deleter
 	navigator    *service.Navigator
 
-	actionPanel     *ui.ActionPanel
-	fileBrowser     *ui.FileBrowser
-	viewer          *ui.Viewer
-	mainWindow      *ui.MainWindow
-	contextMenu     *fyne.Menu
+	actionPanel      *ui.ActionPanel
+	fileBrowser      *ui.FileBrowser
+	viewer           *ui.Viewer
+	mainWindow       *ui.MainWindow
+	contextMenu      *fyne.Menu
+	favoriteMenuItem *fyne.MenuItem
 	deleteDialogOpen bool
 }
 
@@ -61,7 +62,7 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
-	a.contextMenu = ui.NewContextMenu(ui.ContextMenuCallbacks{
+	a.contextMenu, a.favoriteMenuItem = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnFavorite: a.handleFavorite,
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
@@ -128,6 +129,8 @@ func (a *Application) loadDirectory(dir string) {
 func (a *Application) showPhoto(photo model.Photo) {
 	a.viewer.ShowPhoto(photo)
 	a.updateColorIndicators(photo)
+	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
+	a.favoriteMenuItem.Disabled = !photo.IsJPEG()
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {
@@ -140,7 +143,7 @@ func (a *Application) updateColorIndicators(photo model.Photo) {
 }
 
 func (a *Application) handlePhotoSelected(photo model.Photo) {
-	idx := a.navigator.FindIndex(photo.JPEGPath)
+	idx := a.navigator.FindIndex(photo.ImagePath)
 	if idx < 0 {
 		return
 	}
@@ -168,7 +171,10 @@ func (a *Application) handleFavorite() {
 	if !ok {
 		return
 	}
-	if err := a.exifService.ToggleFavorite(photo.JPEGPath); err != nil {
+	if !photo.IsJPEG() {
+		return
+	}
+	if err := a.exifService.ToggleFavorite(photo.ImagePath); err != nil {
 		log.Printf("Failed to toggle favorite: %v", err)
 	}
 }
@@ -199,8 +205,12 @@ func (a *Application) handleDelete() {
 	}
 
 	a.deleteDialogOpen = true
+	message := "Delete " + photo.Name + "?"
+	if photo.HasRAW() {
+		message += " This will also delete the RAW pair."
+	}
 	dialog.ShowConfirm("Delete Photo",
-		"Delete "+photo.Name+"? This will also delete the RAW pair.",
+		message,
 		func(confirmed bool) {
 			a.deleteDialogOpen = false
 			if !confirmed {

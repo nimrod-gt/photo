@@ -17,7 +17,7 @@ func TestDeleter_Delete(t *testing.T) {
 		jpegPath := filepath.Join(dir, "photo.jpg")
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
-		photo := model.Photo{JPEGPath: jpegPath, Name: "photo.jpg"}
+		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
 		d := NewDeleter()
 		require.NoError(t, d.Delete(photo))
 
@@ -32,7 +32,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 		require.NoError(t, os.WriteFile(rawPath, nil, 0600))
 
-		photo := model.Photo{JPEGPath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
+		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
 		d := NewDeleter()
 		require.NoError(t, d.Delete(photo))
 
@@ -43,7 +43,7 @@ func TestDeleter_Delete(t *testing.T) {
 	})
 
 	t.Run("JPEG already gone", func(t *testing.T) {
-		photo := model.Photo{JPEGPath: "/nonexistent/photo.jpg", Name: "photo.jpg"}
+		photo := model.Photo{ImagePath: "/nonexistent/photo.jpg", Name: "photo.jpg"}
 		d := NewDeleter()
 		assert.NoError(t, d.Delete(photo))
 	})
@@ -53,7 +53,7 @@ func TestDeleter_Delete(t *testing.T) {
 		jpegPath := filepath.Join(dir, "photo.jpg")
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
-		photo := model.Photo{JPEGPath: jpegPath, RAWPath: "/nonexistent/photo.ARW", Name: "photo.jpg"}
+		photo := model.Photo{ImagePath: jpegPath, RAWPath: "/nonexistent/photo.ARW", Name: "photo.jpg"}
 		d := NewDeleter()
 		assert.NoError(t, d.Delete(photo))
 	})

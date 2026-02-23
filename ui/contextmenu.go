@@ -13,13 +13,14 @@ type ContextMenuCallbacks struct {
 	OnDelete   func()
 }
 
-func NewContextMenu(callbacks ContextMenuCallbacks) *fyne.Menu {
-	return fyne.NewMenu("",
-		fyne.NewMenuItem("Favorite", func() {
-			if callbacks.OnFavorite != nil {
-				callbacks.OnFavorite()
-			}
-		}),
+func NewContextMenu(callbacks ContextMenuCallbacks) (*fyne.Menu, *fyne.MenuItem) {
+	favItem := fyne.NewMenuItem("Favorite", func() {
+		if callbacks.OnFavorite != nil {
+			callbacks.OnFavorite()
+		}
+	})
+	menu := fyne.NewMenu("",
+		favItem,
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Red", func() {
 			if callbacks.OnRed != nil {
@@ -43,6 +44,7 @@ func NewContextMenu(callbacks ContextMenuCallbacks) *fyne.Menu {
 			}
 		}),
 	)
+	return menu, favItem
 }
 
 func ShowContextMenu(menu *fyne.Menu, canvas fyne.Canvas, pos fyne.Position) {

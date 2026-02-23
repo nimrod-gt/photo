@@ -13,7 +13,7 @@ import (
 func TestScanner_ScanDirectory(t *testing.T) {
 	scanner := NewScanner()
 
-	t.Run("JPEG only", func(t *testing.T) {
+	t.Run("supported formats", func(t *testing.T) {
 		dir := t.TempDir()
 		touch(t, dir, "a.jpg")
 		touch(t, dir, "b.txt")
@@ -21,8 +21,10 @@ func TestScanner_ScanDirectory(t *testing.T) {
 
 		photos, err := scanner.ScanDirectory(dir)
 		require.NoError(t, err)
-		assert.Len(t, photos, 1)
-		assert.Equal(t, "a.jpg", photos[0].Name)
+		assert.Len(t, photos, 2)
+		names := []string{photos[0].Name, photos[1].Name}
+		assert.Contains(t, names, "a.jpg")
+		assert.Contains(t, names, "c.png")
 	})
 
 	t.Run("case-insensitive extensions", func(t *testing.T) {
@@ -56,6 +58,18 @@ func TestScanner_ScanDirectory(t *testing.T) {
 	t.Run("non-existent directory", func(t *testing.T) {
 		_, err := scanner.ScanDirectory("/nonexistent/path")
 		assert.Error(t, err)
+	})
+
+	t.Run("PNG has no RAW pair", func(t *testing.T) {
+		dir := t.TempDir()
+		touch(t, dir, "photo.png")
+		touch(t, dir, "photo.ARW")
+
+		photos, err := scanner.ScanDirectory(dir)
+		require.NoError(t, err)
+		require.Len(t, photos, 1)
+		assert.Equal(t, "photo.png", photos[0].Name)
+		assert.False(t, photos[0].HasRAW())
 	})
 
 	t.Run("with RAW pair", func(t *testing.T) {

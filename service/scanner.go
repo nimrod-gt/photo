@@ -36,7 +36,7 @@ func (s *Scanner) ScanDirectory(dir string) ([]model.Photo, error) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".jpg" && ext != ".jpeg" {
+		if !model.IsSupportedImage(ext) {
 			continue
 		}
 		fullPath := filepath.Join(dir, entry.Name())
@@ -55,13 +55,13 @@ func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
 	case SortByTime:
 		modTimes := make(map[string]time.Time, len(photos))
 		for _, p := range photos {
-			if info, err := os.Stat(p.JPEGPath); err == nil {
-				modTimes[p.JPEGPath] = info.ModTime()
+			if info, err := os.Stat(p.ImagePath); err == nil {
+				modTimes[p.ImagePath] = info.ModTime()
 			}
 		}
 		sort.Slice(photos, func(i, j int) bool {
-			ti, oki := modTimes[photos[i].JPEGPath]
-			tj, okj := modTimes[photos[j].JPEGPath]
+			ti, oki := modTimes[photos[i].ImagePath]
+			tj, okj := modTimes[photos[j].ImagePath]
 			if !oki || !okj {
 				return photos[i].Name < photos[j].Name
 			}

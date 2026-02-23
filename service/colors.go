@@ -22,7 +22,7 @@ func (s *ColorService) GetColors(photo model.Photo) ([]model.ColorLabel, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(photo.JPEGPath)
+	dir := filepath.Dir(photo.ImagePath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func (s *ColorService) ToggleColor(photo model.Photo, color model.ColorLabel) er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(photo.JPEGPath)
+	dir := filepath.Dir(photo.ImagePath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(photo.JPEGPath)
+	dir := filepath.Dir(photo.ImagePath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
 		return false, err
@@ -62,7 +62,7 @@ func (s *ColorService) RemoveColors(photo model.Photo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Dir(photo.JPEGPath)
+	dir := filepath.Dir(photo.ImagePath)
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
 		return err

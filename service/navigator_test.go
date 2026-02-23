@@ -13,7 +13,7 @@ import (
 func makePhotos(names ...string) []model.Photo {
 	photos := make([]model.Photo, len(names))
 	for i, name := range names {
-		photos[i] = model.Photo{JPEGPath: "/photos/" + name, Name: name}
+		photos[i] = model.Photo{ImagePath: "/photos/" + name, Name: name}
 	}
 	return photos
 }

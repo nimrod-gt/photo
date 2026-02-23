@@ -14,8 +14,8 @@ func NewDeleter() *Deleter {
 }
 
 func (d *Deleter) Delete(photo model.Photo) error {
-	if err := os.Remove(photo.JPEGPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("deleting JPEG %s: %w", photo.JPEGPath, err)
+	if err := os.Remove(photo.ImagePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("deleting image %s: %w", photo.ImagePath, err)
 	}
 
 	if photo.HasRAW() {
