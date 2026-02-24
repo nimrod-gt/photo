@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"photo/model"
@@ -478,9 +479,9 @@ func (a *Application) handleDelete() {
 	if photo.HasRAW() {
 		message += " This will also delete the RAW pair."
 	}
-	message += "\n\nConfirm(D)  Cancel(N)"
-	a.deleteDialog = dialog.NewConfirm("Delete Photo",
-		message,
+	a.deleteDialog = dialog.NewCustomConfirm("Delete Photo",
+		"Delete (D)", "Cancel (N)",
+		widget.NewLabel(message),
 		func(confirmed bool) {
 			a.deleteDialogOpen = false
 			a.deleteDialog = nil
