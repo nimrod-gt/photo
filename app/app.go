@@ -575,7 +575,11 @@ func (a *Application) handleCopy() {
 				a.showError("Failed to copy photo", err)
 				return
 			}
-			a.mainWindow.ShowNotification(photo.Name + " copied")
+			if rawCheck.Checked && !photo.HasRAW() {
+				a.mainWindow.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
+			} else {
+				a.mainWindow.ShowNotification(photo.Name + " copied")
+			}
 		},
 		a.mainWindow.Window(),
 	)

@@ -52,6 +52,10 @@ func (n *Notifier) ShowError(msg string) {
 	n.show(msg, color.NRGBA{R: 200, G: 40, B: 40, A: notifierBgAlpha})
 }
 
+func (n *Notifier) ShowWarning(msg string) {
+	n.show(msg, color.NRGBA{R: 200, G: 170, B: 20, A: notifierBgAlpha})
+}
+
 func (n *Notifier) ShowNotification(msg string) {
 	n.show(msg, color.NRGBA{R: 40, G: 140, B: 40, A: notifierBgAlpha})
 }
