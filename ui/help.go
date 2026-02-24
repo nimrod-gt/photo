@@ -22,7 +22,6 @@ var helpLeft = []shortcutSection{
 	{
 		title: "Actions",
 		entries: []shortcutEntry{
-			{"F", "Toggle favorite"},
 			{"R", "Toggle red label"},
 			{"G", "Toggle green label"},
 			{"B", "Toggle blue label"},

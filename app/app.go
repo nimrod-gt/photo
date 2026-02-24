@@ -69,11 +69,10 @@ func (a *Application) Run() {
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
-		OnFavorite: a.handleFavorite,
-		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:   a.handleDelete,
+		OnRed:    func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:  func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:   func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete: a.handleDelete,
 	})
 
 	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.metadataLoader, a.colorService, ui.FileBrowserCallbacks{
@@ -94,18 +93,16 @@ func (a *Application) Run() {
 	})
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
-		OnFavorite: a.handleFavorite,
-		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:   a.handleDelete,
+		OnRed:    func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:  func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:   func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete: a.handleDelete,
 	})
 
 	notifier := ui.NewNotifier()
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
-		OnFavorite:       a.handleFavorite,
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
@@ -238,7 +235,6 @@ func (a *Application) showPhoto(photo model.Photo) {
 	}
 	a.viewer.ShowPhoto(img)
 	a.updateColorIndicators(photo)
-	a.updateFavoriteState(photo)
 	a.prefetchAdjacent()
 	a.mainWindow.Window().Canvas().Unfocus()
 }
@@ -298,41 +294,6 @@ func (a *Application) handlePrevious() {
 	if photo, idx, ok := a.navigator.Previous(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
-	}
-}
-
-func (a *Application) updateFavoriteState(photo model.Photo) {
-	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
-	a.contextMenuItems.Favorite.Disabled = !photo.IsJPEG()
-
-	if !photo.IsJPEG() {
-		a.actionPanel.SetFavoriteActive(false)
-		a.contextMenuItems.Favorite.Checked = false
-		return
-	}
-
-	rating, _ := a.exifService.GetRating(photo.ImagePath)
-	active := rating > 0
-	a.actionPanel.SetFavoriteActive(active)
-	a.contextMenuItems.Favorite.Checked = active
-}
-
-func (a *Application) handleFavorite() {
-	photo, ok := a.navigator.Current()
-	if !ok {
-		return
-	}
-	if !photo.IsJPEG() {
-		return
-	}
-	if err := a.exifService.ToggleFavorite(photo.ImagePath); err != nil {
-		a.showError("Failed to toggle favorite", err)
-		return
-	}
-	a.updateFavoriteState(photo)
-	a.refreshFileBrowserItem(photo)
-	if a.hasActiveFilter() {
-		a.reapplyFilter()
 	}
 }
 
