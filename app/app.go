@@ -26,6 +26,7 @@ type Application struct {
 	exifService    *service.ExifService
 	colorService   *service.ColorService
 	deleter        *service.Deleter
+	copier         *service.Copier
 	navigator      *service.Navigator
 	imageCache     *service.ImageCache
 	metadataLoader *service.MetadataLoader
@@ -37,6 +38,8 @@ type Application struct {
 	contextMenuItems ui.ContextMenuItems
 	deleteDialog     *dialog.ConfirmDialog
 	deleteDialogOpen bool
+	copyDialog       *dialog.ConfirmDialog
+	copyDialogOpen   bool
 	sortOrder        service.SortOrder
 	sortDescending   bool
 	filterColors     map[model.ColorLabel]bool
@@ -50,6 +53,7 @@ func New() *Application {
 		exifService:    exifService,
 		colorService:   service.NewColorService(),
 		deleter:        service.NewDeleter(),
+		copier:         service.NewCopier(),
 		navigator:      service.NewNavigator(),
 		metadataLoader: service.NewMetadataLoader(exifService),
 		filterColors:   make(map[model.ColorLabel]bool),
@@ -103,7 +107,8 @@ func (a *Application) Run() {
 		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
 		OnDelete:         a.handleDelete,
-		OnDeleteCancel:   a.handleDeleteCancel,
+		OnCopy:           a.handleCopy,
+		OnCancel:         a.handleCancel,
 		OnNext:           a.handleNext,
 		OnPrevious:       a.handlePrevious,
 		OnSort:           a.handleSortToggle,
@@ -516,10 +521,62 @@ func (a *Application) handleHelp() {
 	ui.ShowHelp(a.mainWindow.Window())
 }
 
-func (a *Application) handleDeleteCancel() {
+func (a *Application) handleCancel() {
 	if a.deleteDialogOpen {
 		a.deleteDialog.Hide()
 		a.deleteDialogOpen = false
 		a.deleteDialog = nil
 	}
+	if a.copyDialogOpen {
+		a.copyDialog.Hide()
+		a.copyDialogOpen = false
+		a.copyDialog = nil
+	}
+}
+
+func (a *Application) handleCopy() {
+	if a.copyDialogOpen {
+		a.copyDialog.Confirm()
+		return
+	}
+
+	photo, ok := a.navigator.Current()
+	if !ok {
+		return
+	}
+
+	prefs := a.fyneApp.Preferences()
+	destDir := prefs.String("copyDestination")
+	includeRAW := prefs.BoolWithFallback("copyIncludeRAW", true)
+
+	destEntry := ui.NewDestinationEntry(destDir, a.mainWindow.Window())
+	rawCheck := ui.NewRawCheck(includeRAW)
+
+	content := ui.NewCopyDialogContent(photo.Name, destEntry.Container, rawCheck)
+
+	a.copyDialogOpen = true
+	a.copyDialog = dialog.NewCustomConfirm("Copy Photo", "Copy (C)", "Cancel (N)",
+		content,
+		func(confirmed bool) {
+			a.copyDialogOpen = false
+			a.copyDialog = nil
+			if !confirmed {
+				return
+			}
+			dest := destEntry.Text()
+			if len(dest) == 0 {
+				a.mainWindow.ShowError("No destination folder selected")
+				return
+			}
+			prefs.SetString("copyDestination", dest)
+			prefs.SetBool("copyIncludeRAW", rawCheck.Checked)
+			if err := a.copier.Copy(photo, dest, rawCheck.Checked); err != nil {
+				a.showError("Failed to copy photo", err)
+				return
+			}
+			a.mainWindow.ShowNotification(photo.Name + " copied")
+		},
+		a.mainWindow.Window(),
+	)
+	a.copyDialog.Show()
 }

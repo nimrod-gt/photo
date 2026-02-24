@@ -20,13 +20,6 @@ type shortcutSection struct {
 
 var helpLeft = []shortcutSection{
 	{
-		title: "Navigation",
-		entries: []shortcutEntry{
-			{"← ↑", "Previous photo"},
-			{"→ ↓", "Next photo"},
-		},
-	},
-	{
 		title: "Actions",
 		entries: []shortcutEntry{
 			{"F", "Toggle favorite"},
@@ -34,11 +27,20 @@ var helpLeft = []shortcutSection{
 			{"G", "Toggle green label"},
 			{"B", "Toggle blue label"},
 			{"D", "Delete photo"},
+			{"C", "Copy photo"},
+			{"H", "Show this help"},
 		},
 	},
 }
 
 var helpRight = []shortcutSection{
+	{
+		title: "Navigation",
+		entries: []shortcutEntry{
+			{"← ↑", "Previous photo"},
+			{"→ ↓ 🖱", "Next photo"},
+		},
+	},
 	{
 		title: "Sort & Filter",
 		entries: []shortcutEntry{
@@ -47,12 +49,6 @@ var helpRight = []shortcutSection{
 			{"2", "Filter by green"},
 			{"3", "Filter by blue"},
 			{"4", "Filter by favorite"},
-		},
-	},
-	{
-		title: "Other",
-		entries: []shortcutEntry{
-			{"H", "Show this help"},
 		},
 	},
 }

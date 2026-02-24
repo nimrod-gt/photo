@@ -42,6 +42,10 @@ func (mw *MainWindow) ShowError(msg string) {
 	mw.notifier.ShowError(msg)
 }
 
+func (mw *MainWindow) ShowNotification(msg string) {
+	mw.notifier.ShowNotification(msg)
+}
+
 func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }

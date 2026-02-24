@@ -11,7 +11,8 @@ type ShortcutCallbacks struct {
 	OnGreen          func()
 	OnBlue           func()
 	OnDelete         func()
-	OnDeleteCancel   func()
+	OnCopy           func()
+	OnCancel         func()
 	OnNext           func()
 	OnPrevious       func()
 	OnSort           func()
@@ -29,7 +30,8 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		glfw.GetKeyScancode(glfw.KeyG):  callbacks.OnGreen,
 		glfw.GetKeyScancode(glfw.KeyB):  callbacks.OnBlue,
 		glfw.GetKeyScancode(glfw.KeyD):  callbacks.OnDelete,
-		glfw.GetKeyScancode(glfw.KeyN):  callbacks.OnDeleteCancel,
+		glfw.GetKeyScancode(glfw.KeyC):  callbacks.OnCopy,
+		glfw.GetKeyScancode(glfw.KeyN):  callbacks.OnCancel,
 		glfw.GetKeyScancode(glfw.KeyS):  callbacks.OnSort,
 		glfw.GetKeyScancode(glfw.Key1):  callbacks.OnFilterRed,
 		glfw.GetKeyScancode(glfw.Key2):  callbacks.OnFilterGreen,
