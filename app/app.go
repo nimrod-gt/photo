@@ -123,6 +123,12 @@ func (a *Application) Run() {
 	a.imageCache = service.NewImageCache(monitorSize())
 
 	a.loadInitialDirectory()
+
+	if prefs := fyneApp.Preferences(); !prefs.BoolWithFallback("helpShown", false) {
+		prefs.SetBool("helpShown", true)
+		a.handleHelp()
+	}
+
 	a.mainWindow.Show()
 }
 
