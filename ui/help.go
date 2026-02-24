@@ -28,7 +28,7 @@ var helpLeft = []shortcutSection{
 			{"B", "Toggle blue label"},
 			{"D", "Delete photo"},
 			{"C", "Copy photo"},
-			{"H", "Show this help"},
+			{"H", "Toggle this help"},
 		},
 	},
 }
@@ -45,10 +45,10 @@ var helpRight = []shortcutSection{
 		title: "Sort & Filter",
 		entries: []shortcutEntry{
 			{"S", "Cycle sort order"},
-			{"1", "Filter by red"},
-			{"2", "Filter by green"},
-			{"3", "Filter by blue"},
-			{"4", "Filter by favorite"},
+			{"1", "Filter by favorite"},
+			{"2", "Filter by red"},
+			{"3", "Filter by green"},
+			{"4", "Filter by blue"},
 		},
 	},
 }
@@ -76,9 +76,9 @@ func buildHelpColumn(sections []shortcutSection) *fyne.Container {
 	return col
 }
 
-func ShowHelp(window fyne.Window) {
+func NewHelp(window fyne.Window) *dialog.CustomDialog {
 	left := buildHelpColumn(helpLeft)
 	right := buildHelpColumn(helpRight)
 	content := container.NewHBox(left, widget.NewSeparator(), right)
-	dialog.ShowCustom("Keyboard Shortcuts", "Close", content, window)
+	return dialog.NewCustom("Keyboard Shortcuts", "Close", content, window)
 }

@@ -25,19 +25,19 @@ type ShortcutCallbacks struct {
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 	scanActions := map[int]func(){
-		glfw.GetKeyScancode(glfw.KeyF):  callbacks.OnFavorite,
-		glfw.GetKeyScancode(glfw.KeyR):  callbacks.OnRed,
-		glfw.GetKeyScancode(glfw.KeyG):  callbacks.OnGreen,
-		glfw.GetKeyScancode(glfw.KeyB):  callbacks.OnBlue,
-		glfw.GetKeyScancode(glfw.KeyD):  callbacks.OnDelete,
-		glfw.GetKeyScancode(glfw.KeyC):  callbacks.OnCopy,
-		glfw.GetKeyScancode(glfw.KeyN):  callbacks.OnCancel,
-		glfw.GetKeyScancode(glfw.KeyS):  callbacks.OnSort,
-		glfw.GetKeyScancode(glfw.Key1):  callbacks.OnFilterRed,
-		glfw.GetKeyScancode(glfw.Key2):  callbacks.OnFilterGreen,
-		glfw.GetKeyScancode(glfw.Key3):  callbacks.OnFilterBlue,
-		glfw.GetKeyScancode(glfw.Key4):  callbacks.OnFilterFavorite,
-		glfw.GetKeyScancode(glfw.KeyH):  callbacks.OnHelp,
+		glfw.GetKeyScancode(glfw.KeyF): callbacks.OnFavorite,
+		glfw.GetKeyScancode(glfw.KeyR): callbacks.OnRed,
+		glfw.GetKeyScancode(glfw.KeyG): callbacks.OnGreen,
+		glfw.GetKeyScancode(glfw.KeyB): callbacks.OnBlue,
+		glfw.GetKeyScancode(glfw.KeyD): callbacks.OnDelete,
+		glfw.GetKeyScancode(glfw.KeyC): callbacks.OnCopy,
+		glfw.GetKeyScancode(glfw.KeyN): callbacks.OnCancel,
+		glfw.GetKeyScancode(glfw.KeyS): callbacks.OnSort,
+		glfw.GetKeyScancode(glfw.Key1): callbacks.OnFilterFavorite,
+		glfw.GetKeyScancode(glfw.Key2): callbacks.OnFilterRed,
+		glfw.GetKeyScancode(glfw.Key3): callbacks.OnFilterGreen,
+		glfw.GetKeyScancode(glfw.Key4): callbacks.OnFilterBlue,
+		glfw.GetKeyScancode(glfw.KeyH): callbacks.OnHelp,
 	}
 
 	canvas.SetOnTypedKey(func(ev *fyne.KeyEvent) {

@@ -63,7 +63,7 @@ go tool golangci-lint run --fix
 go build ./...
 
 # Cross-compile for Windows (requires: brew install mingw-w64)
-CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o photo.exe .
+CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --icon Icon.png --app-id com.photo.viewer --os windows
 zip photo-windows-amd64.zip photo.exe
 ```
 

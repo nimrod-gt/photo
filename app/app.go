@@ -41,6 +41,8 @@ type Application struct {
 	deleteDialogOpen bool
 	copyDialog       *dialog.ConfirmDialog
 	copyDialogOpen   bool
+	helpDialog       *dialog.CustomDialog
+	helpDialogOpen   bool
 	sortOrder        service.SortOrder
 	sortDescending   bool
 	filterColors     map[model.ColorLabel]bool
@@ -525,7 +527,19 @@ func (a *Application) handleDelete() {
 }
 
 func (a *Application) handleHelp() {
-	ui.ShowHelp(a.mainWindow.Window())
+	if a.helpDialogOpen {
+		a.helpDialog.Hide()
+		a.helpDialogOpen = false
+		a.helpDialog = nil
+		return
+	}
+	a.helpDialog = ui.NewHelp(a.mainWindow.Window())
+	a.helpDialog.SetOnClosed(func() {
+		a.helpDialogOpen = false
+		a.helpDialog = nil
+	})
+	a.helpDialogOpen = true
+	a.helpDialog.Show()
 }
 
 func (a *Application) handleCancel() {
