@@ -174,7 +174,6 @@ github.com/dsoprea/go-exif/v3 v3.0.0-20221003160559-cf5cd88aa559/go.mod h1:rW6DM
 github.com/dsoprea/go-exif/v3 v3.0.0-20221003171958-de6cb6e380a8/go.mod h1:akyZEJZ/k5bmbC9gA612ZLQkcED8enS9vuTiuAkENr0=
 github.com/dsoprea/go-exif/v3 v3.0.1 h1:/IE4iW7gvY7BablV1XY0unqhMv26EYpOquVMwoBo/wc=
 github.com/dsoprea/go-exif/v3 v3.0.1/go.mod h1:10HkA1Wz3h398cDP66L+Is9kKDmlqlIJGPv8pk4EWvc=
-github.com/dsoprea/go-iptc v0.0.0-20200609062250-162ae6b44feb h1:gwjJjUr6FY7zAWVEueFPrcRHhd9+IK81TcItbqw2du4=
 github.com/dsoprea/go-iptc v0.0.0-20200609062250-162ae6b44feb/go.mod h1:kYIdx9N9NaOyD7U6D+YtExN7QhRm+5kq7//yOsRXQtM=
 github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413 h1:YDRiMEm32T60Kpm35YzOK9ZHgjsS1Qrid+XskNcsdp8=
 github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413/go.mod h1:kYIdx9N9NaOyD7U6D+YtExN7QhRm+5kq7//yOsRXQtM=
@@ -184,7 +183,6 @@ github.com/dsoprea/go-logging v0.0.0-20190624164917-c4f10aab7696/go.mod h1:Nm/x2
 github.com/dsoprea/go-logging v0.0.0-20200517223158-a10564966e9d/go.mod h1:7I+3Pe2o/YSU88W0hWlm9S22W7XI1JFNJ86U0zPKMf8=
 github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd h1:l+vLbuxptsC6VQyQsfD7NnEC8BZuFpz45PgY+pH8YTg=
 github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd/go.mod h1:7I+3Pe2o/YSU88W0hWlm9S22W7XI1JFNJ86U0zPKMf8=
-github.com/dsoprea/go-photoshop-info-format v0.0.0-20200609050348-3db9b63b202c h1:7j5aWACOzROpr+dvMtu8GnI97g9ShLWD72XIELMgn+c=
 github.com/dsoprea/go-photoshop-info-format v0.0.0-20200609050348-3db9b63b202c/go.mod h1:pqKB+ijp27cEcrHxhXVgUUMlSDRuGJJp1E+20Lj5H0E=
 github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d h1:dg6UMHa50VI01WuPWXPbNJpO8QSyvIF5T5n2IZiqX3A=
 github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d/go.mod h1:pqKB+ijp27cEcrHxhXVgUUMlSDRuGJJp1E+20Lj5H0E=
@@ -231,7 +229,6 @@ github.com/go-critic/go-critic v0.14.3/go.mod h1:xwntfW6SYAd7h1OqDzmN6hBX/JxsEKl
 github.com/go-errors/errors v1.0.1/go.mod h1:f4zRHt4oKfwPJE5k8C9vpYG+aDHdBFUsgrm6/TyX73Q=
 github.com/go-errors/errors v1.0.2/go.mod h1:psDX2osz5VnTOnFWbDeWwS7yejl+uV3FEWEp4lssFEs=
 github.com/go-errors/errors v1.1.1/go.mod h1:psDX2osz5VnTOnFWbDeWwS7yejl+uV3FEWEp4lssFEs=
-github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-errors/errors v1.5.1 h1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=
 github.com/go-errors/errors v1.5.1/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
@@ -296,7 +293,6 @@ github.com/gofrs/flock v0.13.0/go.mod h1:jxeyy9R1auM5S6JYDBhDt+E2TCo7DkratH4Pgi8
 github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7atdtwQ=
 github.com/golang/geo v0.0.0-20190916061304-5b978397cfec/go.mod h1:QZ0nwyI2jOfgRAoBvP+ab5aRr7c9x7lhGEJrKvBwjWI=
 github.com/golang/geo v0.0.0-20200319012246-673a6f80352d/go.mod h1:QZ0nwyI2jOfgRAoBvP+ab5aRr7c9x7lhGEJrKvBwjWI=
-github.com/golang/geo v0.0.0-20210211234256-740aa86cb551 h1:gtexQ/VGyN+VVFRXSFiguSNcXmS6rkKT+X7FdIrTtfo=
 github.com/golang/geo v0.0.0-20210211234256-740aa86cb551/go.mod h1:QZ0nwyI2jOfgRAoBvP+ab5aRr7c9x7lhGEJrKvBwjWI=
 github.com/golang/geo v0.0.0-20260129164528-943061e2742c h1:ysO2h2Odnl1AJM1I2Lm/fa6JvO0pECMSt2CwBaa+ITo=
 github.com/golang/geo v0.0.0-20260129164528-943061e2742c/go.mod h1:Mymr9kRGDc64JPr03TSZmuIBODZ3KyswLzm1xL0HFA8=

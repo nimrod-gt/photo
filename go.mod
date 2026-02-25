@@ -4,7 +4,11 @@ go 1.25.0
 
 require (
 	fyne.io/fyne/v2 v2.7.3
+	github.com/dsoprea/go-exif/v3 v3.0.1
 	github.com/dsoprea/go-jpeg-image-structure/v2 v2.0.0-20221012074422-4f3f7e934102
+	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a
+	github.com/stretchr/testify v1.11.1
+	golang.org/x/image v0.24.0
 )
 
 require (
@@ -62,7 +66,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/dsoprea/go-exif/v3 v3.0.1 // indirect
 	github.com/dsoprea/go-iptc v0.0.0-20200610044640-bc9ca208b413 // indirect
 	github.com/dsoprea/go-logging v0.0.0-20200710184922-b02d349568dd // indirect
 	github.com/dsoprea/go-photoshop-info-format v0.0.0-20200610045659-121dd752914d // indirect
@@ -82,7 +85,6 @@ require (
 	github.com/go-critic/go-critic v0.14.3 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 // indirect
-	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
 	github.com/go-text/render v0.2.0 // indirect
 	github.com/go-text/typesetting v0.3.3 // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
@@ -205,7 +207,6 @@ require (
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.3.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
 	github.com/tetafro/godot v1.5.4 // indirect
 	github.com/timakin/bodyclose v0.0.0-20241222091800-1db5c5ca4d67 // indirect
@@ -231,7 +232,6 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
-	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/mod v0.33.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
