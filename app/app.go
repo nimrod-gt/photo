@@ -280,6 +280,7 @@ func (a *Application) handlePhotoSelected(photo model.Photo) {
 	}
 	if p, _, ok := a.navigator.GoTo(idx); ok {
 		a.showPhoto(p)
+		a.unpinIfMovedAway(p)
 	}
 }
 
@@ -287,6 +288,7 @@ func (a *Application) handleNext() {
 	if photo, idx, ok := a.navigator.Next(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
+		a.unpinIfMovedAway(photo)
 	}
 }
 
@@ -294,6 +296,7 @@ func (a *Application) handlePrevious() {
 	if photo, idx, ok := a.navigator.Previous(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
+		a.unpinIfMovedAway(photo)
 	}
 }
 
@@ -308,6 +311,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	a.updateColorIndicators(photo)
 	a.refreshFileBrowserItem(photo)
 	if a.hasActiveFilter() {
+		a.fileBrowser.SetPinnedPath(photo.ImagePath)
 		a.reapplyFilter()
 	}
 }
@@ -368,13 +372,27 @@ func reversePhotos(photos []model.Photo) {
 	slices.Reverse(photos)
 }
 
+func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
+	pinnedPath := a.fileBrowser.PinnedPath()
+	if len(pinnedPath) == 0 || !a.hasActiveFilter() {
+		return
+	}
+	if currentPhoto.ImagePath == pinnedPath {
+		return
+	}
+	a.fileBrowser.ClearPinnedPath()
+	a.reapplyFilter()
+}
+
 func (a *Application) handleFilterColor(color model.ColorLabel) {
 	a.filterColors[color] = !a.filterColors[color]
+	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()
 }
 
 func (a *Application) handleFilterFavorite() {
 	a.filterFavorite = !a.filterFavorite
+	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()
 }
 

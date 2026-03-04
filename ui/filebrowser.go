@@ -58,6 +58,7 @@ type FileBrowser struct {
 
 	filterColors   map[model.ColorLabel]bool
 	filterFavorite bool
+	pinnedPath     string
 
 	generation uint64
 	mu         sync.Mutex
@@ -89,11 +90,30 @@ func (fb *FileBrowser) Container() *fyne.Container {
 	return fb.container
 }
 
+func (fb *FileBrowser) SetPinnedPath(path string) {
+	fb.mu.Lock()
+	fb.pinnedPath = path
+	fb.mu.Unlock()
+}
+
+func (fb *FileBrowser) ClearPinnedPath() {
+	fb.mu.Lock()
+	fb.pinnedPath = ""
+	fb.mu.Unlock()
+}
+
+func (fb *FileBrowser) PinnedPath() string {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	return fb.pinnedPath
+}
+
 func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	fb.mu.Lock()
 	fb.cancel()
 	fb.allPhotos = photos
 	fb.allMeta = make([]model.PhotoMeta, len(photos))
+	fb.pinnedPath = ""
 	fb.generation++
 	gen := fb.generation
 	fb.mu.Unlock()
@@ -291,7 +311,7 @@ func (fb *FileBrowser) applyFilter() {
 	fb.photos = nil
 	fb.meta = nil
 	for i, m := range fb.allMeta {
-		if fb.matchesFilter(m) {
+		if fb.matchesFilter(m) || fb.allPhotos[i].ImagePath == fb.pinnedPath {
 			fb.indices = append(fb.indices, i)
 			fb.photos = append(fb.photos, fb.allPhotos[i])
 			fb.meta = append(fb.meta, m)
