@@ -88,6 +88,60 @@ func TestColorService_RemoveColors(t *testing.T) {
 	})
 }
 
+func TestColorService_RemoveMultipleColors(t *testing.T) {
+	t.Run("removes colors for multiple photos in same dir", func(t *testing.T) {
+		dir := t.TempDir()
+		svc := NewColorService()
+		photo1 := testPhoto(dir, "a.jpg")
+		photo2 := testPhoto(dir, "b.jpg")
+		photo3 := testPhoto(dir, "c.jpg")
+
+		require.NoError(t, svc.ToggleColor(photo1, model.ColorRed))
+		require.NoError(t, svc.ToggleColor(photo2, model.ColorGreen))
+		require.NoError(t, svc.ToggleColor(photo3, model.ColorBlue))
+
+		require.NoError(t, svc.RemoveMultipleColors([]model.Photo{photo1, photo2}))
+
+		colors, err := svc.GetColors(photo1)
+		require.NoError(t, err)
+		assert.Empty(t, colors)
+
+		colors, err = svc.GetColors(photo2)
+		require.NoError(t, err)
+		assert.Empty(t, colors)
+
+		colors, err = svc.GetColors(photo3)
+		require.NoError(t, err)
+		assert.Contains(t, colors, model.ColorBlue)
+	})
+
+	t.Run("handles photos across multiple dirs", func(t *testing.T) {
+		dir1 := t.TempDir()
+		dir2 := t.TempDir()
+		svc := NewColorService()
+		photo1 := testPhoto(dir1, "a.jpg")
+		photo2 := testPhoto(dir2, "b.jpg")
+
+		require.NoError(t, svc.ToggleColor(photo1, model.ColorRed))
+		require.NoError(t, svc.ToggleColor(photo2, model.ColorGreen))
+
+		require.NoError(t, svc.RemoveMultipleColors([]model.Photo{photo1, photo2}))
+
+		colors, err := svc.GetColors(photo1)
+		require.NoError(t, err)
+		assert.Empty(t, colors)
+
+		colors, err = svc.GetColors(photo2)
+		require.NoError(t, err)
+		assert.Empty(t, colors)
+	})
+
+	t.Run("empty list is no-op", func(t *testing.T) {
+		svc := NewColorService()
+		assert.NoError(t, svc.RemoveMultipleColors(nil))
+	})
+}
+
 func TestColorService_InvalidateCache(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewColorService()

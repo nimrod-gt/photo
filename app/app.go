@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"log"
@@ -43,6 +44,11 @@ type Application struct {
 	copyDialogOpen   bool
 	helpDialog       *dialog.CustomDialog
 	helpDialogOpen   bool
+
+	deleteAllDialogOpen bool
+	copyAllDialog       *ui.CopyAllDialog
+	copyAllDialogOpen   bool
+	copyAllCancel       context.CancelFunc
 	sortOrder        service.SortOrder
 	sortDescending   bool
 	filterColors     map[model.ColorLabel]bool
@@ -85,6 +91,8 @@ func (a *Application) Run() {
 		OnFilterBlue:        func() { a.handleFilterColor(model.ColorBlue) },
 		OnFilterFavorite:    a.handleFilterFavorite,
 		OnFilteredChanged:   a.handleFilteredChanged,
+		OnDeleteAll:         a.handleDeleteAll,
+		OnCopyAll:           a.handleCopyAll,
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
@@ -532,6 +540,18 @@ func (a *Application) handleCancel() {
 		a.copyDialogOpen = false
 		a.copyDialog = nil
 	}
+	if a.deleteAllDialogOpen {
+		a.deleteAllDialogOpen = false
+	}
+	if a.copyAllDialogOpen {
+		if a.copyAllCancel != nil {
+			a.copyAllCancel()
+		}
+		a.copyAllDialog.Hide()
+		a.copyAllDialogOpen = false
+		a.copyAllDialog = nil
+		a.copyAllCancel = nil
+	}
 }
 
 func (a *Application) handleCopy() {
@@ -583,4 +603,125 @@ func (a *Application) handleCopy() {
 		a.mainWindow.Window(),
 	)
 	a.copyDialog.Show()
+}
+
+func (a *Application) handleDeleteAll() {
+	filtered := a.fileBrowser.FilteredPhotos()
+	if len(filtered) == 0 {
+		return
+	}
+
+	content, rawCheck := ui.NewDeleteAllDialogContent(len(filtered))
+
+	a.deleteAllDialogOpen = true
+	dlg := dialog.NewCustomConfirm("Delete All",
+		"Delete", "Cancel",
+		content,
+		func(confirmed bool) {
+			a.deleteAllDialogOpen = false
+			if !confirmed {
+				return
+			}
+			includeRAW := rawCheck.Checked
+			deleted := 0
+			for _, photo := range filtered {
+				if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+					a.showError("Failed to delete "+photo.Name, err)
+					continue
+				}
+				deleted++
+			}
+			if err := a.colorService.RemoveMultipleColors(filtered); err != nil {
+				a.showError("Failed to remove color labels", err)
+			}
+			paths := make(map[string]bool, len(filtered))
+			for _, p := range filtered {
+				paths[p.ImagePath] = true
+			}
+			a.fileBrowser.RemovePhotos(paths)
+			newFiltered := a.fileBrowser.FilteredPhotos()
+			a.navigator.SetPhotos(newFiltered)
+			if p, navIdx, ok := a.navigator.GoTo(0); ok {
+				a.showPhoto(p)
+				a.fileBrowser.SelectIndex(navIdx)
+			} else {
+				a.viewer.Clear()
+			}
+			a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", deleted))
+		},
+		a.mainWindow.Window(),
+	)
+	dlg.Show()
+}
+
+func (a *Application) handleCopyAll() {
+	filtered := a.fileBrowser.FilteredPhotos()
+	if len(filtered) == 0 {
+		return
+	}
+
+	prefs := a.fyneApp.Preferences()
+	destDir := prefs.String("copyDestination")
+	includeRAW := prefs.BoolWithFallback("copyIncludeRAW", true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.copyAllCancel = cancel
+
+	a.copyAllDialogOpen = true
+	a.copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, includeRAW, a.mainWindow.Window(),
+		func() {
+			dest := a.copyAllDialog.DestDir()
+			if len(dest) == 0 {
+				a.mainWindow.ShowError("No destination folder selected")
+				a.copyAllDialog.Finish()
+				return
+			}
+			withRAW := a.copyAllDialog.IncludeRAW()
+			prefs.SetString("copyDestination", dest)
+			prefs.SetBool("copyIncludeRAW", withRAW)
+
+			go func() {
+				total := len(filtered)
+				copied := 0
+				for i, photo := range filtered {
+					if err := a.copier.CopyWithContext(ctx, photo, dest, withRAW); err != nil {
+						if ctx.Err() != nil {
+							fyne.Do(func() {
+								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
+								a.copyAllDialog.Hide()
+								a.copyAllDialogOpen = false
+								a.copyAllDialog = nil
+								a.copyAllCancel = nil
+							})
+							return
+						}
+						log.Printf("Failed to copy %s: %v", photo.Name, err)
+						continue
+					}
+					copied++
+					progress := float64(i+1) / float64(total)
+					fyne.Do(func() {
+						a.copyAllDialog.SetProgress(progress)
+					})
+				}
+				fyne.Do(func() {
+					a.copyAllDialog.Finish()
+					a.copyAllDialogOpen = false
+					a.copyAllDialog = nil
+					a.copyAllCancel = nil
+					a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
+				})
+			}()
+		},
+		func() {
+			if a.copyAllCancel != nil {
+				a.copyAllCancel()
+			}
+			a.copyAllDialog.Hide()
+			a.copyAllDialogOpen = false
+			a.copyAllDialog = nil
+			a.copyAllCancel = nil
+		},
+	)
+	a.copyAllDialog.Show()
 }

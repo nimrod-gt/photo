@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -132,5 +133,73 @@ func TestCopier_Copy(t *testing.T) {
 		data, err := os.ReadFile(existingPath)
 		require.NoError(t, err)
 		assert.Equal(t, jpegContent, data)
+	})
+}
+
+func TestCopier_CopyWithContext(t *testing.T) {
+	t.Run("cancelled context skips copy", func(t *testing.T) {
+		srcDir := t.TempDir()
+		destDir := t.TempDir()
+
+		jpegPath := filepath.Join(srcDir, "photo.jpg")
+		require.NoError(t, os.WriteFile(jpegPath, []byte("data"), 0600))
+
+		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
+		c := NewCopier()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := c.CopyWithContext(ctx, photo, destDir, false)
+		require.ErrorIs(t, err, context.Canceled)
+
+		_, statErr := os.Stat(filepath.Join(destDir, "photo.jpg"))
+		assert.True(t, os.IsNotExist(statErr))
+	})
+
+	t.Run("normal context copies files", func(t *testing.T) {
+		srcDir := t.TempDir()
+		destDir := t.TempDir()
+
+		jpegContent := []byte("jpeg-data")
+		jpegPath := filepath.Join(srcDir, "photo.jpg")
+		require.NoError(t, os.WriteFile(jpegPath, jpegContent, 0600))
+
+		rawContent := []byte("raw-data")
+		rawPath := filepath.Join(srcDir, "photo.ARW")
+		require.NoError(t, os.WriteFile(rawPath, rawContent, 0600))
+
+		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
+		c := NewCopier()
+
+		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, true))
+
+		data, err := os.ReadFile(filepath.Join(destDir, "photo.jpg"))
+		require.NoError(t, err)
+		assert.Equal(t, jpegContent, data)
+
+		data, err = os.ReadFile(filepath.Join(destDir, "photo.ARW"))
+		require.NoError(t, err)
+		assert.Equal(t, rawContent, data)
+	})
+
+	t.Run("without RAW option", func(t *testing.T) {
+		srcDir := t.TempDir()
+		destDir := t.TempDir()
+
+		jpegPath := filepath.Join(srcDir, "photo.jpg")
+		require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg"), 0600))
+		rawPath := filepath.Join(srcDir, "photo.ARW")
+		require.NoError(t, os.WriteFile(rawPath, []byte("raw"), 0600))
+
+		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
+		c := NewCopier()
+
+		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, false))
+
+		_, err := os.Stat(filepath.Join(destDir, "photo.jpg"))
+		require.NoError(t, err)
+		_, err = os.Stat(filepath.Join(destDir, "photo.ARW"))
+		assert.True(t, os.IsNotExist(err))
 	})
 }

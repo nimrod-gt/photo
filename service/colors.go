@@ -78,6 +78,33 @@ func (s *ColorService) RemoveColors(photo model.Photo) error {
 	return model.SaveColors(dir, cm)
 }
 
+func (s *ColorService) RemoveMultipleColors(photos []model.Photo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	grouped := make(map[string][]string)
+	for _, p := range photos {
+		dir := filepath.Dir(p.ImagePath)
+		grouped[dir] = append(grouped[dir], p.Name)
+	}
+
+	for dir, names := range grouped {
+		cm, err := s.loadOrGet(dir)
+		if err != nil {
+			return err
+		}
+		for _, name := range names {
+			delete(cm, name)
+		}
+		s.colors[dir] = cm
+		if err := model.SaveColors(dir, cm); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

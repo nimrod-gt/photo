@@ -36,6 +36,8 @@ type FileBrowserCallbacks struct {
 	OnFilterBlue        func()
 	OnFilterFavorite    func()
 	OnFilteredChanged   func(photos []model.Photo)
+	OnDeleteAll         func()
+	OnCopyAll           func()
 }
 
 type FileBrowser struct {
@@ -49,6 +51,10 @@ type FileBrowser struct {
 	filterRedBtn   *widget.Button
 	filterGreenBtn *widget.Button
 	filterBlueBtn  *widget.Button
+
+	bulkBar      *fyne.Container
+	deleteAllBtn *widget.Button
+	copyAllBtn   *widget.Button
 
 	allPhotos []model.Photo
 	allMeta   []model.PhotoMeta
@@ -120,6 +126,7 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 
 	fb.loadInitialMeta(photos)
 	fb.applyFilter()
+	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -257,6 +264,7 @@ func (fb *FileBrowser) SetFilter(colors map[model.ColorLabel]bool, favorite bool
 	fb.mu.Unlock()
 	fb.applyFilter()
 	fb.updateFilterButtonStates()
+	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
 
@@ -293,7 +301,39 @@ func (fb *FileBrowser) RemovePhoto(imagePath string) {
 	fb.allMeta = append(fb.allMeta[:removeIdx], fb.allMeta[removeIdx+1:]...)
 	fb.mu.Unlock()
 	fb.applyFilter()
+	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
+}
+
+func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
+	fb.mu.Lock()
+	var newPhotos []model.Photo
+	var newMeta []model.PhotoMeta
+	for i, p := range fb.allPhotos {
+		if !paths[p.ImagePath] {
+			newPhotos = append(newPhotos, p)
+			newMeta = append(newMeta, fb.allMeta[i])
+		}
+	}
+	fb.allPhotos = newPhotos
+	fb.allMeta = newMeta
+	fb.mu.Unlock()
+	fb.applyFilter()
+	fb.updateBulkBarVisibility()
+	fb.list.Refresh()
+}
+
+func (fb *FileBrowser) updateBulkBarVisibility() {
+	fb.mu.Lock()
+	active := hasActiveColorFilter(fb.filterColors, fb.filterFavorite)
+	count := len(fb.photos)
+	fb.mu.Unlock()
+
+	if active && count > 0 {
+		fb.bulkBar.Show()
+	} else {
+		fb.bulkBar.Hide()
+	}
 }
 
 func (fb *FileBrowser) applyFilter() {
@@ -443,7 +483,21 @@ func (fb *FileBrowser) build() {
 	fb.filterBlueBtn.Importance = widget.MediumImportance
 	filterBar := container.NewGridWithColumns(4, fb.filterFavBtn, fb.filterRedBtn, fb.filterGreenBtn, fb.filterBlueBtn)
 
-	topBars := container.NewVBox(sortBar, filterBar)
+	fb.deleteAllBtn = widget.NewButtonWithIcon("Delete All", theme.DeleteIcon(), func() {
+		if fb.callbacks.OnDeleteAll != nil {
+			fb.callbacks.OnDeleteAll()
+		}
+	})
+	fb.deleteAllBtn.Importance = widget.DangerImportance
+	fb.copyAllBtn = widget.NewButtonWithIcon("Copy All", theme.ContentCopyIcon(), func() {
+		if fb.callbacks.OnCopyAll != nil {
+			fb.callbacks.OnCopyAll()
+		}
+	})
+	fb.bulkBar = container.NewGridWithColumns(2, fb.deleteAllBtn, fb.copyAllBtn)
+	fb.bulkBar.Hide()
+
+	topBars := container.NewVBox(sortBar, filterBar, fb.bulkBar)
 	treeWithBtn := container.NewBorder(chooseBtn, nil, nil, nil, fb.dirTree.Widget())
 	listWithSort := container.NewBorder(topBars, nil, nil, nil, fb.list)
 	split := container.NewVSplit(treeWithBtn, listWithSort)

@@ -58,3 +58,62 @@ func TestDeleter_Delete(t *testing.T) {
 		assert.NoError(t, d.Delete(photo))
 	})
 }
+
+func TestDeleter_DeleteWithOption(t *testing.T) {
+	tests := []struct {
+		name       string
+		hasRAW     bool
+		includeRAW bool
+		wantRAW    bool
+	}{
+		{
+			name:       "JPEG only without RAW option",
+			hasRAW:     false,
+			includeRAW: false,
+			wantRAW:    false,
+		},
+		{
+			name:       "JPEG+RAW with includeRAW on",
+			hasRAW:     true,
+			includeRAW: true,
+			wantRAW:    false,
+		},
+		{
+			name:       "JPEG+RAW with includeRAW off keeps RAW",
+			hasRAW:     true,
+			includeRAW: false,
+			wantRAW:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			jpegPath := filepath.Join(dir, "photo.jpg")
+			require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
+
+			photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
+
+			if tt.hasRAW {
+				rawPath := filepath.Join(dir, "photo.ARW")
+				require.NoError(t, os.WriteFile(rawPath, nil, 0600))
+				photo.RAWPath = rawPath
+			}
+
+			d := NewDeleter()
+			require.NoError(t, d.DeleteWithOption(photo, tt.includeRAW))
+
+			_, err := os.Stat(jpegPath)
+			assert.True(t, os.IsNotExist(err), "JPEG should be deleted")
+
+			if tt.hasRAW {
+				_, err := os.Stat(photo.RAWPath)
+				if tt.wantRAW {
+					assert.NoError(t, err, "RAW should still exist")
+				} else {
+					assert.True(t, os.IsNotExist(err), "RAW should be deleted")
+				}
+			}
+		})
+	}
+}
