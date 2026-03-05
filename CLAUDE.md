@@ -31,6 +31,8 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `G` — toggle Green
 - `B` — toggle Blue
 - `D` — delete (opens confirmation dialog: `D` = yes, `N`/`Esc` = no)
+- `C` — copy photo
+- `Y` — copy photo to clipboard
 - Arrow keys — navigate photos
 
 ### Tech Stack
@@ -64,6 +66,7 @@ go build ./...
 
 # Cross-compile for Windows (requires: brew install mingw-w64)
 CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --icon Icon.png --app-id com.photo.viewer --os windows
+x86_64-w64-mingw32-strip photo.exe
 zip photo-windows-amd64.zip photo.exe
 ```
 

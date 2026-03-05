@@ -27,6 +27,7 @@ var helpLeft = []shortcutSection{
 			{"B", "Toggle blue label"},
 			{"D", "Delete photo"},
 			{"C", "Copy photo"},
+			{"Y", "Copy to clipboard"},
 			{"H", "Toggle this help"},
 		},
 	},

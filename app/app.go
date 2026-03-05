@@ -101,10 +101,11 @@ func (a *Application) Run() {
 	})
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
-		OnRed:    func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:  func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:   func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete: a.handleDelete,
+		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:         func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:          func() { a.handleColorToggle(model.ColorBlue) },
+		OnDelete:        a.handleDelete,
+		OnCopyClipboard: a.handleCopyToClipboard,
 	})
 
 	notifier := ui.NewNotifier()
@@ -125,6 +126,7 @@ func (a *Application) Run() {
 		OnFilterBlue:     func() { a.handleFilterColor(model.ColorBlue) },
 		OnFilterFavorite: a.handleFilterFavorite,
 		OnHelp:           a.handleHelp,
+		OnCopyClipboard:  a.handleCopyToClipboard,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -456,6 +458,18 @@ func (a *Application) hasActiveFilter() bool {
 		}
 	}
 	return false
+}
+
+func (a *Application) handleCopyToClipboard() {
+	photo, ok := a.navigator.Current()
+	if !ok {
+		return
+	}
+	if err := service.CopyImageToClipboard(photo.ImagePath); err != nil {
+		a.showError("Failed to copy to clipboard", err)
+		return
+	}
+	a.mainWindow.ShowNotification("Copied to clipboard")
 }
 
 func (a *Application) handleDelete() {

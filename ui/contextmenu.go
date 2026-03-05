@@ -7,10 +7,11 @@ import (
 )
 
 type ContextMenuCallbacks struct {
-	OnRed    func()
-	OnGreen  func()
-	OnBlue   func()
-	OnDelete func()
+	OnRed           func()
+	OnGreen         func()
+	OnBlue          func()
+	OnDelete        func()
+	OnCopyClipboard func()
 }
 
 type ContextMenuItems struct {
@@ -38,6 +39,12 @@ func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 	})
 	menu := fyne.NewMenu("",
 		redItem, greenItem, blueItem,
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Copy to Clipboard", func() {
+			if callbacks.OnCopyClipboard != nil {
+				callbacks.OnCopyClipboard()
+			}
+		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItemWithIcon("Delete", theme.DeleteIcon(), func() {
 			if callbacks.OnDelete != nil {
