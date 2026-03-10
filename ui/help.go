@@ -28,6 +28,7 @@ var helpLeft = []shortcutSection{
 			{"D", "Delete photo"},
 			{"C", "Copy photo"},
 			{"Y", "Copy to clipboard"},
+			{"L", "Toggle grid view"},
 			{"H", "Toggle this help"},
 		},
 	},
@@ -39,7 +40,6 @@ var helpRight = []shortcutSection{
 		entries: []shortcutEntry{
 			{"← ↑", "Previous photo"},
 			{"→ ↓ 🖱", "Next photo"},
-			{"L", "Toggle grid view"},
 		},
 	},
 	{

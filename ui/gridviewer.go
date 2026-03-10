@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	gridColumns    = 3
-	gridThumbRatio = 220.0 / 300.0
+	gridColumns     = 3
+	gridThumbRatio  = 220.0 / 300.0
+	gridEvictBuffer = 50
 )
 
 var gridLoadWorkers = max(runtime.NumCPU()-1, 2)
@@ -37,6 +38,8 @@ type GridViewer struct {
 	meta      []model.PhotoMeta
 	tileWidth float32
 	targetW   int
+
+	lastVisibleIndex int
 
 	loader     func(path string) (image.Image, error)
 	cancelLoad context.CancelFunc
@@ -76,6 +79,7 @@ func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
 	gv.mu.Lock()
 	gv.photos = photos
 	gv.meta = meta
+	gv.lastVisibleIndex = 0
 	tileWidth := gv.tileWidth
 	gv.mu.Unlock()
 	gv.grid.Refresh()
@@ -120,7 +124,21 @@ type gridLoadJob struct {
 	photo model.Photo
 }
 
+func (gv *GridViewer) isDistant(index int) bool {
+	gv.mu.Lock()
+	defer gv.mu.Unlock()
+	if len(gv.meta) <= gridEvictBuffer*2 {
+		return false
+	}
+	center := gv.lastVisibleIndex
+	return index < center-gridEvictBuffer || index > center+gridEvictBuffer
+}
+
 func (gv *GridViewer) loadSingleThumbnail(ctx context.Context, job gridLoadJob, maxSize image.Point) {
+	if gv.isDistant(job.index) {
+		return
+	}
+
 	img, err := gv.loader(job.photo.ImagePath)
 	if err != nil || ctx.Err() != nil {
 		return
@@ -134,10 +152,36 @@ func (gv *GridViewer) loadSingleThumbnail(ctx context.Context, job gridLoadJob, 
 	}
 	gv.mu.Unlock()
 
+	gv.evictDistantThumbnails()
+
 	if ctx.Err() == nil {
 		fyne.Do(func() {
 			gv.grid.RefreshItem(job.index)
 		})
+	}
+}
+
+func (gv *GridViewer) evictDistantThumbnails() {
+	gv.mu.Lock()
+	defer gv.mu.Unlock()
+
+	if len(gv.meta) <= gridEvictBuffer*2 {
+		return
+	}
+
+	center := gv.lastVisibleIndex
+	lo := max(center-gridEvictBuffer, 0)
+	hi := min(center+gridEvictBuffer, len(gv.meta)-1)
+
+	for i := range lo {
+		if gv.meta[i].Thumbnail != nil {
+			gv.meta[i].Thumbnail = nil
+		}
+	}
+	for i := hi + 1; i < len(gv.meta); i++ {
+		if gv.meta[i].Thumbnail != nil {
+			gv.meta[i].Thumbnail = nil
+		}
 	}
 }
 
@@ -258,6 +302,7 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	updateColorDots(dotsContainer, meta.Colors)
 
 	gv.mu.Lock()
+	gv.lastVisibleIndex = id
 	targetW := gv.targetW
 	jobs := gv.jobs
 	gv.mu.Unlock()
