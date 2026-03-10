@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -25,12 +26,13 @@ var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 type Application struct {
 	fyneApp fyne.App
 
-	scanner      *service.Scanner
-	colorService *service.ColorService
+	scanner        *service.Scanner
+	colorService   *service.ColorService
 	deleter        *service.Deleter
 	copier         *service.Copier
 	navigator      *service.Navigator
-	imageCache     *service.ImageCache
+	exifService    *service.ExifService
+	imageLoader    *service.ImageLoader
 	metadataLoader *service.MetadataLoader
 
 	actionPanel      *ui.ActionPanel
@@ -61,11 +63,12 @@ type Application struct {
 func New() *Application {
 	exifService := service.NewExifService()
 	return &Application{
-		scanner:      service.NewScanner(),
-		colorService: service.NewColorService(),
+		scanner:        service.NewScanner(),
+		colorService:   service.NewColorService(),
 		deleter:        service.NewDeleter(),
 		copier:         service.NewCopier(),
 		navigator:      service.NewNavigator(),
+		exifService:    exifService,
 		metadataLoader: service.NewMetadataLoader(exifService),
 		filterColors:   make(map[model.ColorLabel]bool),
 	}
@@ -102,10 +105,11 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
-	a.gridViewer = ui.NewGridViewer(ui.GridViewerCallbacks{
+	a.imageLoader = service.NewImageLoader(image.Point{X: 500, Y: 500}, sync.OnceValue(monitorSize), a.exifService)
+
+	a.gridViewer = ui.NewGridViewer(a.imageLoader, ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
-	a.gridViewer.SetLoader(service.LoadOrientedImage)
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
@@ -136,8 +140,6 @@ func (a *Application) Run() {
 		OnCopyClipboard:  a.handleCopyToClipboard,
 		OnToggleGrid:     a.handleToggleGrid,
 	})
-
-	a.imageCache = service.NewImageCache(monitorSize())
 
 	a.loadInitialDirectory()
 
@@ -229,7 +231,7 @@ func (a *Application) loadDirectory(dir string) {
 		return
 	}
 
-	a.imageCache.Clear()
+	a.imageLoader.Clear()
 	a.colorService.ClearCache()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
@@ -258,7 +260,7 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	img, err := a.imageCache.Load(photo.ImagePath)
+	img, err := a.imageLoader.Get(photo.ImagePath, service.SizeFull)
 	if err != nil {
 		a.viewer.Clear()
 		a.showError("Failed to load image", err)
@@ -271,17 +273,18 @@ func (a *Application) showPhoto(photo model.Photo) {
 }
 
 func (a *Application) prefetchAdjacent() {
-	var keep []string
-	if cur, ok := a.navigator.Current(); ok {
-		keep = append(keep, cur.ImagePath)
-	}
-	for _, offset := range []int{-2, -1, 1, 2} {
+	var paths []string
+	for offset := 1; offset <= 15; offset++ {
 		if p, ok := a.navigator.Peek(offset); ok {
-			keep = append(keep, p.ImagePath)
-			a.imageCache.Prefetch(p.ImagePath)
+			paths = append(paths, p.ImagePath)
 		}
 	}
-	a.imageCache.EvictExcept(keep)
+	for offset := -1; offset >= -2; offset-- {
+		if p, ok := a.navigator.Peek(offset); ok {
+			paths = append(paths, p.ImagePath)
+		}
+	}
+	a.imageLoader.Preload(paths, service.SizeFull, nil)
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {
@@ -427,7 +430,6 @@ func (a *Application) resortPhotos() {
 	a.showCurrentOrFirst()
 }
 
-
 func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 	pinnedPath := a.fileBrowser.PinnedPath()
 	if len(pinnedPath) == 0 || !ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
@@ -500,7 +502,6 @@ func (a *Application) showCurrentOrFirst() {
 		a.viewer.Clear()
 	}
 }
-
 
 func (a *Application) handleToggleGrid() {
 	if a.anyDialogOpen() {
