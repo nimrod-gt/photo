@@ -39,7 +39,8 @@ type GridViewer struct {
 	tileWidth float32
 	targetW   int
 
-	lastVisibleIndex int
+	visibleMin int
+	visibleMax int
 
 	loader     func(path string) (image.Image, error)
 	cancelLoad context.CancelFunc
@@ -79,7 +80,8 @@ func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
 	gv.mu.Lock()
 	gv.photos = photos
 	gv.meta = meta
-	gv.lastVisibleIndex = 0
+	gv.visibleMin = 0
+	gv.visibleMax = 0
 	tileWidth := gv.tileWidth
 	gv.mu.Unlock()
 	gv.grid.Refresh()
@@ -130,7 +132,7 @@ func (gv *GridViewer) isDistant(index int) bool {
 	if len(gv.meta) <= gridEvictBuffer*2 {
 		return false
 	}
-	center := gv.lastVisibleIndex
+	center := (gv.visibleMin + gv.visibleMax) / 2
 	return index < center-gridEvictBuffer || index > center+gridEvictBuffer
 }
 
@@ -169,7 +171,7 @@ func (gv *GridViewer) evictDistantThumbnails() {
 		return
 	}
 
-	center := gv.lastVisibleIndex
+	center := (gv.visibleMin + gv.visibleMax) / 2
 	lo := max(center-gridEvictBuffer, 0)
 	hi := min(center+gridEvictBuffer, len(gv.meta)-1)
 
@@ -302,7 +304,12 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	updateColorDots(dotsContainer, meta.Colors)
 
 	gv.mu.Lock()
-	gv.lastVisibleIndex = id
+	if id < gv.visibleMin || gv.visibleMin == gv.visibleMax {
+		gv.visibleMin = id
+	}
+	if id > gv.visibleMax || gv.visibleMin == gv.visibleMax {
+		gv.visibleMax = id
+	}
 	targetW := gv.targetW
 	jobs := gv.jobs
 	gv.mu.Unlock()

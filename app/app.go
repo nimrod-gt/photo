@@ -25,9 +25,8 @@ var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 type Application struct {
 	fyneApp fyne.App
 
-	scanner        *service.Scanner
-	exifService    *service.ExifService
-	colorService   *service.ColorService
+	scanner      *service.Scanner
+	colorService *service.ColorService
 	deleter        *service.Deleter
 	copier         *service.Copier
 	navigator      *service.Navigator
@@ -62,9 +61,8 @@ type Application struct {
 func New() *Application {
 	exifService := service.NewExifService()
 	return &Application{
-		scanner:        service.NewScanner(),
-		exifService:    exifService,
-		colorService:   service.NewColorService(),
+		scanner:      service.NewScanner(),
+		colorService: service.NewColorService(),
 		deleter:        service.NewDeleter(),
 		copier:         service.NewCopier(),
 		navigator:      service.NewNavigator(),
@@ -232,10 +230,11 @@ func (a *Application) loadDirectory(dir string) {
 	}
 
 	a.imageCache.Clear()
+	a.colorService.ClearCache()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
 
-	if a.hasActiveFilter() {
+	if ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
 		a.filterFavorite = false
 		for k := range a.filterColors {
 			a.filterColors[k] = false
@@ -245,7 +244,7 @@ func (a *Application) loadDirectory(dir string) {
 
 	a.scanner.SortPhotos(photos, a.sortOrder)
 	if a.sortDescending {
-		reversePhotos(photos)
+		slices.Reverse(photos)
 	}
 	a.fileBrowser.SetPhotos(photos)
 
@@ -355,7 +354,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	}
 	a.updateColorIndicators(photo)
 	a.refreshFileBrowserItem(photo)
-	if a.hasActiveFilter() {
+	if ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
 		a.fileBrowser.SetPinnedPath(photo.ImagePath)
 		a.reapplyFilter()
 	}
@@ -367,8 +366,8 @@ func (a *Application) refreshFileBrowserItem(photo model.Photo) {
 		return
 	}
 	colors, _ := a.colorService.GetColors(photo)
-	rating, _ := a.exifService.GetRating(photo.ImagePath)
-	a.fileBrowser.RefreshItemMeta(idx, colors, rating > 0)
+	meta := a.fileBrowser.GetMeta(idx)
+	a.fileBrowser.RefreshItemMeta(idx, colors, meta.Favorite)
 }
 
 func (a *Application) handleSecondaryTap(pos fyne.Position) {
@@ -414,7 +413,7 @@ func (a *Application) resortPhotos() {
 		a.scanner.SortPhotos(photos, a.sortOrder)
 	}
 	if a.sortDescending {
-		reversePhotos(photos)
+		slices.Reverse(photos)
 	}
 	a.fileBrowser.SetPhotos(photos)
 	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
@@ -428,13 +427,10 @@ func (a *Application) resortPhotos() {
 	a.showCurrentOrFirst()
 }
 
-func reversePhotos(photos []model.Photo) {
-	slices.Reverse(photos)
-}
 
 func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 	pinnedPath := a.fileBrowser.PinnedPath()
-	if len(pinnedPath) == 0 || !a.hasActiveFilter() {
+	if len(pinnedPath) == 0 || !ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
 		return
 	}
 	if currentPhoto.ImagePath == pinnedPath {
@@ -505,17 +501,6 @@ func (a *Application) showCurrentOrFirst() {
 	}
 }
 
-func (a *Application) hasActiveFilter() bool {
-	if a.filterFavorite {
-		return true
-	}
-	for _, v := range a.filterColors {
-		if v {
-			return true
-		}
-	}
-	return false
-}
 
 func (a *Application) handleToggleGrid() {
 	if a.anyDialogOpen() {
@@ -846,7 +831,9 @@ func (a *Application) handleCopyAll() {
 			if a.copyAllCancel != nil {
 				a.copyAllCancel()
 			}
-			a.copyAllDialog.Hide()
+			if a.copyAllDialog != nil {
+				a.copyAllDialog.Hide()
+			}
 			a.copyAllDialogOpen = false
 			a.copyAllDialog = nil
 			a.copyAllCancel = nil

@@ -27,6 +27,7 @@ func (l *MetadataLoader) LoadAsync(
 				return
 			}
 			if !photo.IsJPEG() {
+				onLoaded(i, nil, false)
 				continue
 			}
 			thumbnail, rating, err := l.exif.GetPhotoInfo(photo.ImagePath)

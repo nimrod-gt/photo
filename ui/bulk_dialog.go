@@ -74,7 +74,11 @@ func NewCopyAllDialog(count int, destDir string, includeRAW bool, window fyne.Wi
 
 	cad.dialog = dialog.NewCustomWithoutButtons("Copy All", wrapped, window)
 	cad.dialog.SetOnClosed(func() {
-		if !cad.closed && cad.onCancel != nil {
+		if cad.closed {
+			return
+		}
+		cad.closed = true
+		if cad.onCancel != nil {
 			cad.onCancel()
 		}
 	})

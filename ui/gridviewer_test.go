@@ -25,35 +25,35 @@ func TestEvictDistantThumbnails(t *testing.T) {
 	tests := []struct {
 		name             string
 		count            int
-		lastVisibleIndex int
+		visibleCenter int
 		wantLoIdx        int
 		wantHiIdx        int
 	}{
 		{
 			name:             "normal eviction in the middle",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			wantLoIdx:        50,
 			wantHiIdx:        150,
 		},
 		{
 			name:             "small set skipped",
 			count:            80,
-			lastVisibleIndex: 40,
+			visibleCenter: 40,
 			wantLoIdx:        0,
 			wantHiIdx:        79,
 		},
 		{
 			name:             "near beginning",
 			count:            200,
-			lastVisibleIndex: 10,
+			visibleCenter: 10,
 			wantLoIdx:        0,
 			wantHiIdx:        60,
 		},
 		{
 			name:             "near end",
 			count:            200,
-			lastVisibleIndex: 190,
+			visibleCenter: 190,
 			wantLoIdx:        140,
 			wantHiIdx:        199,
 		},
@@ -62,8 +62,9 @@ func TestEvictDistantThumbnails(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gv := &GridViewer{
-				meta:             makeMeta(tt.count),
-				lastVisibleIndex: tt.lastVisibleIndex,
+				meta:       makeMeta(tt.count),
+				visibleMin: tt.visibleCenter,
+				visibleMax: tt.visibleCenter,
 			}
 
 			gv.evictDistantThumbnails()
@@ -87,49 +88,49 @@ func TestIsDistant(t *testing.T) {
 	tests := []struct {
 		name             string
 		count            int
-		lastVisibleIndex int
+		visibleCenter int
 		index            int
 		want             bool
 	}{
 		{
 			name:             "within range",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			index:            120,
 			want:             false,
 		},
 		{
 			name:             "at boundary low",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			index:            50,
 			want:             false,
 		},
 		{
 			name:             "at boundary high",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			index:            150,
 			want:             false,
 		},
 		{
 			name:             "beyond low",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			index:            49,
 			want:             true,
 		},
 		{
 			name:             "beyond high",
 			count:            200,
-			lastVisibleIndex: 100,
+			visibleCenter: 100,
 			index:            151,
 			want:             true,
 		},
 		{
 			name:             "small set never distant",
 			count:            80,
-			lastVisibleIndex: 40,
+			visibleCenter: 40,
 			index:            0,
 			want:             false,
 		},
@@ -138,8 +139,9 @@ func TestIsDistant(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gv := &GridViewer{
-				meta:             makeMeta(tt.count),
-				lastVisibleIndex: tt.lastVisibleIndex,
+				meta:       makeMeta(tt.count),
+				visibleMin: tt.visibleCenter,
+				visibleMax: tt.visibleCenter,
 			}
 			assert.Equal(t, tt.want, gv.isDistant(tt.index))
 		})

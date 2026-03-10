@@ -196,6 +196,15 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 	}
 }
 
+func (fb *FileBrowser) GetMeta(displayIndex int) model.PhotoMeta {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	if displayIndex >= 0 && displayIndex < len(fb.meta) {
+		return fb.meta[displayIndex]
+	}
+	return model.PhotoMeta{}
+}
+
 func (fb *FileBrowser) RefreshItemMeta(displayIndex int, colors []model.ColorLabel, favorite bool) {
 	fb.mu.Lock()
 	allIdx := displayIndex
@@ -349,7 +358,7 @@ func (fb *FileBrowser) SetBulkBarHidden(hidden bool) {
 
 func (fb *FileBrowser) updateBulkBarVisibility() {
 	fb.mu.Lock()
-	active := hasActiveColorFilter(fb.filterColors, fb.filterFavorite)
+	active := HasActiveFilter(fb.filterColors, fb.filterFavorite)
 	count := len(fb.photos)
 	fb.mu.Unlock()
 
@@ -364,7 +373,7 @@ func (fb *FileBrowser) applyFilter() {
 	fb.mu.Lock()
 	defer fb.mu.Unlock()
 
-	if !hasActiveColorFilter(fb.filterColors, fb.filterFavorite) {
+	if !HasActiveFilter(fb.filterColors, fb.filterFavorite) {
 		fb.indices = nil
 		fb.photos = fb.allPhotos
 		fb.meta = fb.allMeta
@@ -415,7 +424,7 @@ func (fb *FileBrowser) updateFilterButtonStates() {
 	setFilterBtnState(fb.filterBlueBtn, fb.filterColors[model.ColorBlue])
 }
 
-func hasActiveColorFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
+func HasActiveFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
 	if favorite {
 		return true
 	}

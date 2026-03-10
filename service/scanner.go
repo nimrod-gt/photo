@@ -74,10 +74,13 @@ func (s *Scanner) SortPhotosByDates(photos []model.Photo, dates map[string]time.
 	sort.Slice(photos, func(i, j int) bool {
 		ti, oki := dates[photos[i].ImagePath]
 		tj, okj := dates[photos[j].ImagePath]
-		if !oki || !okj {
-			return photos[i].Name < photos[j].Name
+		if oki && okj {
+			return ti.Before(tj)
 		}
-		return ti.Before(tj)
+		if oki != okj {
+			return oki
+		}
+		return photos[i].Name < photos[j].Name
 	})
 }
 

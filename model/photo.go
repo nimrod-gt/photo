@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-var rawExtensions = []string{".ARW"}
-
 var supportedExtensions = map[string]bool{
 	".jpg":  true,
 	".jpeg": true,
@@ -44,19 +42,7 @@ func (p Photo) HasRAW() bool {
 	return len(p.RAWPath) != 0
 }
 
-var rawVariants = func() []string {
-	seen := make(map[string]struct{})
-	var variants []string
-	for _, ext := range rawExtensions {
-		for _, v := range []string{ext, strings.ToUpper(ext), strings.ToLower(ext)} {
-			if _, ok := seen[v]; !ok {
-				seen[v] = struct{}{}
-				variants = append(variants, v)
-			}
-		}
-	}
-	return variants
-}()
+var rawVariants = []string{".ARW", ".arw"}
 
 func findRAWPair(jpegPath string) string {
 	ext := filepath.Ext(jpegPath)

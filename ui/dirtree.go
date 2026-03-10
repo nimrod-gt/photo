@@ -87,10 +87,8 @@ func (dt *DirTree) childUIDs(uid widget.TreeNodeID) []widget.TreeNodeID {
 
 	dt.mu.Lock()
 	for _, d := range dirs {
-		if _, ok := dt.hasChildren[d]; !ok {
-			children, _ := dt.scanner.ListDirectories(d)
-			dt.hasChildren[d] = len(children) > 0
-		}
+		children, _ := dt.scanner.ListDirectories(d)
+		dt.hasChildren[d] = len(children) > 0
 	}
 	dt.mu.Unlock()
 

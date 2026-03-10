@@ -130,6 +130,13 @@ func (s *ColorService) InvalidateCache(dir string) {
 	delete(s.colors, dir)
 }
 
+func (s *ColorService) ClearCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.colors = make(map[string]model.ColorMap)
+}
+
 func (s *ColorService) loadOrGet(dir string) (model.ColorMap, error) {
 	if cm, ok := s.colors[dir]; ok {
 		return cm, nil
