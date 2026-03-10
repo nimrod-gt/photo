@@ -30,7 +30,8 @@ type Application struct {
 	deleter        *service.Deleter
 	copier         *service.Copier
 	navigator      *service.Navigator
-	imageCache     *service.ImageCache
+	exifService    *service.ExifService
+	imageLoader    *service.ImageLoader
 	metadataLoader *service.MetadataLoader
 
 	actionPanel      *ui.ActionPanel
@@ -61,11 +62,12 @@ type Application struct {
 func New() *Application {
 	exifService := service.NewExifService()
 	return &Application{
-		scanner:      service.NewScanner(),
-		colorService: service.NewColorService(),
+		scanner:        service.NewScanner(),
+		colorService:   service.NewColorService(),
 		deleter:        service.NewDeleter(),
 		copier:         service.NewCopier(),
 		navigator:      service.NewNavigator(),
+		exifService:    exifService,
 		metadataLoader: service.NewMetadataLoader(exifService),
 		filterColors:   make(map[model.ColorLabel]bool),
 	}
@@ -105,7 +107,6 @@ func (a *Application) Run() {
 	a.gridViewer = ui.NewGridViewer(ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
-	a.gridViewer.SetLoader(service.LoadOrientedImage)
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
@@ -117,6 +118,9 @@ func (a *Application) Run() {
 
 	notifier := ui.NewNotifier()
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
+
+	a.imageLoader = service.NewImageLoader(image.Point{X: 800, Y: 800}, monitorSize(), a.exifService)
+	a.gridViewer.SetImageLoader(a.imageLoader)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
@@ -136,8 +140,6 @@ func (a *Application) Run() {
 		OnCopyClipboard:  a.handleCopyToClipboard,
 		OnToggleGrid:     a.handleToggleGrid,
 	})
-
-	a.imageCache = service.NewImageCache(monitorSize())
 
 	a.loadInitialDirectory()
 
@@ -229,7 +231,7 @@ func (a *Application) loadDirectory(dir string) {
 		return
 	}
 
-	a.imageCache.Clear()
+	a.imageLoader.Clear()
 	a.colorService.ClearCache()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
@@ -258,7 +260,7 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	img, err := a.imageCache.Load(photo.ImagePath)
+	img, err := a.imageLoader.Get(photo.ImagePath, service.SizeFull)
 	if err != nil {
 		a.viewer.Clear()
 		a.showError("Failed to load image", err)
@@ -271,17 +273,13 @@ func (a *Application) showPhoto(photo model.Photo) {
 }
 
 func (a *Application) prefetchAdjacent() {
-	var keep []string
-	if cur, ok := a.navigator.Current(); ok {
-		keep = append(keep, cur.ImagePath)
-	}
+	var paths []string
 	for _, offset := range []int{-2, -1, 1, 2} {
 		if p, ok := a.navigator.Peek(offset); ok {
-			keep = append(keep, p.ImagePath)
-			a.imageCache.Prefetch(p.ImagePath)
+			paths = append(paths, p.ImagePath)
 		}
 	}
-	a.imageCache.EvictExcept(keep)
+	a.imageLoader.Preload(paths, service.SizeFull, nil)
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {
