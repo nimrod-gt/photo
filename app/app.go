@@ -233,6 +233,14 @@ func (a *Application) loadDirectory(dir string) {
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
 
+	if a.hasActiveFilter() {
+		a.filterFavorite = false
+		for k := range a.filterColors {
+			a.filterColors[k] = false
+		}
+		a.fileBrowser.SetFilter(a.filterColors, a.filterFavorite)
+	}
+
 	a.scanner.SortPhotos(photos, a.sortOrder)
 	if a.sortDescending {
 		reversePhotos(photos)
@@ -478,7 +486,7 @@ func (a *Application) syncNavigatorToFiltered() {
 func (a *Application) showCurrentOrFirst() {
 	if photo, ok := a.navigator.Current(); ok {
 		a.showPhoto(photo)
-		a.fileBrowser.SelectIndex(0)
+		a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
 	} else {
 		a.viewer.Clear()
 	}
@@ -583,21 +591,12 @@ func (a *Application) handleDelete() {
 				return
 			}
 			if err := a.colorService.RemoveColors(photo); err != nil {
-				a.showError("Failed to remove color labels", err)
+				log.Println("Failed to remove color labels:", err)
 			}
-			prevIdx := a.navigator.FindIndex(photo.ImagePath)
+			nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
 			a.fileBrowser.RemovePhoto(photo.ImagePath)
-			filtered := a.fileBrowser.FilteredPhotos()
-			a.navigator.SetPhotos(filtered)
-
-			if prevIdx >= len(filtered) {
-				prevIdx = len(filtered) - 1
-			}
-			if prevIdx < 0 {
-				prevIdx = 0
-			}
-			if p, navIdx, ok := a.navigator.GoTo(prevIdx); ok {
-				a.showPhoto(p)
+			if hasNext {
+				a.showPhoto(nextPhoto)
 				a.fileBrowser.SelectIndex(navIdx)
 			} else {
 				a.viewer.Clear()
@@ -725,18 +724,20 @@ func (a *Application) handleDeleteAll() {
 			}
 			includeRAW := rawCheck.Checked
 			deleted := 0
+			var deletedPhotos []model.Photo
 			for _, photo := range filtered {
 				if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
 					a.showError("Failed to delete "+photo.Name, err)
 					continue
 				}
 				deleted++
+				deletedPhotos = append(deletedPhotos, photo)
 			}
-			if err := a.colorService.RemoveMultipleColors(filtered); err != nil {
+			if err := a.colorService.RemoveMultipleColors(deletedPhotos); err != nil {
 				a.showError("Failed to remove color labels", err)
 			}
-			paths := make(map[string]bool, len(filtered))
-			for _, p := range filtered {
+			paths := make(map[string]bool, len(deletedPhotos))
+			for _, p := range deletedPhotos {
 				paths[p.ImagePath] = true
 			}
 			a.fileBrowser.RemovePhotos(paths)

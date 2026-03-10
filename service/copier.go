@@ -47,25 +47,7 @@ func (c *Copier) CopyWithContext(ctx context.Context, photo model.Photo, destDir
 }
 
 func (c *Copier) Copy(photo model.Photo, destDir string, includeRAW bool) error {
-	info, err := os.Stat(destDir)
-	if err != nil {
-		return fmt.Errorf("destination directory %s: %w", destDir, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("destination %s is not a directory", destDir)
-	}
-
-	if err := copyFile(photo.ImagePath, filepath.Join(destDir, filepath.Base(photo.ImagePath))); err != nil {
-		return fmt.Errorf("copying image %s: %w", photo.ImagePath, err)
-	}
-
-	if includeRAW && photo.HasRAW() {
-		if err := copyFile(photo.RAWPath, filepath.Join(destDir, filepath.Base(photo.RAWPath))); err != nil {
-			return fmt.Errorf("copying RAW %s: %w", photo.RAWPath, err)
-		}
-	}
-
-	return nil
+	return c.CopyWithContext(context.Background(), photo, destDir, includeRAW)
 }
 
 func copyFile(src, dst string) error {
@@ -84,9 +66,9 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
 		return err
 	}
 

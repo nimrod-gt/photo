@@ -85,14 +85,8 @@ func (c *ImageCache) EvictExcept(keep []string) {
 		if _, ok := keepSet[path]; ok {
 			continue
 		}
-		select {
-		case <-entry.done:
-			entry.cancel()
-			delete(c.items, path)
-		default:
-			entry.cancel()
-			delete(c.items, path)
-		}
+		entry.cancel()
+		delete(c.items, path)
 	}
 }
 
