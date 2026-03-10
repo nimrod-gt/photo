@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -25,8 +26,8 @@ var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
 type Application struct {
 	fyneApp fyne.App
 
-	scanner      *service.Scanner
-	colorService *service.ColorService
+	scanner        *service.Scanner
+	colorService   *service.ColorService
 	deleter        *service.Deleter
 	copier         *service.Copier
 	navigator      *service.Navigator
@@ -104,7 +105,9 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
-	a.gridViewer = ui.NewGridViewer(ui.GridViewerCallbacks{
+	a.imageLoader = service.NewImageLoader(image.Point{X: 500, Y: 500}, sync.OnceValue(monitorSize), a.exifService)
+
+	a.gridViewer = ui.NewGridViewer(a.imageLoader, ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
 
@@ -118,9 +121,6 @@ func (a *Application) Run() {
 
 	notifier := ui.NewNotifier()
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
-
-	a.imageLoader = service.NewImageLoader(image.Point{X: 800, Y: 800}, monitorSize(), a.exifService)
-	a.gridViewer.SetImageLoader(a.imageLoader)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
@@ -425,7 +425,6 @@ func (a *Application) resortPhotos() {
 	a.showCurrentOrFirst()
 }
 
-
 func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 	pinnedPath := a.fileBrowser.PinnedPath()
 	if len(pinnedPath) == 0 || !ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
@@ -498,7 +497,6 @@ func (a *Application) showCurrentOrFirst() {
 		a.viewer.Clear()
 	}
 }
-
 
 func (a *Application) handleToggleGrid() {
 	if a.anyDialogOpen() {

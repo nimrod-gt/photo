@@ -19,7 +19,7 @@ func fakeImage(w, h int) image.Image {
 func stubLoader(loadFull, loadThumb func(string) (image.Image, error)) *ImageLoader {
 	l := NewImageLoader(
 		image.Point{X: 100, Y: 100},
-		image.Point{X: 200, Y: 200},
+		func() image.Point { return image.Point{X: 200, Y: 200} },
 		nil,
 	)
 	if loadFull != nil {
@@ -310,7 +310,7 @@ func TestImageLoader_Clear(t *testing.T) {
 func TestImageLoader_LRU(t *testing.T) {
 	l := NewImageLoader(
 		image.Point{X: 100, Y: 100},
-		image.Point{X: 200, Y: 200},
+		func() image.Point { return image.Point{X: 200, Y: 200} },
 		nil,
 	)
 	l.loadFull = func(string) (image.Image, error) {

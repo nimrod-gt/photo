@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"image/color"
 	"sync"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -36,12 +36,13 @@ type GridViewer struct {
 	visibleMin int
 	visibleMax int
 
-	imageLoader *service.ImageLoader
-	callbacks   GridViewerCallbacks
+	imageLoader      *service.ImageLoader
+	preloadScheduled atomic.Bool
+	callbacks        GridViewerCallbacks
 }
 
-func NewGridViewer(callbacks GridViewerCallbacks) *GridViewer {
-	gv := &GridViewer{callbacks: callbacks}
+func NewGridViewer(imageLoader *service.ImageLoader, callbacks GridViewerCallbacks) *GridViewer {
+	gv := &GridViewer{imageLoader: imageLoader, callbacks: callbacks}
 	gv.build()
 	return gv
 }
@@ -50,11 +51,8 @@ func (gv *GridViewer) Container() *fyne.Container {
 	return gv.container
 }
 
-func (gv *GridViewer) SetImageLoader(loader *service.ImageLoader) {
-	gv.imageLoader = loader
-}
-
 func (gv *GridViewer) StopLoading() {
+	gv.imageLoader.BumpGen()
 }
 
 func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
@@ -127,20 +125,7 @@ func (gv *GridViewer) createItem() fyne.CanvasObject {
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
 	nameLabel.Alignment = fyne.TextAlignCenter
 
-	dot1 := canvas.NewText("\u25CF", color.Transparent)
-	dot1.TextSize = 10
-	dot1.Hide()
-	dot2 := canvas.NewText("\u25CF", color.Transparent)
-	dot2.TextSize = 10
-	dot2.Hide()
-	dot3 := canvas.NewText("\u25CF", color.Transparent)
-	dot3.TextSize = 10
-	dot3.Hide()
-	dotsContainer := container.NewHBox(dot1, dot2, dot3)
-
-	nameRow := container.NewBorder(nil, nil, dotsContainer, nil, nameLabel)
-
-	return container.NewBorder(nil, nameRow, nil, nil, thumb)
+	return container.NewBorder(nil, nameLabel, nil, nil, thumb)
 }
 
 func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject) {
@@ -155,35 +140,23 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 
 	tile := obj.(*fyne.Container)
 	thumb := tile.Objects[0].(*canvas.Image)
-	nameRow := tile.Objects[1].(*fyne.Container)
-	nameLabel := nameRow.Objects[0].(*widget.Label)
-	dotsContainer := nameRow.Objects[1].(*fyne.Container)
+	nameLabel := tile.Objects[1].(*widget.Label)
 
-	switch {
-	case gv.imageLoader != nil:
-		if img := gv.imageLoader.Peek(photo.ImagePath, service.SizeThumb); img != nil {
-			thumb.Image = img
-			thumb.Show()
-		} else if meta.Thumbnail != nil {
-			thumb.Image = meta.Thumbnail
-			thumb.Show()
-			gv.schedulePreload()
-		} else {
-			thumb.Image = nil
-			thumb.Hide()
-			gv.schedulePreload()
-		}
-	case meta.Thumbnail != nil:
+	if img := gv.imageLoader.Peek(photo.ImagePath, service.SizeThumb); img != nil {
+		thumb.Image = img
+		thumb.Show()
+	} else if meta.Thumbnail != nil {
 		thumb.Image = meta.Thumbnail
 		thumb.Show()
-	default:
+		gv.schedulePreload()
+	} else {
 		thumb.Image = nil
 		thumb.Hide()
+		gv.schedulePreload()
 	}
 	thumb.Refresh()
 
 	nameLabel.SetText(photo.Name)
-	updateColorDots(dotsContainer, meta.Colors)
 
 	gv.mu.Lock()
 	if id < gv.visibleMin || gv.visibleMin == gv.visibleMax {
@@ -196,9 +169,11 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 }
 
 func (gv *GridViewer) schedulePreload() {
-	if gv.imageLoader == nil {
+	if !gv.preloadScheduled.CompareAndSwap(false, true) {
 		return
 	}
+
+	gen := gv.imageLoader.Gen()
 
 	gv.mu.Lock()
 	lo := max(gv.visibleMin-gridPreloadBuffer, 0)
@@ -213,16 +188,22 @@ func (gv *GridViewer) schedulePreload() {
 	gv.mu.Unlock()
 
 	grid := gv.grid
-	go gv.imageLoader.Preload(paths, service.SizeThumb, func(path string) {
-		gv.mu.Lock()
-		idx, ok := indexByPath[path]
-		gv.mu.Unlock()
-		if ok {
-			fyne.Do(func() {
-				grid.RefreshItem(idx)
-			})
-		}
-	})
+	go func() {
+		defer gv.preloadScheduled.Store(false)
+		gv.imageLoader.Preload(paths, service.SizeThumb, func(path string) {
+			if gen != gv.imageLoader.Gen() {
+				return
+			}
+			gv.mu.Lock()
+			idx, ok := indexByPath[path]
+			gv.mu.Unlock()
+			if ok {
+				fyne.Do(func() {
+					grid.RefreshItem(idx)
+				})
+			}
+		})
+	}()
 }
 
 type gridResizeLayout struct {

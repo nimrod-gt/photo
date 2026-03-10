@@ -23,14 +23,13 @@ type loadWaiter struct {
 	img  image.Image
 	err  error
 	done chan struct{}
-	gen  uint64
 }
 
 type ImageLoader struct {
 	thumbs   *lru.Cache[string, image.Image]
 	fulls    *lru.Cache[string, image.Image]
 	thumbMax image.Point
-	fullMax  image.Point
+	fullMax  func() image.Point
 	exif     *ExifService
 	mu       sync.Mutex
 	inflight map[string]*loadWaiter
@@ -41,9 +40,9 @@ type ImageLoader struct {
 	loadThumb func(string) (image.Image, error)
 }
 
-func NewImageLoader(thumbMax, fullMax image.Point, exif *ExifService) *ImageLoader {
-	thumbs, _ := lru.New[string, image.Image](thumbCacheSize)
-	fulls, _ := lru.New[string, image.Image](fullCacheSize)
+func NewImageLoader(thumbMax image.Point, fullMax func() image.Point, exif *ExifService) *ImageLoader {
+	thumbs := must(lru.New[string, image.Image](thumbCacheSize))
+	fulls := must(lru.New[string, image.Image](fullCacheSize))
 	workers := max(runtime.NumCPU()-1, 2)
 
 	l := &ImageLoader{
@@ -86,10 +85,22 @@ func (l *ImageLoader) Get(path string, sc SizeClass) (image.Image, error) {
 	if w, ok := l.inflight[key]; ok {
 		l.mu.Unlock()
 		<-w.done
-		return w.img, w.err
+		if w.img != nil || w.err != nil {
+			return w.img, w.err
+		}
+		img, err := l.load(path, sc)
+		if err == nil {
+			cache.Add(path, img)
+		}
+		return img, err
 	}
 
-	w := &loadWaiter{done: make(chan struct{}), gen: l.gen.Load()}
+	if img, ok := cache.Get(path); ok {
+		l.mu.Unlock()
+		return img, nil
+	}
+
+	w := &loadWaiter{done: make(chan struct{})}
 	l.inflight[key] = w
 	l.mu.Unlock()
 
@@ -132,13 +143,13 @@ func (l *ImageLoader) Preload(paths []string, sc SizeClass, onLoaded func(string
 			continue
 		}
 
-		w := &loadWaiter{done: make(chan struct{}), gen: gen}
+		w := &loadWaiter{done: make(chan struct{})}
 		l.inflight[key] = w
 		l.mu.Unlock()
 
 		path := p
-		l.sem <- struct{}{}
 		go func() {
+			l.sem <- struct{}{}
 			defer func() { <-l.sem }()
 			defer l.removeInflight(key)
 
@@ -163,6 +174,14 @@ func (l *ImageLoader) Preload(paths []string, sc SizeClass, onLoaded func(string
 			}
 		}()
 	}
+}
+
+func (l *ImageLoader) Gen() uint64 {
+	return l.gen.Load()
+}
+
+func (l *ImageLoader) BumpGen() {
+	l.gen.Add(1)
 }
 
 func (l *ImageLoader) removeInflight(key string) {
@@ -193,7 +212,7 @@ func (l *ImageLoader) doLoadFull(path string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	return DownscaleToFit(img, l.fullMax), nil
+	return DownscaleToFit(img, l.fullMax()), nil
 }
 
 func (l *ImageLoader) doLoadThumb(path string) (image.Image, error) {
@@ -201,20 +220,18 @@ func (l *ImageLoader) doLoadThumb(path string) (image.Image, error) {
 		return DownscaleToFit(img, l.thumbMax), nil
 	}
 
-	if l.exif != nil {
-		thumb, _, err := l.exif.GetPhotoInfo(path)
-		if err == nil && thumb != nil {
-			b := thumb.Bounds()
-			if b.Dx() >= l.thumbMax.X && b.Dy() >= l.thumbMax.Y {
-				return DownscaleToFit(thumb, l.thumbMax), nil
-			}
-		}
-	}
-
 	img, err := LoadOrientedImage(path)
 	if err != nil {
 		return nil, err
 	}
-	l.fulls.Add(path, DownscaleToFit(img, l.fullMax))
-	return DownscaleToFit(img, l.thumbMax), nil
+	full := DownscaleToFit(img, l.fullMax())
+	l.fulls.Add(path, full)
+	return DownscaleToFit(full, l.thumbMax), nil
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
