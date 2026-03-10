@@ -44,7 +44,7 @@ func (p Photo) HasRAW() bool {
 	return len(p.RAWPath) != 0
 }
 
-func rawExtensionVariants() []string {
+var rawVariants = func() []string {
 	seen := make(map[string]struct{})
 	var variants []string
 	for _, ext := range rawExtensions {
@@ -56,12 +56,12 @@ func rawExtensionVariants() []string {
 		}
 	}
 	return variants
-}
+}()
 
 func findRAWPair(jpegPath string) string {
 	ext := filepath.Ext(jpegPath)
 	base := strings.TrimSuffix(jpegPath, ext)
-	for _, rawExt := range rawExtensionVariants() {
+	for _, rawExt := range rawVariants {
 		candidate := base + rawExt
 		if candidate == jpegPath {
 			continue

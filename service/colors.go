@@ -116,7 +116,9 @@ func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
 
 	result := make(model.ColorMap, len(cm))
 	for k, v := range cm {
-		result[k] = v
+		copied := make([]model.ColorLabel, len(v))
+		copy(copied, v)
+		result[k] = copied
 	}
 	return result, nil
 }

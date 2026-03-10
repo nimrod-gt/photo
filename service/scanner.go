@@ -70,6 +70,17 @@ func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
 	}
 }
 
+func (s *Scanner) SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
+	sort.Slice(photos, func(i, j int) bool {
+		ti, oki := dates[photos[i].ImagePath]
+		tj, okj := dates[photos[j].ImagePath]
+		if !oki || !okj {
+			return photos[i].Name < photos[j].Name
+		}
+		return ti.Before(tj)
+	})
+}
+
 func (s *Scanner) ListDirectories(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {

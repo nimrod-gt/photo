@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"time"
 
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
@@ -46,6 +47,7 @@ type Application struct {
 	helpDialog       *dialog.CustomDialog
 	helpDialogOpen   bool
 
+	deleteAllDialog     *dialog.ConfirmDialog
 	deleteAllDialogOpen bool
 	copyAllDialog       *ui.CopyAllDialog
 	copyAllDialogOpen   bool
@@ -223,13 +225,13 @@ func (a *Application) loadInitialDirectory() {
 }
 
 func (a *Application) loadDirectory(dir string) {
-	a.imageCache.Clear()
-
 	photos, err := a.scanner.ScanDirectory(dir)
 	if err != nil {
 		a.showError("Failed to scan directory", err)
 		return
 	}
+
+	a.imageCache.Clear()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
 
@@ -399,7 +401,18 @@ func (a *Application) handleSortToggle() {
 
 func (a *Application) resortPhotos() {
 	photos := a.fileBrowser.AllPhotos()
-	a.scanner.SortPhotos(photos, a.sortOrder)
+	if a.sortOrder == service.SortByTime {
+		allMeta := a.fileBrowser.AllMeta()
+		dates := make(map[string]time.Time, len(photos))
+		for i, p := range photos {
+			if i < len(allMeta) {
+				dates[p.ImagePath] = allMeta[i].Date
+			}
+		}
+		a.scanner.SortPhotosByDates(photos, dates)
+	} else {
+		a.scanner.SortPhotos(photos, a.sortOrder)
+	}
 	if a.sortDescending {
 		reversePhotos(photos)
 	}
@@ -518,6 +531,7 @@ func (a *Application) handleToggleGrid() {
 }
 
 func (a *Application) enterGridMode() {
+	a.fileBrowser.SetBulkBarHidden(true)
 	photos := a.fileBrowser.FilteredPhotos()
 	meta := a.fileBrowser.FilteredMeta()
 	a.gridViewer.SetPhotos(photos, meta)
@@ -526,6 +540,7 @@ func (a *Application) enterGridMode() {
 
 func (a *Application) exitGridMode() {
 	a.gridViewer.StopLoading()
+	a.fileBrowser.SetBulkBarHidden(false)
 	a.showCurrentOrFirst()
 }
 
@@ -635,7 +650,9 @@ func (a *Application) handleCancel() {
 		a.copyDialog = nil
 	}
 	if a.deleteAllDialogOpen {
+		a.deleteAllDialog.Hide()
 		a.deleteAllDialogOpen = false
+		a.deleteAllDialog = nil
 	}
 	if a.copyAllDialogOpen {
 		if a.copyAllCancel != nil {
@@ -714,11 +731,12 @@ func (a *Application) handleDeleteAll() {
 	content, rawCheck := ui.NewDeleteAllDialogContent(len(filtered))
 
 	a.deleteAllDialogOpen = true
-	dlg := dialog.NewCustomConfirm("Delete All",
+	a.deleteAllDialog = dialog.NewCustomConfirm("Delete All",
 		"Delete", "Cancel",
 		content,
 		func(confirmed bool) {
 			a.deleteAllDialogOpen = false
+			a.deleteAllDialog = nil
 			if !confirmed {
 				return
 			}
@@ -753,7 +771,7 @@ func (a *Application) handleDeleteAll() {
 		},
 		a.mainWindow.Window(),
 	)
-	dlg.Show()
+	a.deleteAllDialog.Show()
 }
 
 func (a *Application) handleCopyAll() {
@@ -793,9 +811,11 @@ func (a *Application) handleCopyAll() {
 						if ctx.Err() != nil {
 							fyne.Do(func() {
 								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
-								a.copyAllDialog.Hide()
-								a.copyAllDialogOpen = false
-								a.copyAllDialog = nil
+								if a.copyAllDialog != nil {
+									a.copyAllDialog.Hide()
+									a.copyAllDialogOpen = false
+									a.copyAllDialog = nil
+								}
 								a.copyAllCancel = nil
 							})
 							return
@@ -806,13 +826,17 @@ func (a *Application) handleCopyAll() {
 					copied++
 					progress := float64(i+1) / float64(total)
 					fyne.Do(func() {
-						a.copyAllDialog.SetProgress(progress)
+						if a.copyAllDialog != nil {
+							a.copyAllDialog.SetProgress(progress)
+						}
 					})
 				}
 				fyne.Do(func() {
-					a.copyAllDialog.Finish()
-					a.copyAllDialogOpen = false
-					a.copyAllDialog = nil
+					if a.copyAllDialog != nil {
+						a.copyAllDialog.Finish()
+						a.copyAllDialogOpen = false
+						a.copyAllDialog = nil
+					}
 					a.copyAllCancel = nil
 					a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
 				})

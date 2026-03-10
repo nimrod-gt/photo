@@ -284,6 +284,14 @@ func (fb *FileBrowser) FilteredMeta() []model.PhotoMeta {
 	return result
 }
 
+func (fb *FileBrowser) AllMeta() []model.PhotoMeta {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	result := make([]model.PhotoMeta, len(fb.allMeta))
+	copy(result, fb.allMeta)
+	return result
+}
+
 func (fb *FileBrowser) AllPhotos() []model.Photo {
 	fb.mu.Lock()
 	defer fb.mu.Unlock()
@@ -329,6 +337,14 @@ func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
 	fb.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
+}
+
+func (fb *FileBrowser) SetBulkBarHidden(hidden bool) {
+	if hidden {
+		fb.bulkBar.Hide()
+	} else {
+		fb.updateBulkBarVisibility()
+	}
 }
 
 func (fb *FileBrowser) updateBulkBarVisibility() {

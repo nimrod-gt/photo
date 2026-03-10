@@ -29,6 +29,7 @@ type CopyAllDialog struct {
 	cancelBtn *widget.Button
 	onCopy    func()
 	onCancel  func()
+	closed    bool
 }
 
 func NewCopyAllDialog(count int, destDir string, includeRAW bool, window fyne.Window, onCopy func(), onCancel func()) *CopyAllDialog {
@@ -72,6 +73,11 @@ func NewCopyAllDialog(count int, destDir string, includeRAW bool, window fyne.Wi
 	wrapped := container.New(&minWidthLayout{width: copyDialogWidth}, content)
 
 	cad.dialog = dialog.NewCustomWithoutButtons("Copy All", wrapped, window)
+	cad.dialog.SetOnClosed(func() {
+		if !cad.closed && cad.onCancel != nil {
+			cad.onCancel()
+		}
+	})
 
 	return cad
 }
@@ -81,6 +87,7 @@ func (d *CopyAllDialog) Show() {
 }
 
 func (d *CopyAllDialog) Hide() {
+	d.closed = true
 	d.dialog.Hide()
 }
 
