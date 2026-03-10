@@ -31,7 +31,7 @@ func NewImageCache(maxSize image.Point) *ImageCache {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return downscaleToFit(img, maxSize), nil
+		return DownscaleToFit(img, maxSize), nil
 	}
 	return c
 }

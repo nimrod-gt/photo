@@ -50,11 +50,11 @@ type Application struct {
 	copyAllDialog       *ui.CopyAllDialog
 	copyAllDialogOpen   bool
 	copyAllCancel       context.CancelFunc
-	sortOrder        service.SortOrder
-	sortDescending   bool
-	filterColors     map[model.ColorLabel]bool
-	filterFavorite   bool
-	gridMode         bool
+	sortOrder           service.SortOrder
+	sortDescending      bool
+	filterColors        map[model.ColorLabel]bool
+	filterFavorite      bool
+	gridMode            bool
 }
 
 func New() *Application {
@@ -105,6 +105,7 @@ func (a *Application) Run() {
 	a.gridViewer = ui.NewGridViewer(ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
+	a.gridViewer.SetLoader(service.LoadOrientedImage)
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
@@ -437,6 +438,9 @@ func (a *Application) handleFilterFavorite() {
 func (a *Application) reapplyFilter() {
 	a.fileBrowser.SetFilter(a.filterColors, a.filterFavorite)
 	a.syncNavigatorToFiltered()
+	if a.gridMode {
+		a.enterGridMode()
+	}
 }
 
 func (a *Application) handleFilteredChanged(photos []model.Photo) {
@@ -513,6 +517,7 @@ func (a *Application) enterGridMode() {
 }
 
 func (a *Application) exitGridMode() {
+	a.gridViewer.StopLoading()
 	a.showCurrentOrFirst()
 }
 
@@ -699,6 +704,9 @@ func (a *Application) handleCopy() {
 }
 
 func (a *Application) handleDeleteAll() {
+	if a.gridMode {
+		return
+	}
 	filtered := a.fileBrowser.FilteredPhotos()
 	if len(filtered) == 0 {
 		return
@@ -748,6 +756,9 @@ func (a *Application) handleDeleteAll() {
 }
 
 func (a *Application) handleCopyAll() {
+	if a.gridMode {
+		return
+	}
 	filtered := a.fileBrowser.FilteredPhotos()
 	if len(filtered) == 0 {
 		return

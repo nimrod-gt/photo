@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"context"
+	"image"
 	"image/color"
+	"runtime"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -11,13 +14,15 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"photo/model"
+	"photo/service"
 )
 
 const (
-	gridColumns        = 3
-	gridThumbRatio     = 220.0 / 300.0
-	gridNameRowHeight  = 40
+	gridColumns    = 3
+	gridThumbRatio = 220.0 / 300.0
 )
+
+var gridLoadWorkers = max(runtime.NumCPU()-1, 2)
 
 type GridViewerCallbacks struct {
 	OnPhotoTapped func(index int)
@@ -31,6 +36,11 @@ type GridViewer struct {
 	photos    []model.Photo
 	meta      []model.PhotoMeta
 	tileWidth float32
+	targetW   int
+
+	loader     func(path string) (image.Image, error)
+	cancelLoad context.CancelFunc
+	jobs       chan gridLoadJob
 
 	callbacks GridViewerCallbacks
 }
@@ -45,12 +55,102 @@ func (gv *GridViewer) Container() *fyne.Container {
 	return gv.container
 }
 
+func (gv *GridViewer) SetLoader(fn func(string) (image.Image, error)) {
+	gv.loader = fn
+}
+
+func (gv *GridViewer) StopLoading() {
+	gv.mu.Lock()
+	cancel := gv.cancelLoad
+	gv.cancelLoad = nil
+	gv.jobs = nil
+	gv.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
+	gv.StopLoading()
+
 	gv.mu.Lock()
 	gv.photos = photos
 	gv.meta = meta
+	tileWidth := gv.tileWidth
 	gv.mu.Unlock()
 	gv.grid.Refresh()
+
+	if gv.loader == nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	gv.mu.Lock()
+	gv.cancelLoad = cancel
+	gv.mu.Unlock()
+
+	scale := gv.canvasScale()
+	targetW := int(tileWidth * scale)
+	targetH := int(tileWidth * gridThumbRatio * scale)
+	maxSize := image.Point{X: targetW, Y: targetH}
+
+	jobs := make(chan gridLoadJob, 50)
+
+	gv.mu.Lock()
+	gv.targetW = targetW
+	gv.jobs = jobs
+	gv.mu.Unlock()
+
+	for range gridLoadWorkers {
+		go func() {
+			for {
+				select {
+				case job := <-jobs:
+					gv.loadSingleThumbnail(ctx, job, maxSize)
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+}
+
+type gridLoadJob struct {
+	index int
+	photo model.Photo
+}
+
+func (gv *GridViewer) loadSingleThumbnail(ctx context.Context, job gridLoadJob, maxSize image.Point) {
+	img, err := gv.loader(job.photo.ImagePath)
+	if err != nil || ctx.Err() != nil {
+		return
+	}
+
+	scaled := service.DownscaleToFit(img, maxSize)
+
+	gv.mu.Lock()
+	if job.index < len(gv.meta) && ctx.Err() == nil {
+		gv.meta[job.index].Thumbnail = scaled
+	}
+	gv.mu.Unlock()
+
+	if ctx.Err() == nil {
+		fyne.Do(func() {
+			gv.grid.RefreshItem(job.index)
+		})
+	}
+}
+
+func (gv *GridViewer) canvasScale() float32 {
+	c := fyne.CurrentApp().Driver().CanvasForObject(gv.grid)
+	if c == nil {
+		return 2
+	}
+	s := c.Scale()
+	if s < 1 {
+		return 2
+	}
+	return s
 }
 
 func (gv *GridViewer) ScrollToIndex(index int) {
@@ -91,16 +191,22 @@ func (gv *GridViewer) recalcTileSize(availableWidth float32) {
 	if newWidth < 100 {
 		newWidth = 100
 	}
-	if gv.tileWidth != newWidth {
-		gv.tileWidth = newWidth
+	gv.mu.Lock()
+	changed := gv.tileWidth != newWidth
+	gv.tileWidth = newWidth
+	gv.mu.Unlock()
+	if changed {
 		gv.grid.Refresh()
 	}
 }
 
 func (gv *GridViewer) createItem() fyne.CanvasObject {
-	thumbH := gv.tileWidth * gridThumbRatio
+	gv.mu.Lock()
+	tw := gv.tileWidth
+	gv.mu.Unlock()
+	thumbH := tw * gridThumbRatio
 	thumb := canvas.NewImageFromImage(nil)
-	thumb.SetMinSize(fyne.NewSize(gv.tileWidth, thumbH))
+	thumb.SetMinSize(fyne.NewSize(tw, thumbH))
 	thumb.FillMode = canvas.ImageFillContain
 
 	nameLabel := widget.NewLabel("placeholder")
@@ -125,7 +231,7 @@ func (gv *GridViewer) createItem() fyne.CanvasObject {
 
 func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject) {
 	gv.mu.Lock()
-	if id >= len(gv.photos) {
+	if id >= len(gv.photos) || id >= len(gv.meta) {
 		gv.mu.Unlock()
 		return
 	}
@@ -150,6 +256,18 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 
 	nameLabel.SetText(photo.Name)
 	updateColorDots(dotsContainer, meta.Colors)
+
+	gv.mu.Lock()
+	targetW := gv.targetW
+	jobs := gv.jobs
+	gv.mu.Unlock()
+
+	if jobs != nil && (meta.Thumbnail == nil || meta.Thumbnail.Bounds().Dx() < targetW) {
+		select {
+		case jobs <- gridLoadJob{index: id, photo: photo}:
+		default:
+		}
+	}
 }
 
 type gridResizeLayout struct {

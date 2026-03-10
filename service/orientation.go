@@ -203,7 +203,7 @@ func transverse(img image.Image) *image.NRGBA {
 	return dst
 }
 
-func downscaleToFit(img image.Image, maxSize image.Point) image.Image {
+func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= maxSize.X && h <= maxSize.Y {

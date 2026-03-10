@@ -215,7 +215,7 @@ func TestDownscaleToFit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			src := makeTestImage(tt.srcW, tt.srcH)
-			dst := downscaleToFit(src, image.Point{X: tt.maxW, Y: tt.maxH})
+			dst := DownscaleToFit(src, image.Point{X: tt.maxW, Y: tt.maxH})
 			assert.Equal(t, tt.wantW, dst.Bounds().Dx())
 			assert.Equal(t, tt.wantH, dst.Bounds().Dy())
 			if tt.wantSameRef {

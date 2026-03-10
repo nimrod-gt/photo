@@ -61,8 +61,10 @@ func (mw *MainWindow) SetGridMode(grid bool) {
 	mw.viewStack.RemoveAll()
 	if grid {
 		mw.viewStack.Add(mw.gridViewer.Container())
+		mw.actionPanel.Container().Hide()
 	} else {
 		mw.viewStack.Add(mw.viewer.Container())
+		mw.actionPanel.Container().Show()
 	}
 	mw.viewStack.Refresh()
 }
