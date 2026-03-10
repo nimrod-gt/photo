@@ -16,10 +16,12 @@ type MainWindow struct {
 	actionPanel *ActionPanel
 	fileBrowser *FileBrowser
 	viewer      *Viewer
+	gridViewer  *GridViewer
 	notifier    *Notifier
+	viewStack   *fyne.Container
 }
 
-func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, notifier *Notifier) *MainWindow {
+func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, gridViewer *GridViewer, notifier *Notifier) *MainWindow {
 	w := app.NewWindow("Photo Viewer")
 	w.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 
@@ -28,6 +30,7 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 		actionPanel: actionPanel,
 		fileBrowser: fileBrowser,
 		viewer:      viewer,
+		gridViewer:  gridViewer,
 		notifier:    notifier,
 	}
 	mw.build()
@@ -54,8 +57,19 @@ func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }
 
+func (mw *MainWindow) SetGridMode(grid bool) {
+	mw.viewStack.RemoveAll()
+	if grid {
+		mw.viewStack.Add(mw.gridViewer.Container())
+	} else {
+		mw.viewStack.Add(mw.viewer.Container())
+	}
+	mw.viewStack.Refresh()
+}
+
 func (mw *MainWindow) build() {
-	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewer.Container())
+	mw.viewStack = container.NewStack(mw.viewer.Container())
+	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewStack)
 	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
 	split := container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)

@@ -276,6 +276,14 @@ func (fb *FileBrowser) FilteredPhotos() []model.Photo {
 	return result
 }
 
+func (fb *FileBrowser) FilteredMeta() []model.PhotoMeta {
+	fb.mu.Lock()
+	defer fb.mu.Unlock()
+	result := make([]model.PhotoMeta, len(fb.meta))
+	copy(result, fb.meta)
+	return result
+}
+
 func (fb *FileBrowser) AllPhotos() []model.Photo {
 	fb.mu.Lock()
 	defer fb.mu.Unlock()

@@ -36,6 +36,7 @@ type Application struct {
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
 	viewer           *ui.Viewer
+	gridViewer       *ui.GridViewer
 	mainWindow       *ui.MainWindow
 	contextMenuItems ui.ContextMenuItems
 	deleteDialog     *dialog.ConfirmDialog
@@ -53,6 +54,7 @@ type Application struct {
 	sortDescending   bool
 	filterColors     map[model.ColorLabel]bool
 	filterFavorite   bool
+	gridMode         bool
 }
 
 func New() *Application {
@@ -100,6 +102,10 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
+	a.gridViewer = ui.NewGridViewer(ui.GridViewerCallbacks{
+		OnPhotoTapped: a.handleGridPhotoTapped,
+	})
+
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
 		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:         func() { a.handleColorToggle(model.ColorGreen) },
@@ -109,7 +115,7 @@ func (a *Application) Run() {
 	})
 
 	notifier := ui.NewNotifier()
-	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, notifier)
+	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
@@ -127,6 +133,7 @@ func (a *Application) Run() {
 		OnFilterFavorite: a.handleFilterFavorite,
 		OnHelp:           a.handleHelp,
 		OnCopyClipboard:  a.handleCopyToClipboard,
+		OnToggleGrid:     a.handleToggleGrid,
 	})
 
 	a.imageCache = service.NewImageCache(monitorSize())
@@ -233,6 +240,10 @@ func (a *Application) loadDirectory(dir string) {
 
 	filtered := a.fileBrowser.FilteredPhotos()
 	a.navigator.SetPhotos(filtered)
+	if a.gridMode {
+		a.enterGridMode()
+		return
+	}
 	a.showCurrentOrFirst()
 }
 
@@ -289,12 +300,19 @@ func (a *Application) handlePhotoSelected(photo model.Photo) {
 		return
 	}
 	if p, _, ok := a.navigator.GoTo(idx); ok {
+		if a.gridMode {
+			a.gridViewer.ScrollToIndex(idx)
+			return
+		}
 		a.showPhoto(p)
 		a.unpinIfMovedAway(p)
 	}
 }
 
 func (a *Application) handleNext() {
+	if a.gridMode {
+		return
+	}
 	if photo, idx, ok := a.navigator.Next(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
@@ -303,6 +321,9 @@ func (a *Application) handleNext() {
 }
 
 func (a *Application) handlePrevious() {
+	if a.gridMode {
+		return
+	}
 	if photo, idx, ok := a.navigator.Previous(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
@@ -311,6 +332,9 @@ func (a *Application) handlePrevious() {
 }
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {
+	if a.gridMode {
+		return
+	}
 	photo, ok := a.navigator.Current()
 	if !ok {
 		return
@@ -375,6 +399,10 @@ func (a *Application) resortPhotos() {
 
 	filtered := a.fileBrowser.FilteredPhotos()
 	a.navigator.SetPhotos(filtered)
+	if a.gridMode {
+		a.enterGridMode()
+		return
+	}
 	a.showCurrentOrFirst()
 }
 
@@ -413,6 +441,10 @@ func (a *Application) reapplyFilter() {
 
 func (a *Application) handleFilteredChanged(photos []model.Photo) {
 	a.navigator.SetPhotos(photos)
+	if a.gridMode {
+		a.enterGridMode()
+		return
+	}
 	a.showCurrentOrFirst()
 }
 
@@ -460,7 +492,48 @@ func (a *Application) hasActiveFilter() bool {
 	return false
 }
 
+func (a *Application) handleToggleGrid() {
+	if a.anyDialogOpen() {
+		return
+	}
+	a.gridMode = !a.gridMode
+	a.mainWindow.SetGridMode(a.gridMode)
+	if a.gridMode {
+		a.enterGridMode()
+	} else {
+		a.exitGridMode()
+	}
+}
+
+func (a *Application) enterGridMode() {
+	photos := a.fileBrowser.FilteredPhotos()
+	meta := a.fileBrowser.FilteredMeta()
+	a.gridViewer.SetPhotos(photos, meta)
+	a.gridViewer.ScrollToIndex(a.navigator.CurrentIndex())
+}
+
+func (a *Application) exitGridMode() {
+	a.showCurrentOrFirst()
+}
+
+func (a *Application) handleGridPhotoTapped(index int) {
+	a.gridMode = false
+	a.mainWindow.SetGridMode(false)
+	if photo, _, ok := a.navigator.GoTo(index); ok {
+		a.showPhoto(photo)
+		a.fileBrowser.SelectIndex(index)
+	}
+}
+
+func (a *Application) anyDialogOpen() bool {
+	return a.deleteDialogOpen || a.copyDialogOpen || a.helpDialogOpen ||
+		a.deleteAllDialogOpen || a.copyAllDialogOpen
+}
+
 func (a *Application) handleCopyToClipboard() {
+	if a.gridMode {
+		return
+	}
 	photo, ok := a.navigator.Current()
 	if !ok {
 		return
@@ -473,6 +546,9 @@ func (a *Application) handleCopyToClipboard() {
 }
 
 func (a *Application) handleDelete() {
+	if a.gridMode {
+		return
+	}
 	if a.deleteDialogOpen {
 		a.deleteDialog.Confirm()
 		return
@@ -569,6 +645,9 @@ func (a *Application) handleCancel() {
 }
 
 func (a *Application) handleCopy() {
+	if a.gridMode {
+		return
+	}
 	if a.copyDialogOpen {
 		a.copyDialog.Confirm()
 		return

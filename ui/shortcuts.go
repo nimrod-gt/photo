@@ -21,6 +21,7 @@ type ShortcutCallbacks struct {
 	OnFilterFavorite func()
 	OnHelp           func()
 	OnCopyClipboard  func()
+	OnToggleGrid     func()
 }
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
@@ -38,6 +39,7 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		glfw.GetKeyScancode(glfw.Key4): callbacks.OnFilterBlue,
 		glfw.GetKeyScancode(glfw.KeyH): callbacks.OnHelp,
 		glfw.GetKeyScancode(glfw.KeyY): callbacks.OnCopyClipboard,
+		glfw.GetKeyScancode(glfw.KeyL): callbacks.OnToggleGrid,
 	}
 
 	canvas.SetOnTypedKey(func(ev *fyne.KeyEvent) {

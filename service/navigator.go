@@ -97,6 +97,12 @@ func (n *Navigator) Peek(offset int) (model.Photo, bool) {
 	return n.photos[idx], true
 }
 
+func (n *Navigator) CurrentIndex() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.current
+}
+
 func (n *Navigator) FindIndex(imagePath string) int {
 	n.mu.Lock()
 	defer n.mu.Unlock()

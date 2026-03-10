@@ -39,6 +39,7 @@ var helpRight = []shortcutSection{
 		entries: []shortcutEntry{
 			{"← ↑", "Previous photo"},
 			{"→ ↓ 🖱", "Next photo"},
+			{"L", "Toggle grid view"},
 		},
 	},
 	{
