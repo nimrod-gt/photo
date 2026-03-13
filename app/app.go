@@ -21,8 +21,6 @@ import (
 	"photo/ui"
 )
 
-var defaultMaxImageSize = image.Point{X: 3840, Y: 2160}
-
 type Application struct {
 	fyneApp fyne.App
 
@@ -58,6 +56,7 @@ type Application struct {
 	filterColors        map[model.ColorLabel]bool
 	filterFavorite      bool
 	gridMode            bool
+	fullImageSize       func() int
 }
 
 func New() *Application {
@@ -105,9 +104,13 @@ func (a *Application) Run() {
 		OnSecondaryTapped: a.handleSecondaryTap,
 	})
 
-	a.imageLoader = service.NewImageLoader(image.Point{X: 500, Y: 500}, sync.OnceValue(monitorSize), a.exifService)
+	a.fullImageSize = sync.OnceValue(func() int {
+		s := monitorSize()
+		return max(s.X, s.Y)
+	})
+	a.imageLoader = service.NewImageLoader()
 
-	a.gridViewer = ui.NewGridViewer(a.imageLoader, ui.GridViewerCallbacks{
+	a.gridViewer = ui.NewGridViewer(a.imageLoader, a.fullImageSize, ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
 
@@ -152,7 +155,7 @@ func (a *Application) Run() {
 }
 
 func monitorSize() (size image.Point) {
-	size = defaultMaxImageSize
+	size = image.Point{X: 3840, Y: 2160}
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("monitorSize: recovered from panic: %v", r)
@@ -260,7 +263,7 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	img, err := a.imageLoader.Get(photo.ImagePath, service.SizeFull)
+	img, err := a.imageLoader.Get(photo.ImagePath, a.fullImageSize())
 	if err != nil {
 		a.viewer.Clear()
 		a.showError("Failed to load image", err)
@@ -284,7 +287,7 @@ func (a *Application) prefetchAdjacent() {
 			paths = append(paths, p.ImagePath)
 		}
 	}
-	a.imageLoader.Preload(paths, service.SizeFull, nil)
+	a.imageLoader.Preload(paths, a.fullImageSize(), nil)
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {
@@ -517,7 +520,6 @@ func (a *Application) handleToggleGrid() {
 }
 
 func (a *Application) enterGridMode() {
-	a.fileBrowser.SetBulkBarHidden(true)
 	photos := a.fileBrowser.FilteredPhotos()
 	meta := a.fileBrowser.FilteredMeta()
 	a.gridViewer.SetPhotos(photos, meta)
@@ -526,7 +528,6 @@ func (a *Application) enterGridMode() {
 
 func (a *Application) exitGridMode() {
 	a.gridViewer.StopLoading()
-	a.fileBrowser.SetBulkBarHidden(false)
 	a.showCurrentOrFirst()
 }
 

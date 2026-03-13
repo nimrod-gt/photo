@@ -348,14 +348,6 @@ func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
 	fb.list.Refresh()
 }
 
-func (fb *FileBrowser) SetBulkBarHidden(hidden bool) {
-	if hidden {
-		fb.bulkBar.Hide()
-	} else {
-		fb.updateBulkBarVisibility()
-	}
-}
-
 func (fb *FileBrowser) updateBulkBarVisibility() {
 	fb.mu.Lock()
 	active := HasActiveFilter(fb.filterColors, fb.filterFavorite)

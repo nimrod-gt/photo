@@ -9,167 +9,139 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-type SizeClass int
+const cacheSize = 128
 
-const (
-	SizeThumb SizeClass = iota
-	SizeFull
-
-	thumbCacheSize = 1024
-	fullCacheSize  = 128
-)
+type cachedImage struct {
+	img  image.Image
+	size int
+}
 
 type loadWaiter struct {
 	img  image.Image
+	size int
 	err  error
 	done chan struct{}
 }
 
 type ImageLoader struct {
-	thumbs   *lru.Cache[string, image.Image]
-	fulls    *lru.Cache[string, image.Image]
-	thumbMax image.Point
-	fullMax  func() image.Point
-	exif     *ExifService
+	cache    *lru.Cache[string, cachedImage]
 	mu       sync.Mutex
 	inflight map[string]*loadWaiter
 	gen      atomic.Uint64
 	sem      chan struct{}
 
-	loadFull  func(string) (image.Image, error)
-	loadThumb func(string) (image.Image, error)
+	loadImage func(string) (image.Image, error)
 }
 
-func NewImageLoader(thumbMax image.Point, fullMax func() image.Point, exif *ExifService) *ImageLoader {
-	thumbs := must(lru.New[string, image.Image](thumbCacheSize))
-	fulls := must(lru.New[string, image.Image](fullCacheSize))
-	workers := max(runtime.NumCPU()-1, 2)
+func NewImageLoader() *ImageLoader {
+	cache := must(lru.New[string, cachedImage](cacheSize))
+	workers := max(runtime.NumCPU()-2, 1)
 
-	l := &ImageLoader{
-		thumbs:   thumbs,
-		fulls:    fulls,
-		thumbMax: thumbMax,
-		fullMax:  fullMax,
-		exif:     exif,
-		inflight: make(map[string]*loadWaiter),
-		sem:      make(chan struct{}, workers),
+	return &ImageLoader{
+		cache:     cache,
+		inflight:  make(map[string]*loadWaiter),
+		sem:       make(chan struct{}, workers),
+		loadImage: LoadOrientedImage,
 	}
-	l.loadFull = l.doLoadFull
-	l.loadThumb = l.doLoadThumb
-	return l
 }
 
-func (l *ImageLoader) cacheFor(sc SizeClass) *lru.Cache[string, image.Image] {
-	if sc == SizeFull {
-		return l.fulls
+func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
+	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
+		return entry.img, nil
 	}
-	return l.thumbs
-}
-
-func cacheKey(path string, sc SizeClass) string {
-	if sc == SizeFull {
-		return "F:" + path
-	}
-	return "T:" + path
-}
-
-func (l *ImageLoader) Get(path string, sc SizeClass) (image.Image, error) {
-	cache := l.cacheFor(sc)
-	if img, ok := cache.Get(path); ok {
-		return img, nil
-	}
-
-	key := cacheKey(path, sc)
 
 	l.mu.Lock()
-	if w, ok := l.inflight[key]; ok {
+	if w, ok := l.inflight[path]; ok {
 		l.mu.Unlock()
 		<-w.done
-		if w.img != nil || w.err != nil {
-			return w.img, w.err
+		if w.err == nil && w.size >= size {
+			return w.img, nil
 		}
-		img, err := l.load(path, sc)
+		img, err := l.doLoad(path, size)
 		if err == nil {
-			cache.Add(path, img)
+			l.cache.Add(path, cachedImage{img: img, size: size})
 		}
 		return img, err
 	}
 
-	if img, ok := cache.Get(path); ok {
+	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
 		l.mu.Unlock()
-		return img, nil
+		return entry.img, nil
 	}
 
 	w := &loadWaiter{done: make(chan struct{})}
-	l.inflight[key] = w
+	l.inflight[path] = w
 	l.mu.Unlock()
 
-	defer l.removeInflight(key)
-	w.img, w.err = l.load(path, sc)
+	defer l.removeInflight(path)
+	img, err := l.doLoad(path, size)
+	w.img = img
+	w.size = size
+	w.err = err
 	close(w.done)
 
-	if w.err == nil {
-		cache.Add(path, w.img)
+	if err == nil {
+		l.cache.Add(path, cachedImage{img: img, size: size})
 	}
 
-	return w.img, w.err
+	return img, err
 }
 
-func (l *ImageLoader) Peek(path string, sc SizeClass) image.Image {
-	cache := l.cacheFor(sc)
-	if img, ok := cache.Peek(path); ok {
-		return img
+func (l *ImageLoader) Peek(path string, size int) image.Image {
+	if entry, ok := l.cache.Peek(path); ok && entry.size >= size {
+		return entry.img
 	}
 	return nil
 }
 
-func (l *ImageLoader) Preload(paths []string, sc SizeClass, onLoaded func(string)) {
+func (l *ImageLoader) Preload(paths []string, size int, onLoaded func(string)) {
 	gen := l.gen.Load()
-	cache := l.cacheFor(sc)
 
 	for _, p := range paths {
 		if gen != l.gen.Load() {
 			return
 		}
 
-		if _, ok := cache.Peek(p); ok {
+		if entry, ok := l.cache.Peek(p); ok && entry.size >= size {
 			continue
 		}
 
-		key := cacheKey(p, sc)
 		l.mu.Lock()
-		if _, ok := l.inflight[key]; ok {
+		if _, ok := l.inflight[p]; ok {
 			l.mu.Unlock()
 			continue
 		}
 
 		w := &loadWaiter{done: make(chan struct{})}
-		l.inflight[key] = w
+		l.inflight[p] = w
 		l.mu.Unlock()
 
 		path := p
 		go func() {
 			l.sem <- struct{}{}
 			defer func() { <-l.sem }()
-			defer l.removeInflight(key)
+			defer l.removeInflight(path)
 
 			if gen != l.gen.Load() {
 				close(w.done)
 				return
 			}
 
-			w.img, w.err = l.load(path, sc)
+			img, err := l.doLoad(path, size)
+			w.img = img
+			w.size = size
+			w.err = err
 			close(w.done)
 
 			if gen != l.gen.Load() {
 				return
 			}
 
-			if w.err == nil {
-				cache.Add(path, w.img)
+			if err == nil {
+				l.cache.Add(path, cachedImage{img: img, size: size})
 			}
 
-			if onLoaded != nil && w.err == nil {
+			if onLoaded != nil && err == nil {
 				onLoaded(path)
 			}
 		}()
@@ -192,41 +164,19 @@ func (l *ImageLoader) removeInflight(key string) {
 
 func (l *ImageLoader) Clear() {
 	l.gen.Add(1)
-	l.thumbs.Purge()
-	l.fulls.Purge()
+	l.cache.Purge()
 
 	l.mu.Lock()
 	l.inflight = make(map[string]*loadWaiter)
 	l.mu.Unlock()
 }
 
-func (l *ImageLoader) load(path string, sc SizeClass) (image.Image, error) {
-	if sc == SizeFull {
-		return l.loadFull(path)
-	}
-	return l.loadThumb(path)
-}
-
-func (l *ImageLoader) doLoadFull(path string) (image.Image, error) {
-	img, err := LoadOrientedImage(path)
+func (l *ImageLoader) doLoad(path string, size int) (image.Image, error) {
+	img, err := l.loadImage(path)
 	if err != nil {
 		return nil, err
 	}
-	return DownscaleToFit(img, l.fullMax()), nil
-}
-
-func (l *ImageLoader) doLoadThumb(path string) (image.Image, error) {
-	if img, ok := l.fulls.Peek(path); ok {
-		return DownscaleToFit(img, l.thumbMax), nil
-	}
-
-	img, err := LoadOrientedImage(path)
-	if err != nil {
-		return nil, err
-	}
-	full := DownscaleToFit(img, l.fullMax())
-	l.fulls.Add(path, full)
-	return DownscaleToFit(full, l.thumbMax), nil
+	return DownscaleToFit(img, image.Point{X: size, Y: size}), nil
 }
 
 func must[T any](v T, err error) T {
