@@ -65,6 +65,7 @@ func TestMetadataLoader_LoadAsync(t *testing.T) {
 		var mu sync.Mutex
 		completed := make(chan struct{}, 1)
 
+		exited := make(chan struct{})
 		loader.LoadAsync(ctx, photos,
 			func(index int, _ image.Image, _ bool) {
 				mu.Lock()
@@ -75,8 +76,14 @@ func TestMetadataLoader_LoadAsync(t *testing.T) {
 				completed <- struct{}{}
 			},
 		)
+		go func() {
+			// goroutine exits without calling onComplete when context is cancelled
+			// wait briefly for it to finish, then signal
+			time.Sleep(50 * time.Millisecond)
+			close(exited)
+		}()
 
-		time.Sleep(100 * time.Millisecond)
+		<-exited
 
 		mu.Lock()
 		assert.Equal(t, 0, callCount)
@@ -103,7 +110,7 @@ func TestMetadataLoader_LoadAsync(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid JPEG is skipped with no callback", func(t *testing.T) {
+	t.Run("invalid JPEG calls onLoaded with nil thumbnail", func(t *testing.T) {
 		dir := t.TempDir()
 		fakePath := dir + "/fake.jpg"
 		require.NoError(t, os.WriteFile(fakePath, []byte("not a jpeg"), 0600))
@@ -112,14 +119,16 @@ func TestMetadataLoader_LoadAsync(t *testing.T) {
 			{ImagePath: fakePath, Name: "fake.jpg"},
 		}
 
-		var loaded []int
 		var mu sync.Mutex
+		results := make(map[int]bool)
 		done := make(chan struct{})
 
 		loader.LoadAsync(context.Background(), photos,
-			func(index int, _ image.Image, _ bool) {
+			func(index int, thumbnail image.Image, favorite bool) {
 				mu.Lock()
-				loaded = append(loaded, index)
+				results[index] = true
+				assert.Nil(t, thumbnail)
+				assert.False(t, favorite)
 				mu.Unlock()
 			},
 			func() { close(done) },
@@ -133,6 +142,7 @@ func TestMetadataLoader_LoadAsync(t *testing.T) {
 
 		mu.Lock()
 		defer mu.Unlock()
-		assert.Empty(t, loaded)
+		assert.Len(t, results, 1)
+		assert.True(t, results[0])
 	})
 }

@@ -34,6 +34,7 @@ func (l *MetadataLoader) LoadAsync(
 			thumbnail, rating, err := l.exif.GetPhotoInfo(photo.ImagePath)
 			if err != nil {
 				log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
+				onLoaded(i, nil, false)
 				continue
 			}
 			if ctx.Err() != nil {
