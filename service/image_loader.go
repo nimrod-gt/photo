@@ -35,7 +35,7 @@ type ImageLoader struct {
 
 func NewImageLoader() *ImageLoader {
 	cache := must(lru.New[string, cachedImage](cacheSize))
-	workers := max(runtime.NumCPU()-1, 1)
+	workers := max(runtime.NumCPU()-2, 1)
 
 	return &ImageLoader{
 		cache:     cache,
@@ -57,7 +57,11 @@ func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
 		if w.err == nil && w.size >= size {
 			return w.img, nil
 		}
-		return l.doLoad(path, size)
+		img, err := l.doLoad(path, size)
+		if err == nil {
+			l.cache.Add(path, cachedImage{img: img, size: size})
+		}
+		return img, err
 	}
 
 	if entry, ok := l.cache.Get(path); ok && entry.size >= size {

@@ -520,7 +520,6 @@ func (a *Application) handleToggleGrid() {
 }
 
 func (a *Application) enterGridMode() {
-	a.fileBrowser.SetBulkBarHidden(true)
 	photos := a.fileBrowser.FilteredPhotos()
 	meta := a.fileBrowser.FilteredMeta()
 	a.gridViewer.SetPhotos(photos, meta)
@@ -529,7 +528,6 @@ func (a *Application) enterGridMode() {
 
 func (a *Application) exitGridMode() {
 	a.gridViewer.StopLoading()
-	a.fileBrowser.SetBulkBarHidden(false)
 	a.showCurrentOrFirst()
 }
 
