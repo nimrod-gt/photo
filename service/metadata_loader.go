@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"image"
+	"log"
 
 	"photo/model"
 )
@@ -32,6 +33,7 @@ func (l *MetadataLoader) LoadAsync(
 			}
 			thumbnail, rating, err := l.exif.GetPhotoInfo(photo.ImagePath)
 			if err != nil {
+				log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
 				continue
 			}
 			if ctx.Err() != nil {

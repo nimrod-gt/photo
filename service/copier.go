@@ -74,6 +74,7 @@ func copyFile(src, dst string) error {
 	}
 
 	if err := out.Close(); err != nil {
+		_ = os.Remove(dst)
 		return err
 	}
 

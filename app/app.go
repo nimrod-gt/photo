@@ -691,15 +691,21 @@ func (a *Application) handleCopy() {
 			}
 			prefs.SetString("copyDestination", dest)
 			prefs.SetBool("copyIncludeRAW", rawCheck.Checked)
-			if err := a.copier.Copy(photo, dest, rawCheck.Checked); err != nil {
-				a.showError("Failed to copy photo", err)
-				return
-			}
-			if rawCheck.Checked && !photo.HasRAW() {
-				a.mainWindow.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
-			} else {
-				a.mainWindow.ShowNotification(photo.Name + " copied")
-			}
+			includeRAW := rawCheck.Checked
+			go func() {
+				err := a.copier.Copy(photo, dest, includeRAW)
+				fyne.Do(func() {
+					if err != nil {
+						a.showError("Failed to copy photo", err)
+						return
+					}
+					if includeRAW && !photo.HasRAW() {
+						a.mainWindow.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
+					} else {
+						a.mainWindow.ShowNotification(photo.Name + " copied")
+					}
+				})
+			}()
 		},
 		a.mainWindow.Window(),
 	)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -176,7 +177,10 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 	}
 
 	dir := filepath.Dir(photos[0].ImagePath)
-	colorMap, _ := fb.colors.GetDirectoryColors(dir)
+	colorMap, err := fb.colors.GetDirectoryColors(dir)
+	if err != nil {
+		log.Printf("Failed to load color labels for %s: %v", dir, err)
+	}
 
 	dates := make([]time.Time, len(photos))
 	for i, photo := range photos {

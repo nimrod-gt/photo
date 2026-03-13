@@ -178,6 +178,11 @@ func (gv *GridViewer) schedulePreload() {
 	gen := gv.imageLoader.Gen()
 
 	gv.mu.Lock()
+	if len(gv.photos) == 0 {
+		gv.mu.Unlock()
+		gv.preloadScheduled.Store(false)
+		return
+	}
 	lo := max(gv.visibleMin-gridPreloadBuffer, 0)
 	hi := min(gv.visibleMax+gridPreloadBuffer, len(gv.photos)-1)
 	paths := make([]string, 0, hi-lo+1)
