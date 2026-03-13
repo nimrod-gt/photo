@@ -16,17 +16,10 @@ func fakeImage(w, h int) image.Image {
 	return image.NewNRGBA(image.Rect(0, 0, w, h))
 }
 
-func stubLoader(loadFull, loadThumb func(string) (image.Image, error)) *ImageLoader {
-	l := NewImageLoader(
-		image.Point{X: 100, Y: 100},
-		func() image.Point { return image.Point{X: 200, Y: 200} },
-		nil,
-	)
-	if loadFull != nil {
-		l.loadFull = loadFull
-	}
-	if loadThumb != nil {
-		l.loadThumb = loadThumb
+func stubLoader(load func(string) (image.Image, error)) *ImageLoader {
+	l := NewImageLoader()
+	if load != nil {
+		l.loadImage = load
 	}
 	return l
 }
@@ -34,114 +27,119 @@ func stubLoader(loadFull, loadThumb func(string) (image.Image, error)) *ImageLoa
 func TestImageLoader_Get(t *testing.T) {
 	t.Run("returns image", func(t *testing.T) {
 		expected := fakeImage(50, 50)
-		l := stubLoader(
-			func(string) (image.Image, error) { return expected, nil },
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) { return expected, nil })
 
-		img, err := l.Get("/photo.jpg", SizeFull)
+		img, err := l.Get("/photo.jpg", 2000)
 		require.NoError(t, err)
 		assert.Equal(t, expected, img)
 	})
 
 	t.Run("returns error", func(t *testing.T) {
-		l := stubLoader(
-			func(string) (image.Image, error) { return nil, errors.New("broken") },
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) { return nil, errors.New("broken") })
 
-		_, err := l.Get("/photo.jpg", SizeFull)
+		_, err := l.Get("/photo.jpg", 2000)
 		require.Error(t, err)
 		assert.Equal(t, "broken", err.Error())
 	})
 
 	t.Run("caches result", func(t *testing.T) {
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(10, 10), nil
+		})
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
-		_, _ = l.Get("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
+		_, _ = l.Get("/photo.jpg", 2000)
 		assert.Equal(t, int32(1), calls.Load())
 	})
 
 	t.Run("does not cache errors", func(t *testing.T) {
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				return nil, errors.New("fail")
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return nil, errors.New("fail")
+		})
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
-		_, _ = l.Get("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
+		_, _ = l.Get("/photo.jpg", 2000)
 		assert.Equal(t, int32(2), calls.Load())
 	})
 
-	t.Run("thumb and full are separate caches", func(t *testing.T) {
-		thumbImg := fakeImage(10, 10)
-		fullImg := fakeImage(50, 50)
-		l := stubLoader(
-			func(string) (image.Image, error) { return fullImg, nil },
-			func(string) (image.Image, error) { return thumbImg, nil },
-		)
+	t.Run("larger cached image satisfies smaller request", func(t *testing.T) {
+		var calls atomic.Int32
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(50, 50), nil
+		})
 
-		img1, _ := l.Get("/photo.jpg", SizeFull)
-		img2, _ := l.Get("/photo.jpg", SizeThumb)
-		assert.Equal(t, fullImg, img1)
-		assert.Equal(t, thumbImg, img2)
+		_, _ = l.Get("/photo.jpg", 2000)
+		img, err := l.Get("/photo.jpg", 500)
+		require.NoError(t, err)
+		assert.NotNil(t, img)
+		assert.Equal(t, int32(1), calls.Load())
+	})
+
+	t.Run("smaller cached image triggers reload for larger request", func(t *testing.T) {
+		var calls atomic.Int32
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(50, 50), nil
+		})
+
+		_, _ = l.Get("/photo.jpg", 500)
+		_, _ = l.Get("/photo.jpg", 2000)
+		assert.Equal(t, int32(2), calls.Load())
 	})
 }
 
 func TestImageLoader_Peek(t *testing.T) {
 	t.Run("returns nil on miss", func(t *testing.T) {
-		l := stubLoader(nil, nil)
-		assert.Nil(t, l.Peek("/photo.jpg", SizeFull))
+		l := stubLoader(nil)
+		assert.Nil(t, l.Peek("/photo.jpg", 2000))
 	})
 
 	t.Run("returns cached image", func(t *testing.T) {
 		expected := fakeImage(10, 10)
-		l := stubLoader(
-			func(string) (image.Image, error) { return expected, nil },
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) { return expected, nil })
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
-		img := l.Peek("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
+		img := l.Peek("/photo.jpg", 2000)
 		assert.Equal(t, expected, img)
 	})
 
 	t.Run("does not trigger load", func(t *testing.T) {
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(10, 10), nil
+		})
 
-		l.Peek("/photo.jpg", SizeFull)
+		l.Peek("/photo.jpg", 2000)
 		assert.Equal(t, int32(0), calls.Load())
+	})
+
+	t.Run("larger cached satisfies smaller peek", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(50, 50), nil })
+
+		_, _ = l.Get("/photo.jpg", 2000)
+		assert.NotNil(t, l.Peek("/photo.jpg", 500))
+	})
+
+	t.Run("smaller cached misses larger peek", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(50, 50), nil })
+
+		_, _ = l.Get("/photo.jpg", 500)
+		assert.Nil(t, l.Peek("/photo.jpg", 2000))
 	})
 }
 
 func TestImageLoader_Preload(t *testing.T) {
 	t.Run("loads in background", func(t *testing.T) {
 		loaded := make(chan string, 1)
-		l := stubLoader(
-			func(string) (image.Image, error) { return fakeImage(10, 10), nil },
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
 
-		l.Preload([]string{"/photo.jpg"}, SizeFull, func(path string) {
+		l.Preload([]string{"/photo.jpg"}, 2000, func(path string) {
 			loaded <- path
 		})
 
@@ -152,25 +150,22 @@ func TestImageLoader_Preload(t *testing.T) {
 			t.Fatal("timed out waiting for preload")
 		}
 
-		img := l.Peek("/photo.jpg", SizeFull)
+		img := l.Peek("/photo.jpg", 2000)
 		assert.NotNil(t, img)
 	})
 
 	t.Run("skips cached", func(t *testing.T) {
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(10, 10), nil
+		})
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
 		assert.Equal(t, int32(1), calls.Load())
 
 		done := make(chan struct{})
-		l.Preload([]string{"/photo.jpg"}, SizeFull, func(string) {
+		l.Preload([]string{"/photo.jpg"}, 2000, func(string) {
 			close(done)
 		})
 
@@ -179,16 +174,13 @@ func TestImageLoader_Preload(t *testing.T) {
 	})
 
 	t.Run("calls onLoaded per path", func(t *testing.T) {
-		l := stubLoader(
-			func(string) (image.Image, error) { return fakeImage(10, 10), nil },
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
 
 		var mu sync.Mutex
 		var loaded []string
 		done := make(chan struct{})
 
-		l.Preload([]string{"/a.jpg", "/b.jpg"}, SizeFull, func(path string) {
+		l.Preload([]string{"/a.jpg", "/b.jpg"}, 2000, func(path string) {
 			mu.Lock()
 			loaded = append(loaded, path)
 			if len(loaded) == 2 {
@@ -216,23 +208,20 @@ func TestImageLoader_Dedup(t *testing.T) {
 		var calls atomic.Int32
 		started := make(chan struct{})
 		proceed := make(chan struct{})
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				if calls.Add(1) == 1 {
-					close(started)
-					<-proceed
-				}
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			if calls.Add(1) == 1 {
+				close(started)
+				<-proceed
+			}
+			return fakeImage(10, 10), nil
+		})
 
 		var wg sync.WaitGroup
 		for range 10 {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, _ = l.Get("/photo.jpg", SizeFull)
+				_, _ = l.Get("/photo.jpg", 2000)
 			}()
 		}
 
@@ -245,19 +234,16 @@ func TestImageLoader_Dedup(t *testing.T) {
 	t.Run("Get waits on inflight Preload", func(t *testing.T) {
 		proceed := make(chan struct{})
 		expected := fakeImage(20, 20)
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				<-proceed
-				return expected, nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			<-proceed
+			return expected, nil
+		})
 
-		l.Preload([]string{"/photo.jpg"}, SizeFull, nil)
+		l.Preload([]string{"/photo.jpg"}, 2000, nil)
 		time.Sleep(20 * time.Millisecond)
 		close(proceed)
 
-		img, err := l.Get("/photo.jpg", SizeFull)
+		img, err := l.Get("/photo.jpg", 2000)
 		require.NoError(t, err)
 		assert.Equal(t, expected, img)
 	})
@@ -266,61 +252,51 @@ func TestImageLoader_Dedup(t *testing.T) {
 func TestImageLoader_Clear(t *testing.T) {
 	t.Run("purges caches", func(t *testing.T) {
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			return fakeImage(10, 10), nil
+		})
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
 		assert.Equal(t, int32(1), calls.Load())
 
 		l.Clear()
 
-		_, _ = l.Get("/photo.jpg", SizeFull)
+		_, _ = l.Get("/photo.jpg", 2000)
 		assert.Equal(t, int32(2), calls.Load())
 	})
 
 	t.Run("cancels preloads via generation", func(t *testing.T) {
 		proceed := make(chan struct{})
 		var calls atomic.Int32
-		l := stubLoader(
-			func(string) (image.Image, error) {
-				calls.Add(1)
-				<-proceed
-				return fakeImage(10, 10), nil
-			},
-			nil,
-		)
+		l := stubLoader(func(string) (image.Image, error) {
+			calls.Add(1)
+			<-proceed
+			return fakeImage(10, 10), nil
+		})
 
-		l.Preload([]string{"/a.jpg", "/b.jpg", "/c.jpg"}, SizeFull, nil)
+		l.Preload([]string{"/a.jpg", "/b.jpg", "/c.jpg"}, 2000, nil)
 		time.Sleep(20 * time.Millisecond)
 		l.Clear()
 		close(proceed)
 
 		time.Sleep(50 * time.Millisecond)
-		assert.Nil(t, l.Peek("/a.jpg", SizeFull))
-		assert.Nil(t, l.Peek("/b.jpg", SizeFull))
-		assert.Nil(t, l.Peek("/c.jpg", SizeFull))
+		assert.Nil(t, l.Peek("/a.jpg", 2000))
+		assert.Nil(t, l.Peek("/b.jpg", 2000))
+		assert.Nil(t, l.Peek("/c.jpg", 2000))
 	})
 }
 
 func TestImageLoader_LRU(t *testing.T) {
-	l := NewImageLoader(
-		image.Point{X: 100, Y: 100},
-		func() image.Point { return image.Point{X: 200, Y: 200} },
-		nil,
-	)
-	l.loadFull = func(string) (image.Image, error) {
+	l := NewImageLoader()
+	l.loadImage = func(string) (image.Image, error) {
 		return fakeImage(10, 10), nil
 	}
 
-	for i := range fullCacheSize + 10 {
+	for i := range cacheSize + 10 {
 		path := "/photo_" + string(rune('A'+i%26)) + string(rune('0'+i/26)) + ".jpg"
-		_, _ = l.Get(path, SizeFull)
+		_, _ = l.Get(path, 2000)
 	}
 
-	assert.Equal(t, fullCacheSize, l.fulls.Len())
+	assert.Equal(t, cacheSize, l.cache.Len())
 }
