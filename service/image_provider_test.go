@@ -42,9 +42,9 @@ func TestImageProvider_Get(t *testing.T) {
 	})
 
 	t.Run("auto-generates thumbnail after load", func(t *testing.T) {
-		p := stubProvider(func(string) (image.Image, error) { return fakeImage(4000, 3000), nil })
+		p := stubProvider(func(string) (image.Image, error) { return fakeImage(500, 400), nil })
 
-		_, err := p.Get("/photo.jpg", 2000)
+		_, err := p.Get("/photo.jpg", 500)
 		require.NoError(t, err)
 
 		thumb := p.Thumbnail("/photo.jpg")
@@ -248,10 +248,10 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 
 func TestImageProvider_Preload(t *testing.T) {
 	t.Run("generates thumbnails from preloaded images", func(t *testing.T) {
-		p := stubProvider(func(string) (image.Image, error) { return fakeImage(4000, 3000), nil })
+		p := stubProvider(func(string) (image.Image, error) { return fakeImage(500, 400), nil })
 
 		loaded := make(chan string, 1)
-		p.Preload([]string{"/photo.jpg"}, 2000, func(path string) {
+		p.Preload([]string{"/photo.jpg"}, 500, func(path string) {
 			loaded <- path
 		})
 
