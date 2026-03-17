@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"image"
 	"image/color"
 	"log"
@@ -67,26 +66,24 @@ type FileBrowser struct {
 	filterFavorite bool
 	pinnedPath     string
 
-	generation uint64
-	mu         sync.Mutex
-	loader     *service.MetadataLoader
-	colors     *service.ColorService
-	cancel     context.CancelFunc
-	callbacks  FileBrowserCallbacks
+	generation    uint64
+	mu            sync.Mutex
+	imageProvider *service.ImageProvider
+	colors        *service.ColorService
+	callbacks     FileBrowserCallbacks
 }
 
 func NewFileBrowser(
 	scanner *service.Scanner,
-	loader *service.MetadataLoader,
+	imageProvider *service.ImageProvider,
 	colors *service.ColorService,
 	callbacks FileBrowserCallbacks,
 ) *FileBrowser {
 	fb := &FileBrowser{
-		loader:       loader,
-		colors:       colors,
-		callbacks:    callbacks,
-		cancel:       func() {},
-		filterColors: make(map[model.ColorLabel]bool),
+		imageProvider: imageProvider,
+		colors:        colors,
+		callbacks:     callbacks,
+		filterColors:  make(map[model.ColorLabel]bool),
 	}
 	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
 	fb.build()
@@ -117,7 +114,6 @@ func (fb *FileBrowser) PinnedPath() string {
 
 func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	fb.mu.Lock()
-	fb.cancel()
 	fb.allPhotos = photos
 	fb.allMeta = make([]model.PhotoMeta, len(photos))
 	fb.pinnedPath = ""
@@ -130,11 +126,7 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	fb.mu.Lock()
-	fb.cancel = cancel
-	fb.mu.Unlock()
-	fb.loader.LoadAsync(ctx, photos, func(index int, thumbnail image.Image, favorite bool) {
+	fb.imageProvider.LoadFolder(photos, func(index int, thumbnail image.Image, favorite bool) {
 		fb.mu.Lock()
 		if fb.generation != gen {
 			fb.mu.Unlock()
@@ -592,7 +584,11 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 	dateContent := dateRow.Objects[0].(*fyne.Container)
 	dateText := dateContent.Objects[0].(*canvas.Text)
 
-	updateThumbnail(thumb, meta.Thumbnail)
+	thumbnail := meta.Thumbnail
+	if thumbnail == nil {
+		thumbnail = fb.imageProvider.Thumbnail(photo.ImagePath)
+	}
+	updateThumbnail(thumb, thumbnail)
 	topRow.Objects[0].(*widget.Label).SetText(photo.Name)
 	updateStar(topRow.Objects[1].(*canvas.Text), meta.Favorite)
 	updateColorDots(dateRow.Objects[1].(*fyne.Container), meta.Colors)

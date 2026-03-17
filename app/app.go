@@ -24,14 +24,13 @@ import (
 type Application struct {
 	fyneApp fyne.App
 
-	scanner        *service.Scanner
-	colorService   *service.ColorService
-	deleter        *service.Deleter
-	copier         *service.Copier
-	navigator      *service.Navigator
-	exifService    *service.ExifService
-	imageLoader    *service.ImageLoader
-	metadataLoader *service.MetadataLoader
+	scanner       *service.Scanner
+	colorService  *service.ColorService
+	deleter       *service.Deleter
+	copier        *service.Copier
+	navigator     *service.Navigator
+	exifService   *service.ExifService
+	imageProvider *service.ImageProvider
 
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
@@ -62,14 +61,14 @@ type Application struct {
 func New() *Application {
 	exifService := service.NewExifService()
 	return &Application{
-		scanner:        service.NewScanner(),
-		colorService:   service.NewColorService(),
-		deleter:        service.NewDeleter(),
-		copier:         service.NewCopier(),
-		navigator:      service.NewNavigator(),
-		exifService:    exifService,
-		metadataLoader: service.NewMetadataLoader(exifService),
-		filterColors:   make(map[model.ColorLabel]bool),
+		scanner:       service.NewScanner(),
+		colorService:  service.NewColorService(),
+		deleter:       service.NewDeleter(),
+		copier:        service.NewCopier(),
+		navigator:     service.NewNavigator(),
+		exifService:   exifService,
+		imageProvider: service.NewImageProvider(exifService),
+		filterColors:  make(map[model.ColorLabel]bool),
 	}
 }
 
@@ -85,7 +84,7 @@ func (a *Application) Run() {
 		OnDelete: a.handleDelete,
 	})
 
-	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.metadataLoader, a.colorService, ui.FileBrowserCallbacks{
+	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.imageProvider, a.colorService, ui.FileBrowserCallbacks{
 		OnPhotoSelected:     a.handlePhotoSelected,
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
@@ -108,9 +107,8 @@ func (a *Application) Run() {
 		s := monitorSize()
 		return max(s.X, s.Y)
 	})
-	a.imageLoader = service.NewImageLoader()
 
-	a.gridViewer = ui.NewGridViewer(a.imageLoader, a.fullImageSize, ui.GridViewerCallbacks{
+	a.gridViewer = ui.NewGridViewer(a.imageProvider, a.fullImageSize, ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
 
@@ -234,7 +232,6 @@ func (a *Application) loadDirectory(dir string) {
 		return
 	}
 
-	a.imageLoader.Clear()
 	a.colorService.ClearCache()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
@@ -263,7 +260,7 @@ func (a *Application) loadDirectory(dir string) {
 }
 
 func (a *Application) showPhoto(photo model.Photo) {
-	img, err := a.imageLoader.Get(photo.ImagePath, a.fullImageSize())
+	img, err := a.imageProvider.Get(photo.ImagePath, a.fullImageSize())
 	if err != nil {
 		a.viewer.Clear()
 		a.showError("Failed to load image", err)
@@ -287,7 +284,7 @@ func (a *Application) prefetchAdjacent() {
 			paths = append(paths, p.ImagePath)
 		}
 	}
-	a.imageLoader.Preload(paths, a.fullImageSize(), nil)
+	a.imageProvider.Preload(paths, a.fullImageSize(), nil)
 }
 
 func (a *Application) updateColorIndicators(photo model.Photo) {

@@ -36,14 +36,14 @@ type GridViewer struct {
 	visibleMin int
 	visibleMax int
 
-	imageLoader      *service.ImageLoader
+	imageProvider    *service.ImageProvider
 	fullImageSize    func() int
 	preloadScheduled atomic.Bool
 	callbacks        GridViewerCallbacks
 }
 
-func NewGridViewer(imageLoader *service.ImageLoader, fullImageSize func() int, callbacks GridViewerCallbacks) *GridViewer {
-	gv := &GridViewer{imageLoader: imageLoader, fullImageSize: fullImageSize, callbacks: callbacks}
+func NewGridViewer(imageProvider *service.ImageProvider, fullImageSize func() int, callbacks GridViewerCallbacks) *GridViewer {
+	gv := &GridViewer{imageProvider: imageProvider, fullImageSize: fullImageSize, callbacks: callbacks}
 	gv.build()
 	return gv
 }
@@ -53,7 +53,7 @@ func (gv *GridViewer) Container() *fyne.Container {
 }
 
 func (gv *GridViewer) StopLoading() {
-	gv.imageLoader.BumpGen()
+	gv.imageProvider.BumpGen()
 }
 
 func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
@@ -144,7 +144,7 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	nameLabel := tile.Objects[1].(*widget.Label)
 
 	thumbSize := gv.fullImageSize() / gridColumns
-	if img := gv.imageLoader.Peek(photo.ImagePath, thumbSize); img != nil {
+	if img := gv.imageProvider.Peek(photo.ImagePath, thumbSize); img != nil {
 		thumb.Image = img
 		thumb.Show()
 	} else if meta.Thumbnail != nil {
@@ -175,7 +175,7 @@ func (gv *GridViewer) schedulePreload() {
 		return
 	}
 
-	gen := gv.imageLoader.Gen()
+	gen := gv.imageProvider.Gen()
 
 	gv.mu.Lock()
 	if len(gv.photos) == 0 {
@@ -197,8 +197,8 @@ func (gv *GridViewer) schedulePreload() {
 	grid := gv.grid
 	go func() {
 		defer gv.preloadScheduled.Store(false)
-		gv.imageLoader.Preload(paths, gv.fullImageSize()/gridColumns, func(path string) {
-			if gen != gv.imageLoader.Gen() {
+		gv.imageProvider.Preload(paths, gv.fullImageSize()/gridColumns, func(path string) {
+			if gen != gv.imageProvider.Gen() {
 				return
 			}
 			gv.mu.Lock()
