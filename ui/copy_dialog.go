@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"photo/service"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
@@ -36,29 +38,39 @@ func (d *DestinationEntry) Text() string {
 	return d.entry.Text
 }
 
-type RawCheck struct {
-	check   *widget.Check
-	Checked bool
+var copyModeLabels = []string{"Photo", "Photo + RAW", "RAW"}
+
+type CopyModeSelect struct {
+	radio *widget.RadioGroup
+	Mode  service.CopyMode
 }
 
-func NewRawCheck(initial bool) *RawCheck {
-	rc := &RawCheck{Checked: initial}
-	rc.check = widget.NewCheck("Copy with RAW", func(checked bool) {
-		rc.Checked = checked
+func NewCopyModeSelect(initial service.CopyMode) *CopyModeSelect {
+	cms := &CopyModeSelect{Mode: initial}
+	cms.radio = widget.NewRadioGroup(copyModeLabels, func(selected string) {
+		switch selected {
+		case copyModeLabels[0]:
+			cms.Mode = service.CopyJPEGOnly
+		case copyModeLabels[1]:
+			cms.Mode = service.CopyWithRAW
+		case copyModeLabels[2]:
+			cms.Mode = service.CopyOnlyRAW
+		}
 	})
-	rc.check.SetChecked(initial)
-	return rc
+	cms.radio.Horizontal = true
+	cms.radio.SetSelected(copyModeLabels[initial])
+	return cms
 }
 
 const copyDialogWidth = float32(500)
 
-func NewCopyDialogContent(filename string, destRow *fyne.Container, rawCheck *RawCheck) *fyne.Container {
+func NewCopyDialogContent(filename string, destRow *fyne.Container, modeSelect *CopyModeSelect) *fyne.Container {
 	nameLabel := widget.NewLabel(filename)
 	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
 	content := container.NewVBox(
 		nameLabel,
 		destRow,
-		rawCheck.check,
+		modeSelect.radio,
 	)
 	return container.New(&minWidthLayout{width: copyDialogWidth}, content)
 }

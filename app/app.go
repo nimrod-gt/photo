@@ -665,12 +665,12 @@ func (a *Application) handleCopy() {
 
 	prefs := a.fyneApp.Preferences()
 	destDir := prefs.String("copyDestination")
-	includeRAW := prefs.BoolWithFallback("copyIncludeRAW", true)
+	copyMode := service.CopyMode(prefs.IntWithFallback("copyMode", int(service.CopyWithRAW)))
 
 	destEntry := ui.NewDestinationEntry(destDir, a.mainWindow.Window())
-	rawCheck := ui.NewRawCheck(includeRAW)
+	modeSelect := ui.NewCopyModeSelect(copyMode)
 
-	content := ui.NewCopyDialogContent(photo.Name, destEntry.Container, rawCheck)
+	content := ui.NewCopyDialogContent(photo.Name, destEntry.Container, modeSelect)
 
 	a.copyDialogOpen = true
 	a.copyDialog = dialog.NewCustomConfirm("Copy Photo", "Copy (C)", "Cancel (N)",
@@ -686,17 +686,17 @@ func (a *Application) handleCopy() {
 				a.mainWindow.ShowError("No destination folder selected")
 				return
 			}
+			mode := modeSelect.Mode
 			prefs.SetString("copyDestination", dest)
-			prefs.SetBool("copyIncludeRAW", rawCheck.Checked)
-			includeRAW := rawCheck.Checked
+			prefs.SetInt("copyMode", int(mode))
 			go func() {
-				err := a.copier.Copy(photo, dest, includeRAW)
+				err := a.copier.Copy(photo, dest, mode)
 				fyne.Do(func() {
 					if err != nil {
 						a.showError("Failed to copy photo", err)
 						return
 					}
-					if includeRAW && !photo.HasRAW() {
+					if mode == service.CopyWithRAW && !photo.HasRAW() {
 						a.mainWindow.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
 					} else {
 						a.mainWindow.ShowNotification(photo.Name + " copied")
@@ -775,13 +775,13 @@ func (a *Application) handleCopyAll() {
 
 	prefs := a.fyneApp.Preferences()
 	destDir := prefs.String("copyDestination")
-	includeRAW := prefs.BoolWithFallback("copyIncludeRAW", true)
+	copyMode := service.CopyMode(prefs.IntWithFallback("copyMode", int(service.CopyWithRAW)))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.copyAllCancel = cancel
 
 	a.copyAllDialogOpen = true
-	a.copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, includeRAW, a.mainWindow.Window(),
+	a.copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, copyMode, a.mainWindow.Window(),
 		func() {
 			dest := a.copyAllDialog.DestDir()
 			if len(dest) == 0 {
@@ -789,15 +789,15 @@ func (a *Application) handleCopyAll() {
 				a.copyAllDialog.Finish()
 				return
 			}
-			withRAW := a.copyAllDialog.IncludeRAW()
+			mode := a.copyAllDialog.CopyMode()
 			prefs.SetString("copyDestination", dest)
-			prefs.SetBool("copyIncludeRAW", withRAW)
+			prefs.SetInt("copyMode", int(mode))
 
 			go func() {
 				total := len(filtered)
 				copied := 0
 				for i, photo := range filtered {
-					if err := a.copier.CopyWithContext(ctx, photo, dest, withRAW); err != nil {
+					if err := a.copier.CopyWithContext(ctx, photo, dest, mode); err != nil {
 						if ctx.Err() != nil {
 							fyne.Do(func() {
 								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))

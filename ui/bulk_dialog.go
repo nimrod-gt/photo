@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 
+	"photo/service"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
@@ -21,34 +23,34 @@ func NewDeleteAllDialogContent(count int) (*fyne.Container, *widget.Check) {
 }
 
 type CopyAllDialog struct {
-	dialog    *dialog.CustomDialog
-	progress  *widget.ProgressBar
-	destEntry *DestinationEntry
-	rawCheck  *RawCheck
-	copyBtn   *widget.Button
-	cancelBtn *widget.Button
-	onCopy    func()
-	onCancel  func()
-	closed    bool
+	dialog     *dialog.CustomDialog
+	progress   *widget.ProgressBar
+	destEntry  *DestinationEntry
+	modeSelect *CopyModeSelect
+	copyBtn    *widget.Button
+	cancelBtn  *widget.Button
+	onCopy     func()
+	onCancel   func()
+	closed     bool
 }
 
-func NewCopyAllDialog(count int, destDir string, includeRAW bool, window fyne.Window, onCopy func(), onCancel func()) *CopyAllDialog {
+func NewCopyAllDialog(count int, destDir string, copyMode service.CopyMode, window fyne.Window, onCopy func(), onCancel func()) *CopyAllDialog {
 	label := widget.NewLabel(fmt.Sprintf("Copy %d filtered photos", count))
 	label.TextStyle = fyne.TextStyle{Bold: true}
 
 	destEntry := NewDestinationEntry(destDir, window)
 
-	rawCheck := NewRawCheck(includeRAW)
+	modeSelect := NewCopyModeSelect(copyMode)
 
 	progress := widget.NewProgressBar()
 	progress.Hide()
 
 	cad := &CopyAllDialog{
-		progress:  progress,
-		destEntry: destEntry,
-		rawCheck:  rawCheck,
-		onCopy:    onCopy,
-		onCancel:  onCancel,
+		progress:   progress,
+		destEntry:  destEntry,
+		modeSelect: modeSelect,
+		onCopy:     onCopy,
+		onCancel:   onCancel,
 	}
 
 	cad.copyBtn = widget.NewButton("Copy", func() {
@@ -69,7 +71,7 @@ func NewCopyAllDialog(count int, destDir string, includeRAW bool, window fyne.Wi
 
 	buttons := container.NewGridWithColumns(2, cad.cancelBtn, cad.copyBtn)
 
-	content := container.NewVBox(label, destEntry.Container, rawCheck.check, progress, buttons)
+	content := container.NewVBox(label, destEntry.Container, modeSelect.radio, progress, buttons)
 	wrapped := container.New(&minWidthLayout{width: copyDialogWidth}, content)
 
 	cad.dialog = dialog.NewCustomWithoutButtons("Copy All", wrapped, window)
@@ -107,6 +109,6 @@ func (d *CopyAllDialog) DestDir() string {
 	return d.destEntry.Text()
 }
 
-func (d *CopyAllDialog) IncludeRAW() bool {
-	return d.rawCheck.Checked
+func (d *CopyAllDialog) CopyMode() service.CopyMode {
+	return d.modeSelect.Mode
 }

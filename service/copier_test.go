@@ -17,28 +17,39 @@ func TestCopier_Copy(t *testing.T) {
 	fixedTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name       string
-		hasRAW     bool
-		includeRAW bool
-		wantRAW    bool
+		name    string
+		hasRAW  bool
+		mode    CopyMode
+		wantRAW bool
+		wantImg bool
 	}{
 		{
-			name:       "JPEG only",
-			hasRAW:     false,
-			includeRAW: false,
-			wantRAW:    false,
+			name:    "JPEG only mode",
+			hasRAW:  false,
+			mode:    CopyJPEGOnly,
+			wantRAW: false,
+			wantImg: true,
 		},
 		{
-			name:       "JPEG+RAW with includeRAW on",
-			hasRAW:     true,
-			includeRAW: true,
-			wantRAW:    true,
+			name:    "JPEG+RAW with CopyWithRAW",
+			hasRAW:  true,
+			mode:    CopyWithRAW,
+			wantRAW: true,
+			wantImg: true,
 		},
 		{
-			name:       "JPEG+RAW with includeRAW off",
-			hasRAW:     true,
-			includeRAW: false,
-			wantRAW:    false,
+			name:    "JPEG+RAW with CopyJPEGOnly",
+			hasRAW:  true,
+			mode:    CopyJPEGOnly,
+			wantRAW: false,
+			wantImg: true,
+		},
+		{
+			name:    "CopyOnlyRAW copies only RAW",
+			hasRAW:  true,
+			mode:    CopyOnlyRAW,
+			wantRAW: true,
+			wantImg: false,
 		},
 	}
 
@@ -63,16 +74,21 @@ func TestCopier_Copy(t *testing.T) {
 			}
 
 			c := NewCopier()
-			require.NoError(t, c.Copy(photo, destDir, tt.includeRAW))
+			require.NoError(t, c.Copy(photo, destDir, tt.mode))
 
 			destJPEG := filepath.Join(destDir, "photo.jpg")
-			data, err := os.ReadFile(destJPEG)
-			require.NoError(t, err)
-			assert.Equal(t, jpegContent, data)
+			if tt.wantImg {
+				data, err := os.ReadFile(destJPEG)
+				require.NoError(t, err)
+				assert.Equal(t, jpegContent, data)
 
-			info, err := os.Stat(destJPEG)
-			require.NoError(t, err)
-			assert.Equal(t, fixedTime, info.ModTime().UTC())
+				info, err := os.Stat(destJPEG)
+				require.NoError(t, err)
+				assert.Equal(t, fixedTime, info.ModTime().UTC())
+			} else {
+				_, err := os.Stat(destJPEG)
+				assert.True(t, os.IsNotExist(err))
+			}
 
 			destRAW := filepath.Join(destDir, "photo.ARW")
 			if tt.wantRAW {
@@ -90,6 +106,20 @@ func TestCopier_Copy(t *testing.T) {
 		})
 	}
 
+	t.Run("CopyOnlyRAW without RAW returns error", func(t *testing.T) {
+		srcDir := t.TempDir()
+		destDir := t.TempDir()
+
+		jpegPath := filepath.Join(srcDir, "photo.jpg")
+		require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg"), 0600))
+
+		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
+		c := NewCopier()
+		err := c.Copy(photo, destDir, CopyOnlyRAW)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no RAW file")
+	})
+
 	t.Run("missing destination directory", func(t *testing.T) {
 		srcDir := t.TempDir()
 		jpegPath := filepath.Join(srcDir, "photo.jpg")
@@ -97,7 +127,7 @@ func TestCopier_Copy(t *testing.T) {
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
 		c := NewCopier()
-		err := c.Copy(photo, "/nonexistent/destination", false)
+		err := c.Copy(photo, "/nonexistent/destination", CopyJPEGOnly)
 		assert.Error(t, err)
 	})
 
@@ -111,7 +141,7 @@ func TestCopier_Copy(t *testing.T) {
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
 		c := NewCopier()
-		err := c.Copy(photo, destFile, false)
+		err := c.Copy(photo, destFile, CopyJPEGOnly)
 		assert.Error(t, err)
 	})
 
@@ -128,7 +158,7 @@ func TestCopier_Copy(t *testing.T) {
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
 		c := NewCopier()
-		require.NoError(t, c.Copy(photo, destDir, false))
+		require.NoError(t, c.Copy(photo, destDir, CopyJPEGOnly))
 
 		data, err := os.ReadFile(existingPath)
 		require.NoError(t, err)
@@ -150,7 +180,7 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := c.CopyWithContext(ctx, photo, destDir, false)
+		err := c.CopyWithContext(ctx, photo, destDir, CopyJPEGOnly)
 		require.ErrorIs(t, err, context.Canceled)
 
 		_, statErr := os.Stat(filepath.Join(destDir, "photo.jpg"))
@@ -172,7 +202,7 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
 		c := NewCopier()
 
-		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, true))
+		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, CopyWithRAW))
 
 		data, err := os.ReadFile(filepath.Join(destDir, "photo.jpg"))
 		require.NoError(t, err)
@@ -195,7 +225,7 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
 		c := NewCopier()
 
-		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, false))
+		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, CopyJPEGOnly))
 
 		_, err := os.Stat(filepath.Join(destDir, "photo.jpg"))
 		require.NoError(t, err)
