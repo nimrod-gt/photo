@@ -87,7 +87,7 @@ func (p *ImageProvider) LoadFolder(
 ) {
 	gen := p.thumbGen.Add(1)
 	p.loader.Clear()
-	p.clearThumbnails()
+	p.thumbnails.Clear()
 
 	go func() {
 		for i, photo := range photos {
@@ -121,7 +121,7 @@ func (p *ImageProvider) LoadFolder(
 func (p *ImageProvider) Clear() {
 	p.thumbGen.Add(1)
 	p.loader.Clear()
-	p.clearThumbnails()
+	p.thumbnails.Clear()
 }
 
 func (p *ImageProvider) BumpGen() {
@@ -130,10 +130,6 @@ func (p *ImageProvider) BumpGen() {
 
 func (p *ImageProvider) Gen() uint64 {
 	return p.loader.Gen()
-}
-
-func (p *ImageProvider) clearThumbnails() {
-	p.thumbnails.Clear()
 }
 
 func (p *ImageProvider) storeThumbnail(path string, fullImg image.Image) {

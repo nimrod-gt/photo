@@ -796,6 +796,7 @@ func (a *Application) handleCopyAll() {
 			go func() {
 				total := len(filtered)
 				copied := 0
+				skipped := 0
 				for i, photo := range filtered {
 					if err := a.copier.CopyWithContext(ctx, photo, dest, mode); err != nil {
 						if ctx.Err() != nil {
@@ -811,6 +812,7 @@ func (a *Application) handleCopyAll() {
 							return
 						}
 						log.Printf("Failed to copy %s: %v", photo.Name, err)
+						skipped++
 						continue
 					}
 					copied++
@@ -828,7 +830,11 @@ func (a *Application) handleCopyAll() {
 						a.copyAllDialog = nil
 					}
 					a.copyAllCancel = nil
-					a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
+					if skipped > 0 {
+						a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
+					} else {
+						a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
+					}
 				})
 			}()
 		},

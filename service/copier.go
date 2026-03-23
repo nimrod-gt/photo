@@ -29,6 +29,10 @@ func (c *Copier) CopyWithContext(ctx context.Context, photo model.Photo, destDir
 		return err
 	}
 
+	if mode < CopyJPEGOnly || mode > CopyOnlyRAW {
+		return fmt.Errorf("unknown copy mode %d", mode)
+	}
+
 	info, err := os.Stat(destDir)
 	if err != nil {
 		return fmt.Errorf("destination directory %s: %w", destDir, err)

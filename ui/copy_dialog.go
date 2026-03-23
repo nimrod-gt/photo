@@ -46,6 +46,9 @@ type CopyModeSelect struct {
 }
 
 func NewCopyModeSelect(initial service.CopyMode) *CopyModeSelect {
+	if int(initial) < 0 || int(initial) >= len(copyModeLabels) {
+		initial = service.CopyWithRAW
+	}
 	cms := &CopyModeSelect{Mode: initial}
 	cms.radio = widget.NewRadioGroup(copyModeLabels, func(selected string) {
 		switch selected {

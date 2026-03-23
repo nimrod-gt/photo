@@ -120,6 +120,20 @@ func TestCopier_Copy(t *testing.T) {
 		assert.Contains(t, err.Error(), "no RAW file")
 	})
 
+	t.Run("invalid copy mode returns error", func(t *testing.T) {
+		srcDir := t.TempDir()
+		destDir := t.TempDir()
+
+		jpegPath := filepath.Join(srcDir, "photo.jpg")
+		require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg"), 0600))
+
+		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
+		c := NewCopier()
+		err := c.Copy(photo, destDir, CopyMode(99))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown copy mode")
+	})
+
 	t.Run("missing destination directory", func(t *testing.T) {
 		srcDir := t.TempDir()
 		jpegPath := filepath.Join(srcDir, "photo.jpg")
