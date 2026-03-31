@@ -46,8 +46,12 @@ func NewImageLoader() *ImageLoader {
 }
 
 func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
-	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
-		return entry.img, nil
+	loadSize := size
+	if entry, ok := l.cache.Get(path); ok {
+		if entry.size >= size {
+			return entry.img, nil
+		}
+		loadSize = max(size, entry.size*3/2)
 	}
 
 	l.mu.Lock()
@@ -57,9 +61,9 @@ func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
 		if w.err == nil && w.size >= size {
 			return w.img, nil
 		}
-		img, err := l.doLoad(path, size)
+		img, err := l.doLoad(path, loadSize)
 		if err == nil {
-			l.cache.Add(path, cachedImage{img: img, size: size})
+			l.cache.Add(path, cachedImage{img: img, size: loadSize})
 		}
 		return img, err
 	}
@@ -74,14 +78,14 @@ func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
 	l.mu.Unlock()
 
 	defer l.removeInflight(path)
-	img, err := l.doLoad(path, size)
+	img, err := l.doLoad(path, loadSize)
 	w.img = img
-	w.size = size
+	w.size = loadSize
 	w.err = err
 	close(w.done)
 
 	if err == nil {
-		l.cache.Add(path, cachedImage{img: img, size: size})
+		l.cache.Add(path, cachedImage{img: img, size: loadSize})
 	}
 
 	return img, err

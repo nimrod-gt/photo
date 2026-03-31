@@ -101,6 +101,7 @@ func (a *Application) Run() {
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{
 		OnTapped:          a.handleNext,
 		OnSecondaryTapped: a.handleSecondaryTap,
+		OnZoomChanged:     a.handleZoomChanged,
 	})
 
 	a.fullImageSize = sync.OnceValue(func() int {
@@ -140,6 +141,9 @@ func (a *Application) Run() {
 		OnHelp:           a.handleHelp,
 		OnCopyClipboard:  a.handleCopyToClipboard,
 		OnToggleGrid:     a.handleToggleGrid,
+		OnZoomReset:      a.handleZoomReset,
+		OnZoomIn:         a.handleZoomIn,
+		OnZoomOut:        a.handleZoomOut,
 	})
 
 	a.loadInitialDirectory()
@@ -555,6 +559,54 @@ func (a *Application) handleCopyToClipboard() {
 		return
 	}
 	a.mainWindow.ShowNotification("Copied to clipboard")
+}
+
+func (a *Application) handleZoomChanged(zoom float32) {
+	photo, ok := a.navigator.Current()
+	if !ok {
+		return
+	}
+	neededSize := int(float64(a.fullImageSize()) * float64(zoom))
+	if img := a.imageProvider.Peek(photo.ImagePath, neededSize); img != nil {
+		a.viewer.UpdateImage(img)
+		return
+	}
+	path := photo.ImagePath
+	go func() {
+		img, err := a.imageProvider.Get(path, neededSize)
+		if err != nil {
+			log.Printf("Failed to load hi-res image %s: %v", path, err)
+			return
+		}
+		fyne.Do(func() {
+			cur, ok := a.navigator.Current()
+			if !ok || cur.ImagePath != path {
+				return
+			}
+			a.viewer.UpdateImage(img)
+		})
+	}()
+}
+
+func (a *Application) handleZoomReset() {
+	if a.gridMode {
+		return
+	}
+	a.viewer.ResetZoom()
+}
+
+func (a *Application) handleZoomIn() {
+	if a.gridMode {
+		return
+	}
+	a.viewer.ZoomIn()
+}
+
+func (a *Application) handleZoomOut() {
+	if a.gridMode {
+		return
+	}
+	a.viewer.ZoomOut()
 }
 
 func (a *Application) handleDelete() {

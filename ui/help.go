@@ -29,6 +29,7 @@ var helpLeft = []shortcutSection{
 			{"C", "Copy photo"},
 			{"Y", "Copy to clipboard"},
 			{"L", "Toggle grid view"},
+			{"Z", "Reset zoom"},
 			{"H", "Toggle this help"},
 		},
 	},
@@ -40,6 +41,8 @@ var helpRight = []shortcutSection{
 		entries: []shortcutEntry{
 			{"← ↑", "Previous photo"},
 			{"→ ↓ 🖱", "Next photo"},
+			{"+ 🖲↑", "Zoom in"},
+			{"- 🖲↓", "Zoom out"},
 		},
 	},
 	{

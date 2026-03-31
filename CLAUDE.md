@@ -33,6 +33,8 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `D` — delete (opens confirmation dialog: `D` = yes, `N`/`Esc` = no)
 - `C` — copy photo
 - `Y` — copy photo to clipboard
+- `Z` — reset zoom
+- `+`/`-` — zoom in/out
 - `L` — toggle grid view
 - Arrow keys — navigate photos
 
