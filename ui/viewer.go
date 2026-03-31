@@ -150,14 +150,15 @@ func (z *zoomWidget) zoomBy(factor, cursorX, cursorY float32) {
 		return
 	}
 
-	s := newZoom / z.zoom
+	oldZoom := z.zoom
+	s := newZoom / oldZoom
 	size := z.Size()
 	z.panX = z.panX*s + (cursorX-size.Width/2)*(1-s)
 	z.panY = z.panY*s + (cursorY-size.Height/2)*(1-s)
 	z.zoom = newZoom
 	z.clampPan()
 	z.Refresh()
-	if z.callbacks.OnZoomChanged != nil {
+	if z.callbacks.OnZoomChanged != nil && newZoom > oldZoom {
 		z.callbacks.OnZoomChanged(z.zoom)
 	}
 }
