@@ -30,6 +30,16 @@ func (s *Scanner) ScanDirectory(dir string) ([]model.Photo, error) {
 		return nil, fmt.Errorf("reading directory %s: %w", dir, err)
 	}
 
+	names := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			names[entry.Name()] = true
+		}
+	}
+	existsInDir := func(path string) bool {
+		return names[filepath.Base(path)]
+	}
+
 	var photos []model.Photo
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -40,7 +50,11 @@ func (s *Scanner) ScanDirectory(dir string) ([]model.Photo, error) {
 			continue
 		}
 		fullPath := filepath.Join(dir, entry.Name())
-		photos = append(photos, model.NewPhoto(fullPath))
+		photo := model.NewPhotoWithExists(fullPath, existsInDir)
+		if info, err := entry.Info(); err == nil {
+			photo.ModTime = info.ModTime()
+		}
+		photos = append(photos, photo)
 	}
 
 	return photos, nil
@@ -53,16 +67,9 @@ func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
 			return photos[i].Name < photos[j].Name
 		})
 	case SortByTime:
-		modTimes := make(map[string]time.Time, len(photos))
-		for _, p := range photos {
-			if info, err := os.Stat(p.ImagePath); err == nil {
-				modTimes[p.ImagePath] = info.ModTime()
-			}
-		}
 		sort.Slice(photos, func(i, j int) bool {
-			ti, oki := modTimes[photos[i].ImagePath]
-			tj, okj := modTimes[photos[j].ImagePath]
-			if !oki || !okj {
+			ti, tj := photos[i].ModTime, photos[j].ModTime
+			if ti.IsZero() || tj.IsZero() {
 				return photos[i].Name < photos[j].Name
 			}
 			return ti.Before(tj)

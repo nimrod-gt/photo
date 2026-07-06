@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -245,4 +249,41 @@ func TestToNRGBA_ConvertsOtherTypes(t *testing.T) {
 	assert.Equal(t, 4, dst.Bounds().Dx())
 	assert.Equal(t, 3, dst.Bounds().Dy())
 	assert.Equal(t, color.NRGBA{R: 10, G: 20, B: 30, A: 255}, pixelAt(dst, 1, 2))
+}
+
+func writeTestJPEG(t *testing.T, w, h int) string {
+	t.Helper()
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
+	path := filepath.Join(t.TempDir(), "test.jpg")
+	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
+	return path
+}
+
+func TestLoadImageOriented(t *testing.T) {
+	tests := []struct {
+		name        string
+		orientation uint16
+		wantW       int
+		wantH       int
+	}{
+		{"known orientation 6 rotates without sniffing", 6, 2, 4},
+		{"known orientation 1 keeps dimensions", 1, 4, 2},
+		{"unknown orientation sniffs and finds none", 0, 4, 2},
+	}
+
+	path := writeTestJPEG(t, 4, 2)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img, err := LoadImageOriented(path, tt.orientation)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantW, img.Bounds().Dx())
+			assert.Equal(t, tt.wantH, img.Bounds().Dy())
+		})
+	}
+
+	t.Run("missing file", func(t *testing.T) {
+		_, err := LoadImageOriented("/nonexistent/x.jpg", 1)
+		assert.Error(t, err)
+	})
 }

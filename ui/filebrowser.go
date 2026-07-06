@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"log"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -174,13 +173,6 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 		log.Printf("Failed to load color labels for %s: %v", dir, err)
 	}
 
-	dates := make([]time.Time, len(photos))
-	for i, photo := range photos {
-		if info, err := os.Stat(photo.ImagePath); err == nil {
-			dates[i] = info.ModTime()
-		}
-	}
-
 	fb.mu.Lock()
 	defer fb.mu.Unlock()
 
@@ -188,7 +180,7 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 		if colorMap != nil {
 			fb.allMeta[i].Colors = colorMap[photo.Name]
 		}
-		fb.allMeta[i].Date = dates[i]
+		fb.allMeta[i].Date = photo.ModTime
 	}
 }
 

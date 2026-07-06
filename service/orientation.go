@@ -7,6 +7,7 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,15 +17,22 @@ import (
 )
 
 func LoadOrientedImage(path string) (image.Image, error) {
+	return LoadImageOriented(path, 0)
+}
+
+// orientation 0 means unknown: sniff it from the JPEG's EXIF data
+func LoadImageOriented(path string, orientation uint16) (image.Image, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading image %s: %w", path, err)
 	}
 
-	var orientation uint16 = 1
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".jpg" || ext == ".jpeg" {
-		orientation = orientationFromBytes(data)
+	if orientation == 0 {
+		orientation = 1
+		ext := strings.ToLower(filepath.Ext(path))
+		if ext == ".jpg" || ext == ".jpeg" {
+			orientation = orientationFromBytes(data)
+		}
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
@@ -39,11 +47,13 @@ func orientationFromBytes(data []byte) uint16 {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseBytes(data)
 	if err != nil {
+		log.Printf("Failed to parse JPEG structure for orientation: %v", err)
 		return 1
 	}
 
 	sl, ok := intfc.(*jpegstructure.SegmentList)
 	if !ok {
+		log.Printf("Unexpected JPEG parse result type %T", intfc)
 		return 1
 	}
 
@@ -59,6 +69,7 @@ func orientationFromBytes(data []byte) uint16 {
 
 	value, err := results[0].Value()
 	if err != nil {
+		log.Printf("Failed to read Orientation tag value: %v", err)
 		return 1
 	}
 

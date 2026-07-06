@@ -109,7 +109,7 @@ func (a *Application) Run() {
 		return max(s.X, s.Y)
 	})
 
-	a.gridViewer = ui.NewGridViewer(a.imageProvider, a.fullImageSize, ui.GridViewerCallbacks{
+	a.gridViewer = ui.NewGridViewer(a.imageProvider, ui.GridViewerCallbacks{
 		OnPhotoTapped: a.handleGridPhotoTapped,
 	})
 
@@ -358,6 +358,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	}
 	if err := a.colorService.ToggleColor(photo, color); err != nil {
 		a.showError("Failed to toggle color", err)
+		return
 	}
 	a.updateColorIndicators(photo)
 	a.refreshFileBrowserItem(photo)
@@ -372,7 +373,11 @@ func (a *Application) refreshFileBrowserItem(photo model.Photo) {
 	if idx < 0 {
 		return
 	}
-	colors, _ := a.colorService.GetColors(photo)
+	colors, err := a.colorService.GetColors(photo)
+	if err != nil {
+		log.Printf("Failed to get colors for %s: %v", photo.Name, err)
+		return
+	}
 	meta := a.fileBrowser.GetMeta(idx)
 	a.fileBrowser.RefreshItemMeta(idx, colors, meta.Favorite)
 }

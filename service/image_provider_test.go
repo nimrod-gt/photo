@@ -25,7 +25,7 @@ func TestImageProvider_Get(t *testing.T) {
 	t.Run("returns thumbnail for small size", func(t *testing.T) {
 		thumb := fakeImage(160, 120)
 		p := stubProvider(nil)
-		p.thumbnails.Store("/photo.jpg", thumb)
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: thumb})
 
 		img, err := p.Get("/photo.jpg", 160)
 		require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestImageProvider_Get(t *testing.T) {
 
 	t.Run("skips thumbnail too small for requested size", func(t *testing.T) {
 		p := stubProvider(func(string) (image.Image, error) { return fakeImage(300, 200), nil })
-		p.thumbnails.Store("/photo.jpg", fakeImage(80, 60))
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: fakeImage(80, 60)})
 
 		img, err := p.Get("/photo.jpg", 150)
 		require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestImageProvider_Peek(t *testing.T) {
 	t.Run("returns thumbnail for small size", func(t *testing.T) {
 		thumb := fakeImage(160, 120)
 		p := stubProvider(nil)
-		p.thumbnails.Store("/photo.jpg", thumb)
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: thumb})
 
 		img := p.Peek("/photo.jpg", 160)
 		assert.Equal(t, thumb, img)
@@ -98,7 +98,7 @@ func TestImageProvider_Peek(t *testing.T) {
 
 	t.Run("skips thumbnail too small for requested size", func(t *testing.T) {
 		p := stubProvider(nil)
-		p.thumbnails.Store("/photo.jpg", fakeImage(80, 60))
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: fakeImage(80, 60)})
 
 		assert.Nil(t, p.Peek("/photo.jpg", 150))
 	})
@@ -175,7 +175,7 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 	t.Run("clears previous state", func(t *testing.T) {
 		p := stubProvider(func(string) (image.Image, error) { return fakeImage(50, 50), nil })
 		_, _ = p.loader.Get("/old.jpg", 2000)
-		p.thumbnails.Store("/old.jpg", fakeImage(120, 90))
+		p.thumbnails.Store("/old.jpg", thumbEntry{img: fakeImage(120, 90)})
 
 		done := make(chan struct{})
 		p.LoadFolder(nil,
@@ -274,7 +274,7 @@ func TestImageProvider_Clear(t *testing.T) {
 		p := stubProvider(func(string) (image.Image, error) { return fakeImage(50, 50), nil })
 
 		_, _ = p.Get("/photo.jpg", 2000)
-		p.thumbnails.Store("/photo.jpg", fakeImage(120, 90))
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: fakeImage(120, 90)})
 
 		p.Clear()
 
@@ -284,15 +284,27 @@ func TestImageProvider_Clear(t *testing.T) {
 }
 
 func TestImageProvider_StoreThumbnail(t *testing.T) {
-	t.Run("does not overwrite existing thumbnail", func(t *testing.T) {
+	t.Run("decoded replaces exif thumbnail", func(t *testing.T) {
 		p := stubProvider(nil)
-		existing := fakeImage(120, 90)
-		p.thumbnails.Store("/photo.jpg", existing)
+		exifThumb := fakeImage(120, 90)
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: exifThumb})
 
 		p.storeThumbnail("/photo.jpg", fakeImage(4000, 3000))
 
 		thumb := p.Thumbnail("/photo.jpg")
-		assert.Equal(t, existing, thumb)
+		require.NotNil(t, thumb)
+		assert.NotEqual(t, exifThumb, thumb)
+	})
+
+	t.Run("does not overwrite decoded thumbnail", func(t *testing.T) {
+		p := stubProvider(nil)
+		decoded := fakeImage(120, 90)
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: decoded, decoded: true})
+
+		p.storeThumbnail("/photo.jpg", fakeImage(4000, 3000))
+
+		thumb := p.Thumbnail("/photo.jpg")
+		assert.Equal(t, decoded, thumb)
 	})
 
 	t.Run("stores new thumbnail when none exists", func(t *testing.T) {
@@ -305,4 +317,66 @@ func TestImageProvider_StoreThumbnail(t *testing.T) {
 		assert.LessOrEqual(t, thumb.Bounds().Dx(), maxThumbnailDim)
 		assert.LessOrEqual(t, thumb.Bounds().Dy(), maxThumbnailDim)
 	})
+
+	t.Run("exif thumbnail does not clobber decoded in LoadFolder path", func(t *testing.T) {
+		p := stubProvider(nil)
+		decoded := fakeImage(120, 90)
+		p.thumbnails.Store("/photo.jpg", thumbEntry{img: decoded, decoded: true})
+
+		p.thumbnails.LoadOrStore("/photo.jpg", thumbEntry{img: fakeImage(100, 75)})
+
+		thumb := p.Thumbnail("/photo.jpg")
+		assert.Equal(t, decoded, thumb)
+	})
+}
+
+func TestImageProvider_SeededOrientation(t *testing.T) {
+	t.Run("applies cached orientation on Get", func(t *testing.T) {
+		path := writeTestJPEG(t, 4, 2)
+		p := NewImageProvider(NewExifService())
+		p.orientations.Store(path, uint16(6))
+
+		img, err := p.Get(path, 2000)
+		require.NoError(t, err)
+		assert.Equal(t, 2, img.Bounds().Dx())
+		assert.Equal(t, 4, img.Bounds().Dy())
+	})
+
+	t.Run("Clear drops cached orientations", func(t *testing.T) {
+		p := NewImageProvider(NewExifService())
+		p.orientations.Store("/photo.jpg", uint16(6))
+
+		p.Clear()
+
+		_, ok := p.orientations.Load("/photo.jpg")
+		assert.False(t, ok)
+	})
+}
+
+func TestImageProvider_PeekThumbnailFitBox(t *testing.T) {
+	tests := []struct {
+		name  string
+		thumb image.Image
+		size  int
+		found bool
+	}{
+		{"landscape thumb satisfies its fit size", fakeImage(160, 120), 160, true},
+		{"landscape thumb satisfies smaller size", fakeImage(160, 120), 100, true},
+		{"small thumb rejected for larger size", fakeImage(80, 60), 160, false},
+		{"size above thumbnail limit bypasses store", fakeImage(160, 120), maxThumbnailDim + 1, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := stubProvider(nil)
+			p.thumbnails.Store("/photo.jpg", thumbEntry{img: tt.thumb})
+
+			img := p.peekThumbnail("/photo.jpg", tt.size)
+			if tt.found {
+				assert.Equal(t, tt.thumb, img)
+			} else {
+				assert.Nil(t, img)
+			}
+		})
+	}
 }

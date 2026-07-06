@@ -64,32 +64,33 @@ func (s *ExifService) getUint16Tag(jpegPath, tagName string, defaultVal uint16) 
 	return defaultVal, nil
 }
 
-func (s *ExifService) GetPhotoInfo(jpegPath string) (image.Image, uint16, error) {
+func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating, orientation uint16, err error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseFile(jpegPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
+		return nil, 0, 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
 	}
 
 	sl, ok := intfc.(*jpegstructure.SegmentList)
 	if !ok {
-		return nil, 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
+		return nil, 0, 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
 	}
 
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
 		//nolint:nilerr // no EXIF data means no metadata to extract
-		return nil, 0, nil
+		return nil, 0, 1, nil
 	}
 
-	thumbnail := extractThumbnail(rootIfd)
+	orientation = ifdUint16(rootIfd, "Orientation", 1)
+
+	thumbnail = extractThumbnail(rootIfd)
 	if thumbnail != nil {
-		orientation := ifdUint16(rootIfd, "Orientation", 1)
 		thumbnail = applyOrientation(thumbnail, orientation)
 	}
 
-	rating := ifdUint16(rootIfd, "Rating", 0)
-	return thumbnail, rating, nil
+	rating = ifdUint16(rootIfd, "Rating", 0)
+	return thumbnail, rating, orientation, nil
 }
 
 func extractThumbnail(rootIfd *exif.Ifd) image.Image {
@@ -122,4 +123,3 @@ func ifdUint16(ifd *exif.Ifd, tagName string, defaultVal uint16) uint16 {
 	}
 	return defaultVal
 }
-

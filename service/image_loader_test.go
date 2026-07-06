@@ -231,6 +231,44 @@ func TestImageLoader_Dedup(t *testing.T) {
 		assert.Equal(t, int32(1), calls.Load())
 	})
 
+	t.Run("concurrent larger-size Gets dedup after small inflight", func(t *testing.T) {
+		var calls atomic.Int32
+		firstStarted := make(chan struct{})
+		firstProceed := make(chan struct{})
+		l := stubLoader(func(string) (image.Image, error) {
+			if calls.Add(1) == 1 {
+				close(firstStarted)
+				<-firstProceed
+			}
+			return fakeImage(3000, 2000), nil
+		})
+
+		smallDone := make(chan struct{})
+		go func() {
+			defer close(smallDone)
+			_, _ = l.Get("/photo.jpg", 100)
+		}()
+		<-firstStarted
+
+		var wg sync.WaitGroup
+		for range 5 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				img, err := l.Get("/photo.jpg", 2000)
+				assert.NoError(t, err)
+				assert.NotNil(t, img)
+			}()
+		}
+
+		time.Sleep(20 * time.Millisecond)
+		close(firstProceed)
+		<-smallDone
+		wg.Wait()
+
+		assert.Equal(t, int32(2), calls.Load())
+	})
+
 	t.Run("Get waits on inflight Preload", func(t *testing.T) {
 		proceed := make(chan struct{})
 		expected := fakeImage(20, 20)
@@ -293,10 +331,82 @@ func TestImageLoader_LRU(t *testing.T) {
 		return fakeImage(10, 10), nil
 	}
 
-	for i := range cacheSize + 10 {
+	for i := range cacheMaxEntries + 10 {
 		path := "/photo_" + string(rune('A'+i%26)) + string(rune('0'+i/26)) + ".jpg"
 		_, _ = l.Get(path, 2000)
 	}
 
-	assert.Equal(t, cacheSize, l.cache.Len())
+	assert.Equal(t, cacheMaxEntries, l.cache.Len())
+}
+
+func TestImageLoader_ByteBudget(t *testing.T) {
+	imgBytes := imageBytes(fakeImage(10, 10))
+
+	t.Run("evicts oldest when over budget", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+		l.byteBudget = imgBytes * 3
+
+		_, _ = l.Get("/a.jpg", 100)
+		_, _ = l.Get("/b.jpg", 100)
+		_, _ = l.Get("/c.jpg", 100)
+		_, _ = l.Get("/d.jpg", 100)
+
+		assert.Equal(t, 3, l.cache.Len())
+		assert.LessOrEqual(t, l.cacheBytes, l.byteBudget)
+		assert.Nil(t, l.Peek("/a.jpg", 100))
+		assert.NotNil(t, l.Peek("/d.jpg", 100))
+	})
+
+	t.Run("keeps newest entry even if alone over budget", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+		l.byteBudget = imgBytes / 2
+
+		_, _ = l.Get("/a.jpg", 100)
+		_, _ = l.Get("/b.jpg", 100)
+
+		assert.Equal(t, 1, l.cache.Len())
+		assert.NotNil(t, l.Peek("/b.jpg", 100))
+	})
+
+	t.Run("replacing entry accounts bytes correctly", func(t *testing.T) {
+		sizes := map[int]image.Image{100: fakeImage(10, 10), 2000: fakeImage(50, 50)}
+		l := stubLoader(nil)
+		l.loadImage = func(string) (image.Image, error) { return fakeImage(10, 10), nil }
+
+		l.addToCache("/a.jpg", cachedImage{img: sizes[100], size: 100})
+		l.addToCache("/a.jpg", cachedImage{img: sizes[2000], size: 2000})
+
+		assert.Equal(t, 1, l.cache.Len())
+		assert.Equal(t, imageBytes(sizes[2000]), l.cacheBytes)
+	})
+
+	t.Run("Clear resets byte counter", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+
+		_, _ = l.Get("/a.jpg", 100)
+		_, _ = l.Get("/b.jpg", 100)
+		assert.Positive(t, l.cacheBytes)
+
+		l.Clear()
+		assert.Equal(t, 0, l.cacheBytes)
+	})
+}
+
+func TestImageBytes(t *testing.T) {
+	tests := []struct {
+		name     string
+		img      image.Image
+		expected int
+	}{
+		{"NRGBA", image.NewNRGBA(image.Rect(0, 0, 10, 10)), 400},
+		{"RGBA", image.NewRGBA(image.Rect(0, 0, 10, 10)), 400},
+		{"YCbCr 4:2:0", image.NewYCbCr(image.Rect(0, 0, 10, 10), image.YCbCrSubsampleRatio420), 100 + 2*25},
+		{"Gray falls back to 4 bytes per pixel", image.NewGray(image.Rect(0, 0, 10, 10)), 400},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, imageBytes(tt.img))
+		})
+	}
 }

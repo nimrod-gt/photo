@@ -9,7 +9,10 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
-const cacheSize = 128
+const (
+	cacheMaxEntries = 512
+	cacheByteBudget = 1 << 30
+)
 
 type cachedImage struct {
 	img  image.Image
@@ -24,59 +27,97 @@ type loadWaiter struct {
 }
 
 type ImageLoader struct {
-	cache    *lru.Cache[string, cachedImage]
-	mu       sync.Mutex
-	inflight map[string]*loadWaiter
-	gen      atomic.Uint64
-	sem      chan struct{}
+	cache      *lru.Cache[string, cachedImage]
+	cacheMu    sync.Mutex
+	cacheBytes int
+	byteBudget int
+	mu         sync.Mutex
+	inflight   map[string]*loadWaiter
+	gen        atomic.Uint64
+	sem        chan struct{}
 
 	loadImage func(string) (image.Image, error)
 }
 
 func NewImageLoader() *ImageLoader {
-	cache := must(lru.New[string, cachedImage](cacheSize))
 	workers := max(runtime.NumCPU()-2, 1)
 
-	return &ImageLoader{
-		cache:     cache,
-		inflight:  make(map[string]*loadWaiter),
-		sem:       make(chan struct{}, workers),
-		loadImage: LoadOrientedImage,
+	l := &ImageLoader{
+		byteBudget: cacheByteBudget,
+		inflight:   make(map[string]*loadWaiter),
+		sem:        make(chan struct{}, workers),
+		loadImage:  LoadOrientedImage,
+	}
+	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
+		l.cacheBytes -= imageBytes(entry.img)
+	}))
+	return l
+}
+
+// all evict-triggering cache calls happen under cacheMu, so the onEvict
+// callback mutates cacheBytes safely without taking the lock itself
+func (l *ImageLoader) addToCache(path string, entry cachedImage) {
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+	// golang-lru v2 does not fire onEvict when Add replaces an existing key
+	if old, ok := l.cache.Peek(path); ok {
+		l.cacheBytes -= imageBytes(old.img)
+	}
+	l.cache.Add(path, entry)
+	l.cacheBytes += imageBytes(entry.img)
+	for l.cacheBytes > l.byteBudget && l.cache.Len() > 1 {
+		l.cache.RemoveOldest()
+	}
+}
+
+func imageBytes(img image.Image) int {
+	switch v := img.(type) {
+	case *image.NRGBA:
+		return len(v.Pix)
+	case *image.RGBA:
+		return len(v.Pix)
+	case *image.YCbCr:
+		return len(v.Y) + len(v.Cb) + len(v.Cr)
+	default:
+		b := img.Bounds()
+		return b.Dx() * b.Dy() * 4
 	}
 }
 
 func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
-	loadSize := size
-	if entry, ok := l.cache.Get(path); ok {
-		if entry.size >= size {
+	for {
+		loadSize := size
+		if entry, ok := l.cache.Get(path); ok {
+			if entry.size >= size {
+				return entry.img, nil
+			}
+			loadSize = max(size, entry.size*3/2)
+		}
+
+		l.mu.Lock()
+		if w, ok := l.inflight[path]; ok {
+			l.mu.Unlock()
+			<-w.done
+			if w.err == nil && w.size >= size {
+				return w.img, nil
+			}
+			continue
+		}
+
+		if entry, ok := l.cache.Get(path); ok && entry.size >= size {
+			l.mu.Unlock()
 			return entry.img, nil
 		}
-		loadSize = max(size, entry.size*3/2)
-	}
 
-	l.mu.Lock()
-	if w, ok := l.inflight[path]; ok {
+		w := &loadWaiter{done: make(chan struct{})}
+		l.inflight[path] = w
 		l.mu.Unlock()
-		<-w.done
-		if w.err == nil && w.size >= size {
-			return w.img, nil
-		}
-		img, err := l.doLoad(path, loadSize)
-		if err == nil {
-			l.cache.Add(path, cachedImage{img: img, size: loadSize})
-		}
-		return img, err
+
+		return l.loadAsOwner(path, loadSize, w)
 	}
+}
 
-	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
-		l.mu.Unlock()
-		return entry.img, nil
-	}
-
-	w := &loadWaiter{done: make(chan struct{})}
-	l.inflight[path] = w
-	l.mu.Unlock()
-
+func (l *ImageLoader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Image, error) {
 	defer l.removeInflight(path)
 	img, err := l.doLoad(path, loadSize)
 	w.img = img
@@ -85,7 +126,7 @@ func (l *ImageLoader) Get(path string, size int) (image.Image, error) {
 	close(w.done)
 
 	if err == nil {
-		l.cache.Add(path, cachedImage{img: img, size: loadSize})
+		l.addToCache(path, cachedImage{img: img, size: loadSize})
 	}
 
 	return img, err
@@ -142,7 +183,7 @@ func (l *ImageLoader) Preload(paths []string, size int, onLoaded func(string)) {
 			}
 
 			if err == nil {
-				l.cache.Add(path, cachedImage{img: img, size: size})
+				l.addToCache(path, cachedImage{img: img, size: size})
 			}
 
 			if onLoaded != nil && err == nil {
@@ -168,7 +209,9 @@ func (l *ImageLoader) removeInflight(key string) {
 
 func (l *ImageLoader) Clear() {
 	l.gen.Add(1)
+	l.cacheMu.Lock()
 	l.cache.Purge()
+	l.cacheMu.Unlock()
 
 	l.mu.Lock()
 	l.inflight = make(map[string]*loadWaiter)

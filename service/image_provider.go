@@ -11,18 +11,34 @@ import (
 
 const maxThumbnailDim = 160
 
+type thumbEntry struct {
+	img     image.Image
+	decoded bool
+}
+
 type ImageProvider struct {
-	loader     *ImageLoader
-	exif       *ExifService
-	thumbnails sync.Map
-	thumbGen   atomic.Uint64
+	loader       *ImageLoader
+	exif         *ExifService
+	thumbnails   sync.Map
+	orientations sync.Map
+	thumbGen     atomic.Uint64
 }
 
 func NewImageProvider(exif *ExifService) *ImageProvider {
-	return &ImageProvider{
+	p := &ImageProvider{
 		loader: NewImageLoader(),
 		exif:   exif,
 	}
+	p.loader.loadImage = p.loadWithKnownOrientation
+	return p
+}
+
+func (p *ImageProvider) loadWithKnownOrientation(path string) (image.Image, error) {
+	var orientation uint16
+	if v, ok := p.orientations.Load(path); ok {
+		orientation = v.(uint16)
+	}
+	return LoadImageOriented(path, orientation)
 }
 
 func (p *ImageProvider) Get(path string, size int) (image.Image, error) {
@@ -54,7 +70,7 @@ func (p *ImageProvider) peekThumbnail(path string, size int) image.Image {
 	if !ok {
 		return nil
 	}
-	img := v.(image.Image)
+	img := v.(thumbEntry).img
 	b := img.Bounds()
 	if b.Dx() >= size || b.Dy() >= size {
 		return img
@@ -74,8 +90,8 @@ func (p *ImageProvider) Preload(paths []string, size int, onLoaded func(string))
 }
 
 func (p *ImageProvider) Thumbnail(path string) image.Image {
-	if thumb, ok := p.thumbnails.Load(path); ok {
-		return thumb.(image.Image)
+	if v, ok := p.thumbnails.Load(path); ok {
+		return v.(thumbEntry).img
 	}
 	return nil
 }
@@ -88,6 +104,7 @@ func (p *ImageProvider) LoadFolder(
 	gen := p.thumbGen.Add(1)
 	p.loader.Clear()
 	p.thumbnails.Clear()
+	p.orientations.Clear()
 
 	go func() {
 		for i, photo := range photos {
@@ -98,7 +115,7 @@ func (p *ImageProvider) LoadFolder(
 				onLoaded(i, nil, false)
 				continue
 			}
-			thumbnail, rating, err := p.exif.GetPhotoInfo(photo.ImagePath)
+			thumbnail, rating, orientation, err := p.exif.GetPhotoInfo(photo.ImagePath)
 			if err != nil {
 				log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
 				onLoaded(i, nil, false)
@@ -107,8 +124,11 @@ func (p *ImageProvider) LoadFolder(
 			if p.thumbGen.Load() != gen {
 				return
 			}
+			if orientation != 0 {
+				p.orientations.Store(photo.ImagePath, orientation)
+			}
 			if thumbnail != nil {
-				p.thumbnails.Store(photo.ImagePath, thumbnail)
+				p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: thumbnail})
 			}
 			onLoaded(i, thumbnail, rating > 0)
 		}
@@ -122,6 +142,7 @@ func (p *ImageProvider) Clear() {
 	p.thumbGen.Add(1)
 	p.loader.Clear()
 	p.thumbnails.Clear()
+	p.orientations.Clear()
 }
 
 func (p *ImageProvider) BumpGen() {
@@ -133,7 +154,10 @@ func (p *ImageProvider) Gen() uint64 {
 }
 
 func (p *ImageProvider) storeThumbnail(path string, fullImg image.Image) {
+	if v, ok := p.thumbnails.Load(path); ok && v.(thumbEntry).decoded {
+		return
+	}
 	maxSize := image.Point{X: maxThumbnailDim, Y: maxThumbnailDim}
 	thumb := DownscaleToFit(fullImg, maxSize)
-	p.thumbnails.LoadOrStore(path, thumb)
+	p.thumbnails.Store(path, thumbEntry{img: thumb, decoded: true})
 }

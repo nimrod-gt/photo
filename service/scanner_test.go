@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"photo/model"
 )
 
 func TestScanner_ScanDirectory(t *testing.T) {
@@ -94,6 +96,17 @@ func TestScanner_ScanDirectory(t *testing.T) {
 		require.Len(t, photos, 1)
 		assert.True(t, photos[0].HasRAW())
 	})
+
+	t.Run("populates ModTime", func(t *testing.T) {
+		dir := t.TempDir()
+		touch(t, dir, "a.jpg")
+
+		photos, err := scanner.ScanDirectory(dir)
+		require.NoError(t, err)
+		require.Len(t, photos, 1)
+		assert.False(t, photos[0].ModTime.IsZero())
+		assert.WithinDuration(t, time.Now(), photos[0].ModTime, time.Minute)
+	})
 }
 
 func TestScanner_SortPhotos(t *testing.T) {
@@ -129,6 +142,28 @@ func TestScanner_SortPhotos(t *testing.T) {
 		scanner.SortPhotos(photos, SortByTime)
 		assert.Equal(t, "old.jpg", photos[0].Name)
 		assert.Equal(t, "new.jpg", photos[1].Name)
+	})
+
+	t.Run("by time uses ModTime without touching disk", func(t *testing.T) {
+		now := time.Now()
+		photos := []model.Photo{
+			{ImagePath: "/nonexistent/b.jpg", Name: "b.jpg", ModTime: now},
+			{ImagePath: "/nonexistent/a.jpg", Name: "a.jpg", ModTime: now.Add(-time.Hour)},
+		}
+
+		scanner.SortPhotos(photos, SortByTime)
+		assert.Equal(t, "a.jpg", photos[0].Name)
+		assert.Equal(t, "b.jpg", photos[1].Name)
+	})
+
+	t.Run("by time falls back to name on zero ModTime", func(t *testing.T) {
+		photos := []model.Photo{
+			{ImagePath: "/nonexistent/b.jpg", Name: "b.jpg", ModTime: time.Now()},
+			{ImagePath: "/nonexistent/a.jpg", Name: "a.jpg"},
+		}
+
+		scanner.SortPhotos(photos, SortByTime)
+		assert.Equal(t, "a.jpg", photos[0].Name)
 	})
 }
 

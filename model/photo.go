@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var supportedExtensions = map[string]bool{
@@ -16,15 +17,23 @@ type Photo struct {
 	ImagePath string
 	RAWPath   string
 	Name      string
+	ModTime   time.Time
 }
 
 func NewPhoto(imagePath string) Photo {
+	return NewPhotoWithExists(imagePath, func(path string) bool {
+		_, err := os.Stat(path)
+		return err == nil
+	})
+}
+
+func NewPhotoWithExists(imagePath string, exists func(string) bool) Photo {
 	p := Photo{
 		ImagePath: imagePath,
 		Name:      filepath.Base(imagePath),
 	}
 	if p.IsJPEG() {
-		p.RAWPath = findRAWPair(imagePath)
+		p.RAWPath = findRAWPair(imagePath, exists)
 	}
 	return p
 }
@@ -44,7 +53,7 @@ func (p Photo) HasRAW() bool {
 
 var rawVariants = []string{".ARW", ".arw"}
 
-func findRAWPair(jpegPath string) string {
+func findRAWPair(jpegPath string, exists func(string) bool) string {
 	ext := filepath.Ext(jpegPath)
 	base := strings.TrimSuffix(jpegPath, ext)
 	for _, rawExt := range rawVariants {
@@ -52,7 +61,7 @@ func findRAWPair(jpegPath string) string {
 		if candidate == jpegPath {
 			continue
 		}
-		if _, err := os.Stat(candidate); err == nil {
+		if exists(candidate) {
 			return candidate
 		}
 	}
