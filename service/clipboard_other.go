@@ -2,8 +2,8 @@
 
 package service
 
-import "fmt"
+import "errors"
 
 func CopyImageToClipboard(path string) error {
-	return fmt.Errorf("clipboard copy is not supported on this platform")
+	return errors.New("clipboard copy is not supported on this platform")
 }
