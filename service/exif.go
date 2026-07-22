@@ -16,69 +16,41 @@ func NewExifService() *ExifService {
 	return &ExifService{}
 }
 
-func (s *ExifService) GetRating(jpegPath string) (uint16, error) {
-	return s.getUint16Tag(jpegPath, "Rating", 0)
-}
-
-func (s *ExifService) GetOrientation(jpegPath string) (uint16, error) {
-	return s.getUint16Tag(jpegPath, "Orientation", 1)
-}
-
-func (s *ExifService) getUint16Tag(jpegPath, tagName string, defaultVal uint16) (uint16, error) {
+// returns (nil, nil) when the JPEG parses but carries no EXIF data
+func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseFile(jpegPath)
-	if err != nil {
-		return defaultVal, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
-	}
+	return exifRootOf(intfc, err, jpegPath)
+}
 
+func exifRootFromBytes(data []byte) (*exif.Ifd, error) {
+	jmp := jpegstructure.NewJpegMediaParser()
+	intfc, err := jmp.ParseBytes(data)
+	return exifRootOf(intfc, err, "buffer")
+}
+
+func exifRootOf(intfc any, parseErr error, source string) (*exif.Ifd, error) {
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing JPEG %s: %w", source, parseErr)
+	}
 	sl, ok := intfc.(*jpegstructure.SegmentList)
 	if !ok {
-		return defaultVal, fmt.Errorf("unexpected parse result for %s", jpegPath)
+		return nil, fmt.Errorf("unexpected parse result for %s", source)
 	}
-
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
-		//nolint:nilerr // no EXIF data means default value
-		return defaultVal, nil
+		//nolint:nilerr // no EXIF data means nothing to read
+		return nil, nil
 	}
-
-	results, err := rootIfd.FindTagWithName(tagName)
-	if err != nil {
-		//nolint:nilerr // tag not found means default value
-		return defaultVal, nil
-	}
-
-	if len(results) == 0 {
-		return defaultVal, nil
-	}
-
-	value, err := results[0].Value()
-	if err != nil {
-		return defaultVal, fmt.Errorf("reading %s value: %w", tagName, err)
-	}
-
-	if v, ok := value.([]uint16); ok && len(v) > 0 {
-		return v[0], nil
-	}
-
-	return defaultVal, nil
+	return rootIfd, nil
 }
 
 func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating, orientation uint16, err error) {
-	jmp := jpegstructure.NewJpegMediaParser()
-	intfc, err := jmp.ParseFile(jpegPath)
+	rootIfd, err := exifRootFromFile(jpegPath)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
+		return nil, 0, 0, err
 	}
-
-	sl, ok := intfc.(*jpegstructure.SegmentList)
-	if !ok {
-		return nil, 0, 0, fmt.Errorf("unexpected parse result for %s", jpegPath)
-	}
-
-	rootIfd, _, err := sl.Exif()
-	if err != nil {
-		//nolint:nilerr // no EXIF data means no metadata to extract
+	if rootIfd == nil {
 		return nil, 0, 1, nil
 	}
 

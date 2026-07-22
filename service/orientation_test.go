@@ -36,7 +36,7 @@ func pixelAt(img image.Image, x, y int) color.NRGBA {
 
 func TestFlipHorizontal(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := flipHorizontal(src)
+	dst := applyOrientation(src, 2)
 
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
@@ -52,7 +52,7 @@ func TestFlipHorizontal(t *testing.T) {
 
 func TestFlipVertical(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := flipVertical(src)
+	dst := applyOrientation(src, 4)
 
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
@@ -68,7 +68,7 @@ func TestFlipVertical(t *testing.T) {
 
 func TestRotate180(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := rotate180(src)
+	dst := applyOrientation(src, 3)
 
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
@@ -84,7 +84,7 @@ func TestRotate180(t *testing.T) {
 
 func TestRotate90CW(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := rotate90CW(src)
+	dst := applyOrientation(src, 6)
 
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
@@ -100,7 +100,7 @@ func TestRotate90CW(t *testing.T) {
 
 func TestRotate90CCW(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := rotate90CCW(src)
+	dst := applyOrientation(src, 8)
 
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
@@ -116,7 +116,7 @@ func TestRotate90CCW(t *testing.T) {
 
 func TestTranspose(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := transpose(src)
+	dst := applyOrientation(src, 5)
 
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
@@ -132,7 +132,7 @@ func TestTranspose(t *testing.T) {
 
 func TestTransverse(t *testing.T) {
 	src := makeTestImage(4, 3)
-	dst := transverse(src)
+	dst := applyOrientation(src, 7)
 
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())

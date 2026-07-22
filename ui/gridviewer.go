@@ -36,10 +36,20 @@ type GridViewer struct {
 	mu               sync.Mutex
 	tileWidth        float32
 	preloadScheduled atomic.Bool
+	items            map[fyne.CanvasObject]*gridItem
+}
+
+type gridItem struct {
+	thumb *canvas.Image
+	name  *widget.Label
 }
 
 func NewGridViewer(imageProvider *service.ImageProvider, callbacks GridViewerCallbacks) *GridViewer {
-	gv := &GridViewer{imageProvider: imageProvider, callbacks: callbacks}
+	gv := &GridViewer{
+		imageProvider: imageProvider,
+		callbacks:     callbacks,
+		items:         make(map[fyne.CanvasObject]*gridItem),
+	}
 	gv.build()
 	return gv
 }
@@ -128,7 +138,9 @@ func (gv *GridViewer) createItem() fyne.CanvasObject {
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
 	nameLabel.Alignment = fyne.TextAlignCenter
 
-	return container.NewBorder(nil, nameLabel, nil, nil, thumb)
+	root := container.NewBorder(nil, nameLabel, nil, nil, thumb)
+	gv.items[root] = &gridItem{thumb: thumb, name: nameLabel}
+	return root
 }
 
 func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject) {
@@ -141,9 +153,12 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	meta := gv.meta[id]
 	gv.mu.Unlock()
 
-	tile := obj.(*fyne.Container)
-	thumb := tile.Objects[0].(*canvas.Image)
-	nameLabel := tile.Objects[1].(*widget.Label)
+	item, ok := gv.items[obj]
+	if !ok {
+		return
+	}
+	thumb := item.thumb
+	nameLabel := item.name
 
 	thumbSize := gv.thumbPixelSize()
 	if img := gv.imageProvider.Peek(photo.ImagePath, thumbSize); img != nil {

@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install Fyne dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -timeout=5m -shuffle=on ./...
+
+      - name: Lint
+        run: go tool golangci-lint run

@@ -21,6 +21,8 @@ import (
 	"photo/ui"
 )
 
+const largeFolderWarnThreshold = 10000
+
 type Application struct {
 	contextMenuItems    ui.ContextMenuItems
 	fyneApp             fyne.App
@@ -36,23 +38,11 @@ type Application struct {
 	viewer              *ui.Viewer
 	gridViewer          *ui.GridViewer
 	mainWindow          *ui.MainWindow
-	deleteDialog        *dialog.ConfirmDialog
-	copyDialog          *dialog.ConfirmDialog
-	helpDialog          *dialog.CustomDialog
-	deleteAllDialog     *dialog.ConfirmDialog
-	copyAllDialog       *ui.CopyAllDialog
-	copyAllCancel       context.CancelFunc
-	filterColors        map[model.ColorLabel]bool
-	fullImageSize       func() int
-	sortOrder           service.SortOrder
-	deleteDialogOpen    bool
-	copyDialogOpen      bool
-	helpDialogOpen      bool
-	deleteAllDialogOpen bool
-	copyAllDialogOpen   bool
-	sortDescending      bool
-	filterFavorite      bool
-	gridMode            bool
+	dialogs        dialogManager
+	fullImageSize  func() int
+	sortOrder      service.SortOrder
+	sortDescending bool
+	gridMode       bool
 }
 
 func New() *Application {
@@ -65,7 +55,6 @@ func New() *Application {
 		navigator:     service.NewNavigator(),
 		exifService:   exifService,
 		imageProvider: service.NewImageProvider(exifService),
-		filterColors:  make(map[model.ColorLabel]bool),
 	}
 }
 
@@ -234,16 +223,18 @@ func (a *Application) loadDirectory(dir string) {
 		return
 	}
 
+	if len(photos) >= largeFolderWarnThreshold {
+		dialog.ShowInformation("Large Folder",
+			fmt.Sprintf("This folder contains %d photos.\nThe app may work slowly.", len(photos)),
+			a.mainWindow.Window())
+	}
+
 	a.colorService.ClearCache()
 
 	a.fyneApp.Preferences().SetString("lastDirectory", dir)
 
-	if ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
-		a.filterFavorite = false
-		for k := range a.filterColors {
-			a.filterColors[k] = false
-		}
-		a.fileBrowser.SetFilter(a.filterColors, a.filterFavorite)
+	if a.fileBrowser.HasFilter() {
+		a.fileBrowser.ClearFilter()
 	}
 
 	a.scanner.SortPhotos(photos, a.sortOrder)
@@ -354,16 +345,22 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	if !ok {
 		return
 	}
-	if err := a.colorService.ToggleColor(photo, color); err != nil {
-		a.showError("Failed to toggle color", err)
-		return
-	}
-	a.updateColorIndicators(photo)
-	a.refreshFileBrowserItem(photo)
-	if ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
-		a.fileBrowser.SetPinnedPath(photo.ImagePath)
-		a.reapplyFilter()
-	}
+	go func() {
+		if err := a.colorService.ToggleColor(photo, color); err != nil {
+			fyne.Do(func() {
+				a.showError("Failed to toggle color", err)
+			})
+			return
+		}
+		fyne.Do(func() {
+			a.updateColorIndicators(photo)
+			a.refreshFileBrowserItem(photo)
+			if a.fileBrowser.HasFilter() {
+				a.fileBrowser.SetPinnedPath(photo.ImagePath)
+				a.reapplyFilter()
+			}
+		})
+	}()
 }
 
 func (a *Application) refreshFileBrowserItem(photo model.Photo) {
@@ -439,7 +436,7 @@ func (a *Application) resortPhotos() {
 
 func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 	pinnedPath := a.fileBrowser.PinnedPath()
-	if len(pinnedPath) == 0 || !ui.HasActiveFilter(a.filterColors, a.filterFavorite) {
+	if len(pinnedPath) == 0 || !a.fileBrowser.HasFilter() {
 		return
 	}
 	if currentPhoto.ImagePath == pinnedPath {
@@ -450,19 +447,19 @@ func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 }
 
 func (a *Application) handleFilterColor(color model.ColorLabel) {
-	a.filterColors[color] = !a.filterColors[color]
+	a.fileBrowser.ToggleColorFilter(color)
 	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()
 }
 
 func (a *Application) handleFilterFavorite() {
-	a.filterFavorite = !a.filterFavorite
+	a.fileBrowser.ToggleFavoriteFilter()
 	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()
 }
 
 func (a *Application) reapplyFilter() {
-	a.fileBrowser.SetFilter(a.filterColors, a.filterFavorite)
+	a.fileBrowser.RefreshFilter()
 	a.syncNavigatorToFiltered()
 	if a.gridMode {
 		a.enterGridMode()
@@ -511,7 +508,7 @@ func (a *Application) showCurrentOrFirst() {
 }
 
 func (a *Application) handleToggleGrid() {
-	if a.anyDialogOpen() {
+	if a.dialogs.anyOpen() {
 		return
 	}
 	a.gridMode = !a.gridMode
@@ -542,11 +539,6 @@ func (a *Application) handleGridPhotoTapped(index int) {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(index)
 	}
-}
-
-func (a *Application) anyDialogOpen() bool {
-	return a.deleteDialogOpen || a.copyDialogOpen || a.helpDialogOpen ||
-		a.deleteAllDialogOpen || a.copyAllDialogOpen
 }
 
 func (a *Application) handleCopyToClipboard() {
@@ -616,8 +608,11 @@ func (a *Application) handleDelete() {
 	if a.gridMode {
 		return
 	}
-	if a.deleteDialogOpen {
-		a.deleteDialog.Confirm()
+	if a.dialogs.isOpen(dialogDelete) {
+		a.dialogs.confirm()
+		return
+	}
+	if a.dialogs.anyOpen() {
 		return
 	}
 
@@ -626,90 +621,77 @@ func (a *Application) handleDelete() {
 		return
 	}
 
-	a.deleteDialogOpen = true
 	message := "Delete " + photo.Name + "?"
 	if photo.HasRAW() {
 		message += " This will also delete the RAW pair."
 	}
-	a.deleteDialog = dialog.NewCustomConfirm("Delete Photo",
+	deleteDialog := dialog.NewCustomConfirm("Delete Photo",
 		"Delete (D)", "Cancel (N)",
 		widget.NewLabel(message),
 		func(confirmed bool) {
-			a.deleteDialogOpen = false
-			a.deleteDialog = nil
+			a.dialogs.closed()
 			if !confirmed {
 				return
 			}
-			if err := a.deleter.Delete(photo); err != nil {
-				a.showError("Failed to delete photo", err)
-				return
-			}
-			if err := a.colorService.RemoveColors(photo); err != nil {
-				log.Println("Failed to remove color labels:", err)
-			}
-			nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
-			a.fileBrowser.RemovePhoto(photo.ImagePath)
-			if hasNext {
-				a.showPhoto(nextPhoto)
-				a.fileBrowser.SelectIndex(navIdx)
-			} else {
-				a.viewer.Clear()
-			}
+			go func() {
+				if err := a.deleter.Delete(photo); err != nil {
+					fyne.Do(func() {
+						a.showError("Failed to delete photo", err)
+					})
+					return
+				}
+				if err := a.colorService.RemoveColors(photo); err != nil {
+					log.Println("Failed to remove color labels:", err)
+				}
+				fyne.Do(func() {
+					nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
+					a.fileBrowser.RemovePhoto(photo.ImagePath)
+					if hasNext {
+						a.showPhoto(nextPhoto)
+						a.fileBrowser.SelectIndex(navIdx)
+					} else {
+						a.viewer.Clear()
+					}
+				})
+			}()
 		},
 		a.mainWindow.Window(),
 	)
-	a.deleteDialog.Show()
+	a.dialogs.open(dialogDelete, deleteDialog, nil)
+	deleteDialog.Show()
 }
 
 func (a *Application) handleHelp() {
-	if a.helpDialogOpen {
-		a.helpDialog.Hide()
-		a.helpDialogOpen = false
-		a.helpDialog = nil
+	if a.dialogs.isOpen(dialogHelp) {
+		a.dialogs.cancel()
 		return
 	}
-	a.helpDialog = ui.NewHelp(a.mainWindow.Window())
-	a.helpDialog.SetOnClosed(func() {
-		a.helpDialogOpen = false
-		a.helpDialog = nil
+	if a.dialogs.anyOpen() {
+		return
+	}
+	helpDialog := ui.NewHelp(a.mainWindow.Window())
+	helpDialog.SetOnClosed(func() {
+		if a.dialogs.isOpen(dialogHelp) {
+			a.dialogs.closed()
+		}
 	})
-	a.helpDialogOpen = true
-	a.helpDialog.Show()
+	a.dialogs.open(dialogHelp, helpDialog, nil)
+	helpDialog.Show()
 }
 
 func (a *Application) handleCancel() {
-	if a.deleteDialogOpen {
-		a.deleteDialog.Hide()
-		a.deleteDialogOpen = false
-		a.deleteDialog = nil
-	}
-	if a.copyDialogOpen {
-		a.copyDialog.Hide()
-		a.copyDialogOpen = false
-		a.copyDialog = nil
-	}
-	if a.deleteAllDialogOpen {
-		a.deleteAllDialog.Hide()
-		a.deleteAllDialogOpen = false
-		a.deleteAllDialog = nil
-	}
-	if a.copyAllDialogOpen {
-		if a.copyAllCancel != nil {
-			a.copyAllCancel()
-		}
-		a.copyAllDialog.Hide()
-		a.copyAllDialogOpen = false
-		a.copyAllDialog = nil
-		a.copyAllCancel = nil
-	}
+	a.dialogs.cancel()
 }
 
 func (a *Application) handleCopy() {
 	if a.gridMode {
 		return
 	}
-	if a.copyDialogOpen {
-		a.copyDialog.Confirm()
+	if a.dialogs.isOpen(dialogCopy) {
+		a.dialogs.confirm()
+		return
+	}
+	if a.dialogs.anyOpen() {
 		return
 	}
 
@@ -727,12 +709,10 @@ func (a *Application) handleCopy() {
 
 	content := ui.NewCopyDialogContent(photo.Name, destEntry.Container, modeSelect)
 
-	a.copyDialogOpen = true
-	a.copyDialog = dialog.NewCustomConfirm("Copy Photo", "Copy (C)", "Cancel (N)",
+	copyDialog := dialog.NewCustomConfirm("Copy Photo", "Copy (C)", "Cancel (N)",
 		content,
 		func(confirmed bool) {
-			a.copyDialogOpen = false
-			a.copyDialog = nil
+			a.dialogs.closed()
 			if !confirmed {
 				return
 			}
@@ -761,11 +741,12 @@ func (a *Application) handleCopy() {
 		},
 		a.mainWindow.Window(),
 	)
-	a.copyDialog.Show()
+	a.dialogs.open(dialogCopy, copyDialog, nil)
+	copyDialog.Show()
 }
 
 func (a *Application) handleDeleteAll() {
-	if a.gridMode {
+	if a.gridMode || a.dialogs.anyOpen() {
 		return
 	}
 	filtered := a.fileBrowser.FilteredPhotos()
@@ -775,52 +756,62 @@ func (a *Application) handleDeleteAll() {
 
 	content, rawCheck := ui.NewDeleteAllDialogContent(len(filtered))
 
-	a.deleteAllDialogOpen = true
-	a.deleteAllDialog = dialog.NewCustomConfirm("Delete All",
+	deleteAllDialog := dialog.NewCustomConfirm("Delete All",
 		"Delete", "Cancel",
 		content,
 		func(confirmed bool) {
-			a.deleteAllDialogOpen = false
-			a.deleteAllDialog = nil
+			a.dialogs.closed()
 			if !confirmed {
 				return
 			}
 			includeRAW := rawCheck.Checked
-			deleted := 0
-			var deletedPhotos []model.Photo
-			for _, photo := range filtered {
-				if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
-					a.showError("Failed to delete "+photo.Name, err)
-					continue
+			go func() {
+				deleted := 0
+				skipped := 0
+				var deletedPhotos []model.Photo
+				for _, photo := range filtered {
+					if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+						log.Printf("Failed to delete %s: %v", photo.Name, err)
+						skipped++
+						continue
+					}
+					deleted++
+					deletedPhotos = append(deletedPhotos, photo)
 				}
-				deleted++
-				deletedPhotos = append(deletedPhotos, photo)
-			}
-			if err := a.colorService.RemoveMultipleColors(deletedPhotos); err != nil {
-				a.showError("Failed to remove color labels", err)
-			}
-			paths := make(map[string]bool, len(deletedPhotos))
-			for _, p := range deletedPhotos {
-				paths[p.ImagePath] = true
-			}
-			a.fileBrowser.RemovePhotos(paths)
-			newFiltered := a.fileBrowser.FilteredPhotos()
-			a.navigator.SetPhotos(newFiltered)
-			if p, navIdx, ok := a.navigator.GoTo(0); ok {
-				a.showPhoto(p)
-				a.fileBrowser.SelectIndex(navIdx)
-			} else {
-				a.viewer.Clear()
-			}
-			a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", deleted))
+				colorsErr := a.colorService.RemoveMultipleColors(deletedPhotos)
+				fyne.Do(func() {
+					if colorsErr != nil {
+						a.showError("Failed to remove color labels", colorsErr)
+					}
+					paths := make(map[string]bool, len(deletedPhotos))
+					for _, p := range deletedPhotos {
+						paths[p.ImagePath] = true
+					}
+					a.fileBrowser.RemovePhotos(paths)
+					newFiltered := a.fileBrowser.FilteredPhotos()
+					a.navigator.SetPhotos(newFiltered)
+					if p, navIdx, ok := a.navigator.GoTo(0); ok {
+						a.showPhoto(p)
+						a.fileBrowser.SelectIndex(navIdx)
+					} else {
+						a.viewer.Clear()
+					}
+					if skipped > 0 {
+						a.mainWindow.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", deleted, skipped))
+					} else {
+						a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", deleted))
+					}
+				})
+			}()
 		},
 		a.mainWindow.Window(),
 	)
-	a.deleteAllDialog.Show()
+	a.dialogs.open(dialogDeleteAll, deleteAllDialog, nil)
+	deleteAllDialog.Show()
 }
 
 func (a *Application) handleCopyAll() {
-	if a.gridMode {
+	if a.gridMode || a.dialogs.anyOpen() {
 		return
 	}
 	filtered := a.fileBrowser.FilteredPhotos()
@@ -833,18 +824,17 @@ func (a *Application) handleCopyAll() {
 	copyMode := service.CopyMode(prefs.IntWithFallback("copyMode", int(service.CopyWithRAW)))
 
 	ctx, cancel := context.WithCancel(context.Background())
-	a.copyAllCancel = cancel
 
-	a.copyAllDialogOpen = true
-	a.copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, copyMode, a.mainWindow.Window(),
+	var copyAllDialog *ui.CopyAllDialog
+	copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, copyMode, a.mainWindow.Window(),
 		func() {
-			dest := a.copyAllDialog.DestDir()
+			dest := copyAllDialog.DestDir()
 			if len(dest) == 0 {
 				a.mainWindow.ShowError("No destination folder selected")
-				a.copyAllDialog.Finish()
+				copyAllDialog.Finish()
 				return
 			}
-			mode := a.copyAllDialog.CopyMode()
+			mode := copyAllDialog.CopyMode()
 			prefs.SetString("copyDestination", dest)
 			prefs.SetInt("copyMode", int(mode))
 
@@ -857,12 +847,10 @@ func (a *Application) handleCopyAll() {
 						if ctx.Err() != nil {
 							fyne.Do(func() {
 								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
-								if a.copyAllDialog != nil {
-									a.copyAllDialog.Hide()
-									a.copyAllDialogOpen = false
-									a.copyAllDialog = nil
+								if a.dialogs.isOpen(dialogCopyAll) {
+									a.dialogs.closed()
+									copyAllDialog.Hide()
 								}
-								a.copyAllCancel = nil
 							})
 							return
 						}
@@ -873,18 +861,16 @@ func (a *Application) handleCopyAll() {
 					copied++
 					progress := float64(i+1) / float64(total)
 					fyne.Do(func() {
-						if a.copyAllDialog != nil {
-							a.copyAllDialog.SetProgress(progress)
+						if a.dialogs.isOpen(dialogCopyAll) {
+							copyAllDialog.SetProgress(progress)
 						}
 					})
 				}
 				fyne.Do(func() {
-					if a.copyAllDialog != nil {
-						a.copyAllDialog.Finish()
-						a.copyAllDialogOpen = false
-						a.copyAllDialog = nil
+					if a.dialogs.isOpen(dialogCopyAll) {
+						a.dialogs.closed()
+						copyAllDialog.Finish()
 					}
-					a.copyAllCancel = nil
 					if skipped > 0 {
 						a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
 					} else {
@@ -894,16 +880,13 @@ func (a *Application) handleCopyAll() {
 			}()
 		},
 		func() {
-			if a.copyAllCancel != nil {
-				a.copyAllCancel()
+			cancel()
+			if a.dialogs.isOpen(dialogCopyAll) {
+				a.dialogs.closed()
 			}
-			if a.copyAllDialog != nil {
-				a.copyAllDialog.Hide()
-			}
-			a.copyAllDialogOpen = false
-			a.copyAllDialog = nil
-			a.copyAllCancel = nil
+			copyAllDialog.Hide()
 		},
 	)
-	a.copyAllDialog.Show()
+	a.dialogs.open(dialogCopyAll, copyAllDialog, cancel)
+	copyAllDialog.Show()
 }

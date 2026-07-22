@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 	xdraw "golang.org/x/image/draw"
 )
 
@@ -44,58 +43,33 @@ func LoadImageOriented(path string, orientation uint16) (image.Image, error) {
 }
 
 func orientationFromBytes(data []byte) uint16 {
-	jmp := jpegstructure.NewJpegMediaParser()
-	intfc, err := jmp.ParseBytes(data)
+	rootIfd, err := exifRootFromBytes(data)
 	if err != nil {
 		log.Printf("Failed to parse JPEG structure for orientation: %v", err)
 		return 1
 	}
-
-	sl, ok := intfc.(*jpegstructure.SegmentList)
-	if !ok {
-		log.Printf("Unexpected JPEG parse result type %T", intfc)
+	if rootIfd == nil {
 		return 1
 	}
-
-	rootIfd, _, err := sl.Exif()
-	if err != nil {
-		return 1
-	}
-
-	results, err := rootIfd.FindTagWithName("Orientation")
-	if err != nil || len(results) == 0 {
-		return 1
-	}
-
-	value, err := results[0].Value()
-	if err != nil {
-		log.Printf("Failed to read Orientation tag value: %v", err)
-		return 1
-	}
-
-	if v, ok := value.([]uint16); ok && len(v) > 0 {
-		return v[0]
-	}
-
-	return 1
+	return ifdUint16(rootIfd, "Orientation", 1)
 }
 
 func applyOrientation(img image.Image, orientation uint16) image.Image {
 	switch orientation {
 	case 2:
-		return flipHorizontal(img)
+		return transformPixels(img, false, func(x, y, w, _ int) (int, int) { return w - 1 - x, y })
 	case 3:
-		return rotate180(img)
+		return transformPixels(img, false, func(x, y, w, h int) (int, int) { return w - 1 - x, h - 1 - y })
 	case 4:
-		return flipVertical(img)
+		return transformPixels(img, false, func(x, y, _, h int) (int, int) { return x, h - 1 - y })
 	case 5:
-		return transpose(img)
+		return transformPixels(img, true, func(x, y, _, _ int) (int, int) { return y, x })
 	case 6:
-		return rotate90CW(img)
+		return transformPixels(img, true, func(x, y, _, h int) (int, int) { return y, h - 1 - x })
 	case 7:
-		return transverse(img)
+		return transformPixels(img, true, func(x, y, w, h int) (int, int) { return w - 1 - y, h - 1 - x })
 	case 8:
-		return rotate90CCW(img)
+		return transformPixels(img, true, func(x, y, w, _ int) (int, int) { return w - 1 - y, x })
 	default:
 		return img
 	}
@@ -111,103 +85,22 @@ func toNRGBA(img image.Image) *image.NRGBA {
 	return dst
 }
 
-func flipHorizontal(img image.Image) *image.NRGBA {
+// srcXY maps a destination pixel (x, y) to its source coordinates given the
+// source width and height
+func transformPixels(img image.Image, swapDims bool, srcXY func(x, y, w, h int) (int, int)) *image.NRGBA {
 	src := toNRGBA(img)
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := y*src.Stride + (w-1-x)*4
+	dw, dh := w, h
+	if swapDims {
+		dw, dh = h, w
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
+	for y := 0; y < dh; y++ {
+		for x := 0; x < dw; x++ {
+			sx, sy := srcXY(x, y, w, h)
+			srcIdx := sy*src.Stride + sx*4
 			dstIdx := y*dst.Stride + x*4
-			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
-		}
-	}
-	return dst
-}
-
-func flipVertical(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		srcRow := (h - 1 - y) * src.Stride
-		dstRow := y * dst.Stride
-		copy(dst.Pix[dstRow:dstRow+w*4], src.Pix[srcRow:srcRow+w*4])
-	}
-	return dst
-}
-
-func rotate180(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := (h-1-y)*src.Stride + (w-1-x)*4
-			dstIdx := y*dst.Stride + x*4
-			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
-		}
-	}
-	return dst
-}
-
-func rotate90CW(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := y*src.Stride + x*4
-			dstIdx := x*dst.Stride + (h-1-y)*4
-			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
-		}
-	}
-	return dst
-}
-
-func rotate90CCW(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := y*src.Stride + x*4
-			dstIdx := (w-1-x)*dst.Stride + y*4
-			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
-		}
-	}
-	return dst
-}
-
-func transpose(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := y*src.Stride + x*4
-			dstIdx := x*dst.Stride + y*4
-			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
-		}
-	}
-	return dst
-}
-
-func transverse(img image.Image) *image.NRGBA {
-	src := toNRGBA(img)
-	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, h, w))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			srcIdx := y*src.Stride + x*4
-			dstIdx := (w-1-x)*dst.Stride + (h-1-y)*4
 			copy(dst.Pix[dstIdx:dstIdx+4], src.Pix[srcIdx:srcIdx+4])
 		}
 	}

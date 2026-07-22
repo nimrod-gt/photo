@@ -42,7 +42,6 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 
 - Go + Fyne (GUI framework)
 - EXIF: `dsoprea/go-exif/v3` + `dsoprea/go-jpeg-image-structure/v2`
-- Utilities: `robdavid/genutil-go/slices` (Map/Filter/Fold)
 - Testing: `stretchr/testify`
 - JSON files for color labels
 - Linting: `golangci-lint` (go.mod tool dependency)
@@ -80,9 +79,7 @@ zip photo-windows-amd64.zip photo.exe
 - Functions should be focused and ideally under 50 lines
 - Use table-driven tests where appropriate
 - Always handle errors explicitly; use `fmt.Errorf` with `%w` for error wrapping
-- Prefer utility functions over manual loops:
-  - Use `slices.Map`, `slices.Filter`, `slices.Fold` from `github.com/robdavid/genutil-go/slices`
-  - Use functional programming utilities from helper packages where appropriate
+- Prefer standard library `slices`/`maps` helpers over manual loops where they improve clarity
 
 ### Code Comments Policy
 

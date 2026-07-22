@@ -56,11 +56,12 @@ type FileBrowser struct {
 	deleteAllBtn *widget.Button
 	copyAllBtn   *widget.Button
 
-	allPhotos []model.Photo
-	allMeta   []model.PhotoMeta
-	photos    []model.Photo
-	meta      []model.PhotoMeta
-	indices   []int
+	allPhotos    []model.Photo
+	allMeta      []model.PhotoMeta
+	photos       []model.Photo
+	meta         []model.PhotoMeta
+	indices      []int
+	displayByAll map[int]int
 
 	filterColors   map[model.ColorLabel]bool
 	filterFavorite bool
@@ -68,9 +69,18 @@ type FileBrowser struct {
 
 	generation    uint64
 	mu            sync.Mutex
+	items         map[fyne.CanvasObject]*browserItem
 	imageProvider *service.ImageProvider
 	colors        *service.ColorService
 	callbacks     FileBrowserCallbacks
+}
+
+type browserItem struct {
+	thumb    *canvas.Image
+	name     *widget.Label
+	star     *canvas.Text
+	dots     *fyne.Container
+	dateText *canvas.Text
 }
 
 func NewFileBrowser(
@@ -84,6 +94,7 @@ func NewFileBrowser(
 		colors:        colors,
 		callbacks:     callbacks,
 		filterColors:  make(map[model.ColorLabel]bool),
+		items:         make(map[fyne.CanvasObject]*browserItem),
 	}
 	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
 	fb.build()
@@ -251,15 +262,35 @@ func (fb *FileBrowser) SetSortState(order service.SortOrder, descending bool) {
 	fb.timeSortBtn.Refresh()
 }
 
-func (fb *FileBrowser) SetFilter(colors map[model.ColorLabel]bool, favorite bool) {
-	copied := make(map[model.ColorLabel]bool, len(colors))
-	for k, v := range colors {
-		copied[k] = v
-	}
+func (fb *FileBrowser) HasFilter() bool {
 	fb.mu.Lock()
-	fb.filterColors = copied
-	fb.filterFavorite = favorite
+	defer fb.mu.Unlock()
+	return HasActiveFilter(fb.filterColors, fb.filterFavorite)
+}
+
+func (fb *FileBrowser) ToggleColorFilter(color model.ColorLabel) {
+	fb.mu.Lock()
+	fb.filterColors[color] = !fb.filterColors[color]
 	fb.mu.Unlock()
+}
+
+func (fb *FileBrowser) ToggleFavoriteFilter() {
+	fb.mu.Lock()
+	fb.filterFavorite = !fb.filterFavorite
+	fb.mu.Unlock()
+}
+
+func (fb *FileBrowser) ClearFilter() {
+	fb.mu.Lock()
+	fb.filterFavorite = false
+	for k := range fb.filterColors {
+		fb.filterColors[k] = false
+	}
+	fb.mu.Unlock()
+	fb.RefreshFilter()
+}
+
+func (fb *FileBrowser) RefreshFilter() {
 	fb.applyFilter()
 	fb.updateFilterButtonStates()
 	fb.updateBulkBarVisibility()
@@ -356,16 +387,19 @@ func (fb *FileBrowser) applyFilter() {
 
 	if !HasActiveFilter(fb.filterColors, fb.filterFavorite) {
 		fb.indices = nil
+		fb.displayByAll = nil
 		fb.photos = fb.allPhotos
 		fb.meta = fb.allMeta
 		return
 	}
 
 	fb.indices = nil
+	fb.displayByAll = make(map[int]int)
 	fb.photos = nil
 	fb.meta = nil
 	for i, m := range fb.allMeta {
 		if fb.matchesFilter(m) || fb.allPhotos[i].ImagePath == fb.pinnedPath {
+			fb.displayByAll[i] = len(fb.indices)
 			fb.indices = append(fb.indices, i)
 			fb.photos = append(fb.photos, fb.allPhotos[i])
 			fb.meta = append(fb.meta, m)
@@ -390,10 +424,8 @@ func (fb *FileBrowser) displayIndex(allIdx int) int {
 	if fb.indices == nil {
 		return allIdx
 	}
-	for i, idx := range fb.indices {
-		if idx == allIdx {
-			return i
-		}
+	if i, ok := fb.displayByAll[allIdx]; ok {
+		return i
 	}
 	return -1
 }
@@ -560,9 +592,17 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 
 	textBox := container.NewVBox(topRow, dateRow)
 
-	return container.NewBorder(nil, nil, thumb, nil,
+	root := container.NewBorder(nil, nil, thumb, nil,
 		container.New(layout.NewStackLayout(), textBox),
 	)
+	fb.items[root] = &browserItem{
+		thumb:    thumb,
+		name:     nameLabel,
+		star:     star,
+		dots:     dotsContainer,
+		dateText: dateText,
+	}
+	return root
 }
 
 func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
@@ -575,24 +615,20 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 	meta := fb.meta[id]
 	fb.mu.Unlock()
 
-	root := obj.(*fyne.Container)
-	thumb := root.Objects[1].(*canvas.Image)
-	textStack := root.Objects[0].(*fyne.Container)
-	textBox := textStack.Objects[0].(*fyne.Container)
-	topRow := textBox.Objects[0].(*fyne.Container)
-	dateRow := textBox.Objects[1].(*fyne.Container)
-	dateContent := dateRow.Objects[0].(*fyne.Container)
-	dateText := dateContent.Objects[0].(*canvas.Text)
+	item, ok := fb.items[obj]
+	if !ok {
+		return
+	}
 
 	thumbnail := meta.Thumbnail
 	if thumbnail == nil {
 		thumbnail = fb.imageProvider.Thumbnail(photo.ImagePath)
 	}
-	updateThumbnail(thumb, thumbnail)
-	topRow.Objects[0].(*widget.Label).SetText(photo.Name)
-	updateStar(topRow.Objects[1].(*canvas.Text), meta.Favorite)
-	updateColorDots(dateRow.Objects[1].(*fyne.Container), meta.Colors)
-	updateDateText(dateText, meta.Date)
+	updateThumbnail(item.thumb, thumbnail)
+	item.name.SetText(photo.Name)
+	updateStar(item.star, meta.Favorite)
+	updateColorDots(item.dots, meta.Colors)
+	updateDateText(item.dateText, meta.Date)
 }
 
 func updateThumbnail(thumb *canvas.Image, img image.Image) {

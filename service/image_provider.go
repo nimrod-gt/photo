@@ -3,6 +3,7 @@ package service
 import (
 	"image"
 	"log"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -107,31 +108,44 @@ func (p *ImageProvider) LoadFolder(
 	p.orientations.Clear()
 
 	go func() {
+		workers := max(runtime.NumCPU()-2, 1)
+		sem := make(chan struct{}, workers)
+		var wg sync.WaitGroup
 		for i, photo := range photos {
 			if p.thumbGen.Load() != gen {
-				return
+				break
 			}
-			if !photo.IsJPEG() {
-				onLoaded(i, nil, false)
-				continue
-			}
-			thumbnail, rating, orientation, err := p.exif.GetPhotoInfo(photo.ImagePath)
-			if err != nil {
-				log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
-				onLoaded(i, nil, false)
-				continue
-			}
-			if p.thumbGen.Load() != gen {
-				return
-			}
-			if orientation != 0 {
-				p.orientations.Store(photo.ImagePath, orientation)
-			}
-			if thumbnail != nil {
-				p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: thumbnail})
-			}
-			onLoaded(i, thumbnail, rating > 0)
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if p.thumbGen.Load() != gen {
+					return
+				}
+				if !photo.IsJPEG() {
+					onLoaded(i, nil, false)
+					return
+				}
+				thumbnail, rating, orientation, err := p.exif.GetPhotoInfo(photo.ImagePath)
+				if err != nil {
+					log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
+					onLoaded(i, nil, false)
+					return
+				}
+				if p.thumbGen.Load() != gen {
+					return
+				}
+				if orientation != 0 {
+					p.orientations.Store(photo.ImagePath, orientation)
+				}
+				if thumbnail != nil {
+					p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: thumbnail})
+				}
+				onLoaded(i, thumbnail, rating > 0)
+			}()
 		}
+		wg.Wait()
 		if p.thumbGen.Load() == gen && onComplete != nil {
 			onComplete()
 		}
