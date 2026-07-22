@@ -93,6 +93,7 @@ func (a *Application) Run() {
 		OnFilteredChanged:   a.handleFilteredChanged,
 		OnDeleteAll:         a.handleDeleteAll,
 		OnCopyAll:           a.handleCopyAll,
+		OnHelp:              a.handleHelp,
 	})
 
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{

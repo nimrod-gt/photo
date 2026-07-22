@@ -37,6 +37,7 @@ type FileBrowserCallbacks struct {
 	OnFilteredChanged   func(photos []model.Photo)
 	OnDeleteAll         func()
 	OnCopyAll           func()
+	OnHelp              func()
 }
 
 type FileBrowser struct {
@@ -456,6 +457,13 @@ func (fb *FileBrowser) build() {
 		}
 	})
 
+	helpBtn := widget.NewButtonWithIcon("", theme.HelpIcon(), func() {
+		if fb.callbacks.OnHelp != nil {
+			fb.callbacks.OnHelp()
+		}
+	})
+	helpBtn.Importance = widget.LowImportance
+
 	fb.nameSortBtn = widget.NewButton("Name \u2191", func() {
 		if fb.callbacks.OnSortBy != nil {
 			fb.callbacks.OnSortBy(service.SortByName)
@@ -511,7 +519,7 @@ func (fb *FileBrowser) build() {
 	fb.bulkBar.Hide()
 
 	topBars := container.NewVBox(sortBar, filterBar, fb.bulkBar)
-	treeWithBtn := container.NewBorder(chooseBtn, nil, nil, nil, fb.dirTree.Widget())
+	treeWithBtn := container.NewBorder(container.NewBorder(nil, nil, helpBtn, nil, chooseBtn), nil, nil, nil, fb.dirTree.Widget())
 	listWithSort := container.NewBorder(topBars, nil, nil, nil, fb.list)
 	split := container.NewVSplit(treeWithBtn, listWithSort)
 	split.SetOffset(0.4)
