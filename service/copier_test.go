@@ -14,6 +14,8 @@ import (
 )
 
 func TestCopier_Copy(t *testing.T) {
+	t.Parallel()
+
 	fixedTime := time.Date(2024, 6, 15, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
@@ -181,6 +183,8 @@ func TestCopier_Copy(t *testing.T) {
 }
 
 func TestCopier_CopyWithContext(t *testing.T) {
+	t.Parallel()
+
 	t.Run("cancelled context skips copy", func(t *testing.T) {
 		srcDir := t.TempDir()
 		destDir := t.TempDir()

@@ -35,6 +35,8 @@ func pixelAt(img image.Image, x, y int) color.NRGBA {
 }
 
 func TestFlipHorizontal(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 2)
 
@@ -51,6 +53,8 @@ func TestFlipHorizontal(t *testing.T) {
 }
 
 func TestFlipVertical(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 4)
 
@@ -67,6 +71,8 @@ func TestFlipVertical(t *testing.T) {
 }
 
 func TestRotate180(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 3)
 
@@ -83,6 +89,8 @@ func TestRotate180(t *testing.T) {
 }
 
 func TestRotate90CW(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 6)
 
@@ -99,6 +107,8 @@ func TestRotate90CW(t *testing.T) {
 }
 
 func TestRotate90CCW(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 8)
 
@@ -115,6 +125,8 @@ func TestRotate90CCW(t *testing.T) {
 }
 
 func TestTranspose(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 5)
 
@@ -131,6 +143,8 @@ func TestTranspose(t *testing.T) {
 }
 
 func TestTransverse(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 7)
 
@@ -147,6 +161,8 @@ func TestTransverse(t *testing.T) {
 }
 
 func TestApplyOrientation(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 
 	tests := []struct {
@@ -174,6 +190,8 @@ func TestApplyOrientation(t *testing.T) {
 }
 
 func TestDownscaleToFit(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		srcW, srcH  int
@@ -230,18 +248,24 @@ func TestDownscaleToFit(t *testing.T) {
 }
 
 func TestApplyOrientationIdentity(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := applyOrientation(src, 1)
 	assert.Equal(t, src, dst)
 }
 
 func TestToNRGBA_AlreadyNRGBA(t *testing.T) {
+	t.Parallel()
+
 	src := makeTestImage(4, 3)
 	dst := toNRGBA(src)
 	assert.Same(t, src, dst)
 }
 
 func TestToNRGBA_ConvertsOtherTypes(t *testing.T) {
+	t.Parallel()
+
 	src := image.NewRGBA(image.Rect(0, 0, 4, 3))
 	src.Set(1, 2, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
 
@@ -261,6 +285,8 @@ func writeTestJPEG(t *testing.T, w, h int) string {
 }
 
 func TestLoadImageOriented(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		orientation uint16

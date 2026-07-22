@@ -10,6 +10,8 @@ import (
 )
 
 func TestColorMap_HasColor(t *testing.T) {
+	t.Parallel()
+
 	t.Run("empty map", func(t *testing.T) {
 		cm := make(ColorMap)
 		assert.False(t, cm.HasColor("photo.jpg", ColorRed))
@@ -24,6 +26,8 @@ func TestColorMap_HasColor(t *testing.T) {
 }
 
 func TestColorMap_ToggleColor(t *testing.T) {
+	t.Parallel()
+
 	t.Run("add color", func(t *testing.T) {
 		cm := make(ColorMap)
 		cm.ToggleColor("photo.jpg", ColorRed)
@@ -65,6 +69,8 @@ func TestColorMap_ToggleColor(t *testing.T) {
 }
 
 func TestLoadColors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("no file returns empty", func(t *testing.T) {
 		dir := t.TempDir()
 		cm, err := LoadColors(dir)
@@ -94,6 +100,8 @@ func TestLoadColors(t *testing.T) {
 }
 
 func TestSaveColors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("creates file", func(t *testing.T) {
 		dir := t.TempDir()
 		cm := ColorMap{"photo.jpg": {ColorRed}}

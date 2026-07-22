@@ -50,6 +50,8 @@ func writeJPEGWithTags(t *testing.T, dir, name string, tags map[string]any) stri
 }
 
 func TestExifService_GetPhotoInfo(t *testing.T) {
+	t.Parallel()
+
 	svc := NewExifService()
 
 	t.Run("plain JPEG without EXIF", func(t *testing.T) {
@@ -90,6 +92,8 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 }
 
 func TestOrientationFromBytes(t *testing.T) {
+	t.Parallel()
+
 	t.Run("JPEG with orientation tag", func(t *testing.T) {
 		dir := t.TempDir()
 		path := writeJPEGWithTags(t, dir, "oriented.jpg", map[string]any{
@@ -114,6 +118,8 @@ func TestOrientationFromBytes(t *testing.T) {
 }
 
 func TestExifRootFromFile(t *testing.T) {
+	t.Parallel()
+
 	t.Run("no EXIF returns nil without error", func(t *testing.T) {
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 

@@ -19,6 +19,8 @@ func makePhotos(names ...string) []model.Photo {
 }
 
 func TestNavigator_SetPhotos(t *testing.T) {
+	t.Parallel()
+
 	t.Run("empty", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(nil)
@@ -48,6 +50,8 @@ func TestNavigator_SetPhotos(t *testing.T) {
 }
 
 func TestNavigator_Current(t *testing.T) {
+	t.Parallel()
+
 	t.Run("empty", func(t *testing.T) {
 		nav := NewNavigator()
 		_, ok := nav.Current()
@@ -64,6 +68,8 @@ func TestNavigator_Current(t *testing.T) {
 }
 
 func TestNavigator_Next(t *testing.T) {
+	t.Parallel()
+
 	t.Run("normal", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
@@ -91,6 +97,8 @@ func TestNavigator_Next(t *testing.T) {
 }
 
 func TestNavigator_Previous(t *testing.T) {
+	t.Parallel()
+
 	t.Run("normal", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
@@ -113,6 +121,8 @@ func TestNavigator_Previous(t *testing.T) {
 }
 
 func TestNavigator_GoTo(t *testing.T) {
+	t.Parallel()
+
 	t.Run("valid", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
@@ -142,6 +152,8 @@ func TestNavigator_GoTo(t *testing.T) {
 }
 
 func TestNavigator_Peek(t *testing.T) {
+	t.Parallel()
+
 	t.Run("forward", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
@@ -200,6 +212,8 @@ func TestNavigator_Peek(t *testing.T) {
 }
 
 func TestNavigator_FindIndex(t *testing.T) {
+	t.Parallel()
+
 	nav := NewNavigator()
 	nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
 
@@ -208,6 +222,8 @@ func TestNavigator_FindIndex(t *testing.T) {
 }
 
 func TestNavigator_RemoveCurrent(t *testing.T) {
+	t.Parallel()
+
 	t.Run("middle", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
@@ -246,6 +262,8 @@ func TestNavigator_RemoveCurrent(t *testing.T) {
 }
 
 func TestNavigator_Count(t *testing.T) {
+	t.Parallel()
+
 	nav := NewNavigator()
 	assert.Equal(t, 0, nav.Count())
 	nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
@@ -253,6 +271,8 @@ func TestNavigator_Count(t *testing.T) {
 }
 
 func TestNavigator_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
 	nav := NewNavigator()
 	nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"))
 

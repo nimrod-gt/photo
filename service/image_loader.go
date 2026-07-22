@@ -29,8 +29,8 @@ type loadWaiter struct {
 type ImageLoader struct {
 	cache      *lru.Cache[string, cachedImage]
 	cacheMu    sync.Mutex
-	cacheBytes int
-	byteBudget int
+	cacheBytes atomic.Int64
+	byteBudget int64
 	mu         sync.Mutex
 	inflight   map[string]*loadWaiter
 	gen        atomic.Uint64
@@ -49,23 +49,24 @@ func NewImageLoader() *ImageLoader {
 		loadImage:  LoadOrientedImage,
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
-		l.cacheBytes -= imageBytes(entry.img)
+		l.cacheBytes.Add(-int64(imageBytes(entry.img)))
 	}))
 	return l
 }
 
-// all evict-triggering cache calls happen under cacheMu, so the onEvict
-// callback mutates cacheBytes safely without taking the lock itself
+// cacheMu keeps the Peek/Add/evict sequence consistent for budget
+// enforcement; cacheBytes itself is atomic so the onEvict callback stays
+// correct even if a future code path evicts outside this lock
 func (l *ImageLoader) addToCache(path string, entry cachedImage) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
 	// golang-lru v2 does not fire onEvict when Add replaces an existing key
 	if old, ok := l.cache.Peek(path); ok {
-		l.cacheBytes -= imageBytes(old.img)
+		l.cacheBytes.Add(-int64(imageBytes(old.img)))
 	}
 	l.cache.Add(path, entry)
-	l.cacheBytes += imageBytes(entry.img)
-	for l.cacheBytes > l.byteBudget && l.cache.Len() > 1 {
+	l.cacheBytes.Add(int64(imageBytes(entry.img)))
+	for l.cacheBytes.Load() > l.byteBudget && l.cache.Len() > 1 {
 		l.cache.RemoveOldest()
 	}
 }

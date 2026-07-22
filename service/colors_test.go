@@ -17,6 +17,8 @@ func testPhoto(dir, name string) model.Photo {
 }
 
 func TestColorService_GetColors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("empty", func(t *testing.T) {
 		dir := t.TempDir()
 		svc := NewColorService()
@@ -27,6 +29,8 @@ func TestColorService_GetColors(t *testing.T) {
 }
 
 func TestColorService_ToggleColor(t *testing.T) {
+	t.Parallel()
+
 	t.Run("add and get", func(t *testing.T) {
 		dir := t.TempDir()
 		svc := NewColorService()
@@ -52,6 +56,8 @@ func TestColorService_ToggleColor(t *testing.T) {
 }
 
 func TestColorService_HasColor(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	svc := NewColorService()
 	photo := testPhoto(dir, "photo.jpg")
@@ -68,6 +74,8 @@ func TestColorService_HasColor(t *testing.T) {
 }
 
 func TestColorService_RemoveColors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("existing", func(t *testing.T) {
 		dir := t.TempDir()
 		svc := NewColorService()
@@ -89,6 +97,8 @@ func TestColorService_RemoveColors(t *testing.T) {
 }
 
 func TestColorService_RemoveMultipleColors(t *testing.T) {
+	t.Parallel()
+
 	t.Run("removes colors for multiple photos in same dir", func(t *testing.T) {
 		dir := t.TempDir()
 		svc := NewColorService()
@@ -143,6 +153,8 @@ func TestColorService_RemoveMultipleColors(t *testing.T) {
 }
 
 func TestColorService_InvalidateCache(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	svc := NewColorService()
 	photo := testPhoto(dir, "photo.jpg")
@@ -161,6 +173,8 @@ func TestColorService_InvalidateCache(t *testing.T) {
 }
 
 func TestColorService_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	svc := NewColorService()
 
@@ -184,6 +198,8 @@ func TestColorService_ConcurrentAccess(t *testing.T) {
 }
 
 func TestColorService_InvalidateCache_ReReadsFromDisk(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	svc := NewColorService()
 	photo := testPhoto(dir, "photo.jpg")

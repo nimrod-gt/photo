@@ -12,6 +12,8 @@ import (
 )
 
 func TestDeleter_Delete(t *testing.T) {
+	t.Parallel()
+
 	t.Run("JPEG only", func(t *testing.T) {
 		dir := t.TempDir()
 		jpegPath := filepath.Join(dir, "photo.jpg")
@@ -60,6 +62,8 @@ func TestDeleter_Delete(t *testing.T) {
 }
 
 func TestDeleter_DeleteWithOption(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		hasRAW     bool

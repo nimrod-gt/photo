@@ -25,6 +25,8 @@ func stubLoader(load func(string) (image.Image, error)) *ImageLoader {
 }
 
 func TestImageLoader_Get(t *testing.T) {
+	t.Parallel()
+
 	t.Run("returns image", func(t *testing.T) {
 		expected := fakeImage(50, 50)
 		l := stubLoader(func(string) (image.Image, error) { return expected, nil })
@@ -94,6 +96,8 @@ func TestImageLoader_Get(t *testing.T) {
 }
 
 func TestImageLoader_Peek(t *testing.T) {
+	t.Parallel()
+
 	t.Run("returns nil on miss", func(t *testing.T) {
 		l := stubLoader(nil)
 		assert.Nil(t, l.Peek("/photo.jpg", 2000))
@@ -135,6 +139,8 @@ func TestImageLoader_Peek(t *testing.T) {
 }
 
 func TestImageLoader_Preload(t *testing.T) {
+	t.Parallel()
+
 	t.Run("loads in background", func(t *testing.T) {
 		loaded := make(chan string, 1)
 		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
@@ -204,6 +210,8 @@ func TestImageLoader_Preload(t *testing.T) {
 }
 
 func TestImageLoader_Dedup(t *testing.T) {
+	t.Parallel()
+
 	t.Run("concurrent Get single load", func(t *testing.T) {
 		var calls atomic.Int32
 		started := make(chan struct{})
@@ -288,6 +296,8 @@ func TestImageLoader_Dedup(t *testing.T) {
 }
 
 func TestImageLoader_Clear(t *testing.T) {
+	t.Parallel()
+
 	t.Run("purges caches", func(t *testing.T) {
 		var calls atomic.Int32
 		l := stubLoader(func(string) (image.Image, error) {
@@ -326,6 +336,8 @@ func TestImageLoader_Clear(t *testing.T) {
 }
 
 func TestImageLoader_LRU(t *testing.T) {
+	t.Parallel()
+
 	l := NewImageLoader()
 	l.loadImage = func(string) (image.Image, error) {
 		return fakeImage(10, 10), nil
@@ -340,11 +352,13 @@ func TestImageLoader_LRU(t *testing.T) {
 }
 
 func TestImageLoader_ByteBudget(t *testing.T) {
+	t.Parallel()
+
 	imgBytes := imageBytes(fakeImage(10, 10))
 
 	t.Run("evicts oldest when over budget", func(t *testing.T) {
 		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
-		l.byteBudget = imgBytes * 3
+		l.byteBudget = int64(imgBytes * 3)
 
 		_, _ = l.Get("/a.jpg", 100)
 		_, _ = l.Get("/b.jpg", 100)
@@ -352,14 +366,14 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 		_, _ = l.Get("/d.jpg", 100)
 
 		assert.Equal(t, 3, l.cache.Len())
-		assert.LessOrEqual(t, l.cacheBytes, l.byteBudget)
+		assert.LessOrEqual(t, l.cacheBytes.Load(), l.byteBudget)
 		assert.Nil(t, l.Peek("/a.jpg", 100))
 		assert.NotNil(t, l.Peek("/d.jpg", 100))
 	})
 
 	t.Run("keeps newest entry even if alone over budget", func(t *testing.T) {
 		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
-		l.byteBudget = imgBytes / 2
+		l.byteBudget = int64(imgBytes / 2)
 
 		_, _ = l.Get("/a.jpg", 100)
 		_, _ = l.Get("/b.jpg", 100)
@@ -377,7 +391,7 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 		l.addToCache("/a.jpg", cachedImage{img: sizes[2000], size: 2000})
 
 		assert.Equal(t, 1, l.cache.Len())
-		assert.Equal(t, imageBytes(sizes[2000]), l.cacheBytes)
+		assert.Equal(t, int64(imageBytes(sizes[2000])), l.cacheBytes.Load())
 	})
 
 	t.Run("Clear resets byte counter", func(t *testing.T) {
@@ -385,14 +399,16 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 
 		_, _ = l.Get("/a.jpg", 100)
 		_, _ = l.Get("/b.jpg", 100)
-		assert.Positive(t, l.cacheBytes)
+		assert.Positive(t, l.cacheBytes.Load())
 
 		l.Clear()
-		assert.Equal(t, 0, l.cacheBytes)
+		assert.Equal(t, int64(0), l.cacheBytes.Load())
 	})
 }
 
 func TestImageBytes(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		img      image.Image

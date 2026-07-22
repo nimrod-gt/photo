@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type ColorLabel string
@@ -50,6 +51,14 @@ func SaveColors(dir string, cm ColorMap) error {
 		return fmt.Errorf("renaming colors temp file: %w", err)
 	}
 	return nil
+}
+
+func (cm ColorMap) Clone() ColorMap {
+	result := make(ColorMap, len(cm))
+	for k, v := range cm {
+		result[k] = slices.Clone(v)
+	}
+	return result
 }
 
 func (cm ColorMap) HasColor(filename string, color ColorLabel) bool {

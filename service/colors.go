@@ -2,13 +2,17 @@ package service
 
 import (
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"photo/model"
 )
 
+// mu guards the in-memory cache only; saveMu serializes disk writes so a
+// slow save never blocks readers, and snapshots reach disk in mutation order.
 type ColorService struct {
 	mu     sync.Mutex
+	saveMu sync.Mutex
 	colors map[string]model.ColorMap
 }
 
@@ -27,23 +31,26 @@ func (s *ColorService) GetColors(photo model.Photo) ([]model.ColorLabel, error) 
 	if err != nil {
 		return nil, err
 	}
-	return cm[photo.Name], nil
+	return slices.Clone(cm[photo.Name]), nil
 }
 
 func (s *ColorService) ToggleColor(photo model.Photo, color model.ColorLabel) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
 	dir := filepath.Dir(photo.ImagePath)
+
+	s.mu.Lock()
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
-
 	cm.ToggleColor(photo.Name, color)
-	s.colors[dir] = cm
+	snapshot := cm.Clone()
+	s.mu.Unlock()
 
-	return model.SaveColors(dir, cm)
+	return model.SaveColors(dir, snapshot)
 }
 
 func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool, error) {
@@ -59,28 +66,31 @@ func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool
 }
 
 func (s *ColorService) RemoveColors(photo model.Photo) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
 	dir := filepath.Dir(photo.ImagePath)
+
+	s.mu.Lock()
 	cm, err := s.loadOrGet(dir)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
-
 	if _, exists := cm[photo.Name]; !exists {
+		s.mu.Unlock()
 		return nil
 	}
-
 	delete(cm, photo.Name)
-	s.colors[dir] = cm
+	snapshot := cm.Clone()
+	s.mu.Unlock()
 
-	return model.SaveColors(dir, cm)
+	return model.SaveColors(dir, snapshot)
 }
 
 func (s *ColorService) RemoveMultipleColors(photos []model.Photo) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 
 	grouped := make(map[string][]string)
 	for _, p := range photos {
@@ -89,15 +99,19 @@ func (s *ColorService) RemoveMultipleColors(photos []model.Photo) error {
 	}
 
 	for dir, names := range grouped {
+		s.mu.Lock()
 		cm, err := s.loadOrGet(dir)
 		if err != nil {
+			s.mu.Unlock()
 			return err
 		}
 		for _, name := range names {
 			delete(cm, name)
 		}
-		s.colors[dir] = cm
-		if err := model.SaveColors(dir, cm); err != nil {
+		snapshot := cm.Clone()
+		s.mu.Unlock()
+
+		if err := model.SaveColors(dir, snapshot); err != nil {
 			return err
 		}
 	}
@@ -113,14 +127,7 @@ func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	result := make(model.ColorMap, len(cm))
-	for k, v := range cm {
-		copied := make([]model.ColorLabel, len(v))
-		copy(copied, v)
-		result[k] = copied
-	}
-	return result, nil
+	return cm.Clone(), nil
 }
 
 func (s *ColorService) InvalidateCache(dir string) {

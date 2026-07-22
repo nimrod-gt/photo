@@ -22,6 +22,8 @@ func stubProvider(load func(string) (image.Image, error)) *ImageProvider {
 }
 
 func TestImageProvider_Get(t *testing.T) {
+	t.Parallel()
+
 	t.Run("returns thumbnail for small size", func(t *testing.T) {
 		thumb := fakeImage(160, 120)
 		p := stubProvider(nil)
@@ -73,6 +75,8 @@ func TestImageProvider_Get(t *testing.T) {
 }
 
 func TestImageProvider_Peek(t *testing.T) {
+	t.Parallel()
+
 	t.Run("returns thumbnail for small size", func(t *testing.T) {
 		thumb := fakeImage(160, 120)
 		p := stubProvider(nil)
@@ -105,6 +109,8 @@ func TestImageProvider_Peek(t *testing.T) {
 }
 
 func TestImageProvider_LoadFolder(t *testing.T) {
+	t.Parallel()
+
 	t.Run("non-JPEG files get nil thumbnail", func(t *testing.T) {
 		p := stubProvider(nil)
 		photos := []model.Photo{
@@ -247,6 +253,8 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 }
 
 func TestImageProvider_Preload(t *testing.T) {
+	t.Parallel()
+
 	t.Run("generates thumbnails from preloaded images", func(t *testing.T) {
 		p := stubProvider(func(string) (image.Image, error) { return fakeImage(500, 400), nil })
 
@@ -270,6 +278,8 @@ func TestImageProvider_Preload(t *testing.T) {
 }
 
 func TestImageProvider_Clear(t *testing.T) {
+	t.Parallel()
+
 	t.Run("purges everything", func(t *testing.T) {
 		p := stubProvider(func(string) (image.Image, error) { return fakeImage(50, 50), nil })
 
@@ -284,6 +294,8 @@ func TestImageProvider_Clear(t *testing.T) {
 }
 
 func TestImageProvider_StoreThumbnail(t *testing.T) {
+	t.Parallel()
+
 	t.Run("decoded replaces exif thumbnail", func(t *testing.T) {
 		p := stubProvider(nil)
 		exifThumb := fakeImage(120, 90)
@@ -331,6 +343,8 @@ func TestImageProvider_StoreThumbnail(t *testing.T) {
 }
 
 func TestImageProvider_SeededOrientation(t *testing.T) {
+	t.Parallel()
+
 	t.Run("applies cached orientation on Get", func(t *testing.T) {
 		path := writeTestJPEG(t, 4, 2)
 		p := NewImageProvider(NewExifService())
@@ -354,6 +368,8 @@ func TestImageProvider_SeededOrientation(t *testing.T) {
 }
 
 func TestImageProvider_PeekThumbnailFitBox(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		thumb image.Image

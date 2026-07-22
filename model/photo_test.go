@@ -7,6 +7,8 @@ import (
 )
 
 func TestIsSupportedImage(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		ext      string
 		expected bool
@@ -30,6 +32,8 @@ func TestIsSupportedImage(t *testing.T) {
 }
 
 func TestPhoto_IsJPEG(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		path     string
 		expected bool
@@ -49,6 +53,8 @@ func TestPhoto_IsJPEG(t *testing.T) {
 }
 
 func TestNewPhotoWithExists(t *testing.T) {
+	t.Parallel()
+
 	t.Run("finds ARW pair for JPEG", func(t *testing.T) {
 		p := NewPhotoWithExists("/photos/img.jpg", func(path string) bool {
 			return path == "/photos/img.ARW"

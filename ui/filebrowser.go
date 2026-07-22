@@ -5,7 +5,6 @@ import (
 	"image/color"
 	"log"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -56,19 +55,7 @@ type FileBrowser struct {
 	deleteAllBtn *widget.Button
 	copyAllBtn   *widget.Button
 
-	allPhotos    []model.Photo
-	allMeta      []model.PhotoMeta
-	photos       []model.Photo
-	meta         []model.PhotoMeta
-	indices      []int
-	displayByAll map[int]int
-
-	filterColors   map[model.ColorLabel]bool
-	filterFavorite bool
-	pinnedPath     string
-
-	generation    uint64
-	mu            sync.Mutex
+	data          *photoList
 	items         map[fyne.CanvasObject]*browserItem
 	imageProvider *service.ImageProvider
 	colors        *service.ColorService
@@ -93,7 +80,7 @@ func NewFileBrowser(
 		imageProvider: imageProvider,
 		colors:        colors,
 		callbacks:     callbacks,
-		filterColors:  make(map[model.ColorLabel]bool),
+		data:          newPhotoList(),
 		items:         make(map[fyne.CanvasObject]*browserItem),
 	}
 	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
@@ -106,65 +93,36 @@ func (fb *FileBrowser) Container() *fyne.Container {
 }
 
 func (fb *FileBrowser) SetPinnedPath(path string) {
-	fb.mu.Lock()
-	fb.pinnedPath = path
-	fb.mu.Unlock()
+	fb.data.setPinnedPath(path)
 }
 
 func (fb *FileBrowser) ClearPinnedPath() {
-	fb.mu.Lock()
-	fb.pinnedPath = ""
-	fb.mu.Unlock()
+	fb.data.setPinnedPath("")
 }
 
 func (fb *FileBrowser) PinnedPath() string {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	return fb.pinnedPath
+	return fb.data.getPinnedPath()
 }
 
 func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
-	fb.mu.Lock()
-	fb.allPhotos = photos
-	fb.allMeta = make([]model.PhotoMeta, len(photos))
-	fb.pinnedPath = ""
-	fb.generation++
-	gen := fb.generation
-	fb.mu.Unlock()
+	gen := fb.data.reset(photos)
 
 	fb.loadInitialMeta(photos)
-	fb.applyFilter()
+	fb.data.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 
 	fb.imageProvider.LoadFolder(photos, func(index int, thumbnail image.Image, favorite bool) {
-		fb.mu.Lock()
-		if fb.generation != gen {
-			fb.mu.Unlock()
-			return
-		}
-		if index < len(fb.allMeta) {
-			fb.allMeta[index].Thumbnail = thumbnail
-			fb.allMeta[index].Favorite = favorite
-		}
-		displayIdx := fb.displayIndex(index)
-		fb.mu.Unlock()
-		if displayIdx >= 0 {
+		displayIdx, ok := fb.data.setLoadedMeta(index, thumbnail, favorite, gen)
+		if ok && displayIdx >= 0 {
 			fyne.Do(func() {
 				fb.list.RefreshItem(displayIdx)
 			})
 		}
 	}, func() {
-		fb.mu.Lock()
-		if fb.generation != gen {
-			fb.mu.Unlock()
-			return
-		}
-		needRefilter := fb.filterFavorite
-		fb.mu.Unlock()
-		if needRefilter {
+		if fb.data.favoriteRefilterNeeded(gen) {
 			fyne.Do(func() {
-				fb.applyFilter()
+				fb.data.applyFilter()
 				fb.list.Refresh()
 				if fb.callbacks.OnFilteredChanged != nil {
 					fb.callbacks.OnFilteredChanged(fb.FilteredPhotos())
@@ -185,51 +143,20 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 		log.Printf("Failed to load color labels for %s: %v", dir, err)
 	}
 
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-
-	for i, photo := range photos {
-		if colorMap != nil {
-			fb.allMeta[i].Colors = colorMap[photo.Name]
-		}
-		fb.allMeta[i].Date = photo.ModTime
-	}
+	fb.data.initMeta(photos, colorMap)
 }
 
 func (fb *FileBrowser) GetMeta(displayIndex int) model.PhotoMeta {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	if displayIndex >= 0 && displayIndex < len(fb.meta) {
-		return fb.meta[displayIndex]
-	}
-	return model.PhotoMeta{}
+	return fb.data.metaAt(displayIndex)
 }
 
 func (fb *FileBrowser) RefreshItemMeta(displayIndex int, colors []model.ColorLabel, favorite bool) {
-	fb.mu.Lock()
-	allIdx := displayIndex
-	if fb.indices != nil {
-		if displayIndex >= 0 && displayIndex < len(fb.indices) {
-			allIdx = fb.indices[displayIndex]
-		} else {
-			fb.mu.Unlock()
-			return
-		}
-	}
-	if allIdx >= 0 && allIdx < len(fb.allMeta) {
-		fb.allMeta[allIdx].Colors = colors
-		fb.allMeta[allIdx].Favorite = favorite
-	}
-	if displayIndex >= 0 && displayIndex < len(fb.meta) {
-		fb.meta[displayIndex].Colors = colors
-		fb.meta[displayIndex].Favorite = favorite
-	}
-	fb.mu.Unlock()
+	fb.data.setItemMeta(displayIndex, colors, favorite)
 	fb.list.RefreshItem(displayIndex)
 }
 
 func (fb *FileBrowser) SelectIndex(index int) {
-	if index >= 0 && index < len(fb.photos) {
+	if index >= 0 && index < fb.data.count() {
 		fb.list.Select(index)
 	}
 }
@@ -243,9 +170,9 @@ func (fb *FileBrowser) OpenDirectory(path string) {
 }
 
 func (fb *FileBrowser) SetSortState(order service.SortOrder, descending bool) {
-	arrow := " \u2191"
+	arrow := " ↑"
 	if descending {
-		arrow = " \u2193"
+		arrow = " ↓"
 	}
 	if order == service.SortByName {
 		fb.nameSortBtn.SetText("Name" + arrow)
@@ -263,117 +190,63 @@ func (fb *FileBrowser) SetSortState(order service.SortOrder, descending bool) {
 }
 
 func (fb *FileBrowser) HasFilter() bool {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	return HasActiveFilter(fb.filterColors, fb.filterFavorite)
+	return fb.data.hasFilter()
 }
 
 func (fb *FileBrowser) ToggleColorFilter(color model.ColorLabel) {
-	fb.mu.Lock()
-	fb.filterColors[color] = !fb.filterColors[color]
-	fb.mu.Unlock()
+	fb.data.toggleColorFilter(color)
 }
 
 func (fb *FileBrowser) ToggleFavoriteFilter() {
-	fb.mu.Lock()
-	fb.filterFavorite = !fb.filterFavorite
-	fb.mu.Unlock()
+	fb.data.toggleFavoriteFilter()
 }
 
 func (fb *FileBrowser) ClearFilter() {
-	fb.mu.Lock()
-	fb.filterFavorite = false
-	for k := range fb.filterColors {
-		fb.filterColors[k] = false
-	}
-	fb.mu.Unlock()
+	fb.data.clearFilters()
 	fb.RefreshFilter()
 }
 
 func (fb *FileBrowser) RefreshFilter() {
-	fb.applyFilter()
+	fb.data.applyFilter()
 	fb.updateFilterButtonStates()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
 
 func (fb *FileBrowser) FilteredPhotos() []model.Photo {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	result := make([]model.Photo, len(fb.photos))
-	copy(result, fb.photos)
-	return result
+	return fb.data.filteredPhotos()
 }
 
 func (fb *FileBrowser) FilteredMeta() []model.PhotoMeta {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	result := make([]model.PhotoMeta, len(fb.meta))
-	copy(result, fb.meta)
-	return result
+	return fb.data.filteredMeta()
 }
 
 func (fb *FileBrowser) AllMeta() []model.PhotoMeta {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	result := make([]model.PhotoMeta, len(fb.allMeta))
-	copy(result, fb.allMeta)
-	return result
+	return fb.data.allMetaCopy()
 }
 
 func (fb *FileBrowser) AllPhotos() []model.Photo {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-	result := make([]model.Photo, len(fb.allPhotos))
-	copy(result, fb.allPhotos)
-	return result
+	return fb.data.allPhotosCopy()
 }
 
 func (fb *FileBrowser) RemovePhoto(imagePath string) {
-	fb.mu.Lock()
-	removeIdx := -1
-	for i, p := range fb.allPhotos {
-		if p.ImagePath == imagePath {
-			removeIdx = i
-			break
-		}
-	}
-	if removeIdx < 0 {
-		fb.mu.Unlock()
+	if !fb.data.removePhoto(imagePath) {
 		return
 	}
-	fb.allPhotos = append(fb.allPhotos[:removeIdx], fb.allPhotos[removeIdx+1:]...)
-	fb.allMeta = append(fb.allMeta[:removeIdx], fb.allMeta[removeIdx+1:]...)
-	fb.mu.Unlock()
-	fb.applyFilter()
+	fb.data.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
 
 func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
-	fb.mu.Lock()
-	var newPhotos []model.Photo
-	var newMeta []model.PhotoMeta
-	for i, p := range fb.allPhotos {
-		if !paths[p.ImagePath] {
-			newPhotos = append(newPhotos, p)
-			newMeta = append(newMeta, fb.allMeta[i])
-		}
-	}
-	fb.allPhotos = newPhotos
-	fb.allMeta = newMeta
-	fb.mu.Unlock()
-	fb.applyFilter()
+	fb.data.removePhotos(paths)
+	fb.data.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
 
 func (fb *FileBrowser) updateBulkBarVisibility() {
-	fb.mu.Lock()
-	active := HasActiveFilter(fb.filterColors, fb.filterFavorite)
-	count := len(fb.photos)
-	fb.mu.Unlock()
-
+	active, count := fb.data.bulkState()
 	if active && count > 0 {
 		fb.bulkBar.Show()
 	} else {
@@ -381,60 +254,12 @@ func (fb *FileBrowser) updateBulkBarVisibility() {
 	}
 }
 
-func (fb *FileBrowser) applyFilter() {
-	fb.mu.Lock()
-	defer fb.mu.Unlock()
-
-	if !HasActiveFilter(fb.filterColors, fb.filterFavorite) {
-		fb.indices = nil
-		fb.displayByAll = nil
-		fb.photos = fb.allPhotos
-		fb.meta = fb.allMeta
-		return
-	}
-
-	fb.indices = nil
-	fb.displayByAll = make(map[int]int)
-	fb.photos = nil
-	fb.meta = nil
-	for i, m := range fb.allMeta {
-		if fb.matchesFilter(m) || fb.allPhotos[i].ImagePath == fb.pinnedPath {
-			fb.displayByAll[i] = len(fb.indices)
-			fb.indices = append(fb.indices, i)
-			fb.photos = append(fb.photos, fb.allPhotos[i])
-			fb.meta = append(fb.meta, m)
-		}
-	}
-}
-
-func (fb *FileBrowser) matchesFilter(meta model.PhotoMeta) bool {
-	if fb.filterFavorite && meta.Favorite {
-		return true
-	}
-	colorSet := ColorSet(meta.Colors)
-	for c, active := range fb.filterColors {
-		if active && colorSet[c] {
-			return true
-		}
-	}
-	return false
-}
-
-func (fb *FileBrowser) displayIndex(allIdx int) int {
-	if fb.indices == nil {
-		return allIdx
-	}
-	if i, ok := fb.displayByAll[allIdx]; ok {
-		return i
-	}
-	return -1
-}
-
 func (fb *FileBrowser) updateFilterButtonStates() {
-	setFilterBtnState(fb.filterFavBtn, fb.filterFavorite)
-	setFilterBtnState(fb.filterRedBtn, fb.filterColors[model.ColorRed])
-	setFilterBtnState(fb.filterGreenBtn, fb.filterColors[model.ColorGreen])
-	setFilterBtnState(fb.filterBlueBtn, fb.filterColors[model.ColorBlue])
+	filterColors, filterFavorite := fb.data.filterState()
+	setFilterBtnState(fb.filterFavBtn, filterFavorite)
+	setFilterBtnState(fb.filterRedBtn, filterColors[model.ColorRed])
+	setFilterBtnState(fb.filterGreenBtn, filterColors[model.ColorGreen])
+	setFilterBtnState(fb.filterBlueBtn, filterColors[model.ColorBlue])
 }
 
 func HasActiveFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
@@ -460,25 +285,14 @@ func setFilterBtnState(btn *widget.Button, active bool) {
 
 func (fb *FileBrowser) build() {
 	fb.list = widget.NewList(
-		func() int {
-			fb.mu.Lock()
-			defer fb.mu.Unlock()
-			return len(fb.photos)
-		},
+		fb.data.count,
 		fb.createItem,
 		fb.updateItem,
 	)
 
 	fb.list.OnSelected = func(id widget.ListItemID) {
-		fb.mu.Lock()
-		inRange := id < len(fb.photos)
-		var photo model.Photo
-		if inRange {
-			photo = fb.photos[id]
-		}
-		fb.mu.Unlock()
-
-		if inRange && fb.callbacks.OnPhotoSelected != nil {
+		photo, ok := fb.data.photoAt(id)
+		if ok && fb.callbacks.OnPhotoSelected != nil {
 			fb.callbacks.OnPhotoSelected(photo)
 		}
 	}
@@ -496,7 +310,7 @@ func (fb *FileBrowser) build() {
 	})
 	helpBtn.Importance = widget.LowImportance
 
-	fb.nameSortBtn = widget.NewButton("Name \u2191", func() {
+	fb.nameSortBtn = widget.NewButton("Name ↑", func() {
 		if fb.callbacks.OnSortBy != nil {
 			fb.callbacks.OnSortBy(service.SortByName)
 		}
@@ -567,17 +381,17 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 	nameLabel := widget.NewLabel("placeholder")
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
 
-	star := canvas.NewText("\u2605", color.NRGBA{R: 255, G: 215, B: 0, A: 255})
+	star := canvas.NewText("★", color.NRGBA{R: 255, G: 215, B: 0, A: 255})
 	star.TextSize = 14
 	star.Hide()
 
-	dot1 := canvas.NewText("\u25CF", color.Transparent)
+	dot1 := canvas.NewText("●", color.Transparent)
 	dot1.TextSize = 12
 	dot1.Hide()
-	dot2 := canvas.NewText("\u25CF", color.Transparent)
+	dot2 := canvas.NewText("●", color.Transparent)
 	dot2.TextSize = 12
 	dot2.Hide()
-	dot3 := canvas.NewText("\u25CF", color.Transparent)
+	dot3 := canvas.NewText("●", color.Transparent)
 	dot3.TextSize = 12
 	dot3.Hide()
 
@@ -606,14 +420,10 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 }
 
 func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
-	fb.mu.Lock()
-	if id >= len(fb.photos) {
-		fb.mu.Unlock()
+	photo, meta, ok := fb.data.itemAt(id)
+	if !ok {
 		return
 	}
-	photo := fb.photos[id]
-	meta := fb.meta[id]
-	fb.mu.Unlock()
 
 	item, ok := fb.items[obj]
 	if !ok {

@@ -13,6 +13,8 @@ import (
 )
 
 func TestScanner_ScanDirectory(t *testing.T) {
+	t.Parallel()
+
 	scanner := NewScanner()
 
 	t.Run("supported formats", func(t *testing.T) {
@@ -110,6 +112,8 @@ func TestScanner_ScanDirectory(t *testing.T) {
 }
 
 func TestScanner_SortPhotos(t *testing.T) {
+	t.Parallel()
+
 	scanner := NewScanner()
 
 	t.Run("by name", func(t *testing.T) {
@@ -168,6 +172,8 @@ func TestScanner_SortPhotos(t *testing.T) {
 }
 
 func TestScanner_ListDirectories(t *testing.T) {
+	t.Parallel()
+
 	scanner := NewScanner()
 
 	t.Run("basic", func(t *testing.T) {
