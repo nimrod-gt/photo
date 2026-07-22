@@ -14,7 +14,7 @@ import (
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"github.com/go-gl/glfw/v3.3/glfw"
+	"github.com/go-gl/glfw/v3.4/glfw"
 
 	"photo/model"
 	"photo/service"
@@ -22,40 +22,37 @@ import (
 )
 
 type Application struct {
-	fyneApp fyne.App
-
-	scanner       *service.Scanner
-	colorService  *service.ColorService
-	deleter       *service.Deleter
-	copier        *service.Copier
-	navigator     *service.Navigator
-	exifService   *service.ExifService
-	imageProvider *service.ImageProvider
-
-	actionPanel      *ui.ActionPanel
-	fileBrowser      *ui.FileBrowser
-	viewer           *ui.Viewer
-	gridViewer       *ui.GridViewer
-	mainWindow       *ui.MainWindow
-	contextMenuItems ui.ContextMenuItems
-	deleteDialog     *dialog.ConfirmDialog
-	deleteDialogOpen bool
-	copyDialog       *dialog.ConfirmDialog
-	copyDialogOpen   bool
-	helpDialog       *dialog.CustomDialog
-	helpDialogOpen   bool
-
+	contextMenuItems    ui.ContextMenuItems
+	fyneApp             fyne.App
+	scanner             *service.Scanner
+	colorService        *service.ColorService
+	deleter             *service.Deleter
+	copier              *service.Copier
+	navigator           *service.Navigator
+	exifService         *service.ExifService
+	imageProvider       *service.ImageProvider
+	actionPanel         *ui.ActionPanel
+	fileBrowser         *ui.FileBrowser
+	viewer              *ui.Viewer
+	gridViewer          *ui.GridViewer
+	mainWindow          *ui.MainWindow
+	deleteDialog        *dialog.ConfirmDialog
+	copyDialog          *dialog.ConfirmDialog
+	helpDialog          *dialog.CustomDialog
 	deleteAllDialog     *dialog.ConfirmDialog
-	deleteAllDialogOpen bool
 	copyAllDialog       *ui.CopyAllDialog
-	copyAllDialogOpen   bool
 	copyAllCancel       context.CancelFunc
-	sortOrder           service.SortOrder
-	sortDescending      bool
 	filterColors        map[model.ColorLabel]bool
+	fullImageSize       func() int
+	sortOrder           service.SortOrder
+	deleteDialogOpen    bool
+	copyDialogOpen      bool
+	helpDialogOpen      bool
+	deleteAllDialogOpen bool
+	copyAllDialogOpen   bool
+	sortDescending      bool
 	filterFavorite      bool
 	gridMode            bool
-	fullImageSize       func() int
 }
 
 func New() *Application {

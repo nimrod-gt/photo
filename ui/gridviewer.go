@@ -25,20 +25,17 @@ type GridViewerCallbacks struct {
 }
 
 type GridViewer struct {
-	container *fyne.Container
-	grid      *widget.GridWrap
-
-	mu        sync.Mutex
-	photos    []model.Photo
-	meta      []model.PhotoMeta
-	tileWidth float32
-
-	visibleMin int
-	visibleMax int
-
+	container        *fyne.Container
+	grid             *widget.GridWrap
 	imageProvider    *service.ImageProvider
-	preloadScheduled atomic.Bool
 	callbacks        GridViewerCallbacks
+	photos           []model.Photo
+	meta             []model.PhotoMeta
+	visibleMin       int
+	visibleMax       int
+	mu               sync.Mutex
+	tileWidth        float32
+	preloadScheduled atomic.Bool
 }
 
 func NewGridViewer(imageProvider *service.ImageProvider, callbacks GridViewerCallbacks) *GridViewer {
