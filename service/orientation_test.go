@@ -16,8 +16,8 @@ import (
 
 func makeTestImage(w, h int) *image.NRGBA {
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.SetNRGBA(x, y, color.NRGBA{
 				R: uint8(x),
 				G: uint8(y),
@@ -43,8 +43,8 @@ func TestFlipHorizontal(t *testing.T) {
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
 
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 3 {
+		for x := range 4 {
 			expected := pixelAt(src, 3-x, y)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -61,8 +61,8 @@ func TestFlipVertical(t *testing.T) {
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
 
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 3 {
+		for x := range 4 {
 			expected := pixelAt(src, x, 2-y)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -79,8 +79,8 @@ func TestRotate180(t *testing.T) {
 	require.Equal(t, 4, dst.Bounds().Dx())
 	require.Equal(t, 3, dst.Bounds().Dy())
 
-	for y := 0; y < 3; y++ {
-		for x := 0; x < 4; x++ {
+	for y := range 3 {
+		for x := range 4 {
 			expected := pixelAt(src, 3-x, 2-y)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -97,8 +97,8 @@ func TestRotate90CW(t *testing.T) {
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 4 {
+		for x := range 3 {
 			expected := pixelAt(src, y, 2-x)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -115,8 +115,8 @@ func TestRotate90CCW(t *testing.T) {
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 4 {
+		for x := range 3 {
 			expected := pixelAt(src, 3-y, x)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -133,8 +133,8 @@ func TestTranspose(t *testing.T) {
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 4 {
+		for x := range 3 {
 			expected := pixelAt(src, y, x)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)
@@ -151,8 +151,8 @@ func TestTransverse(t *testing.T) {
 	require.Equal(t, 3, dst.Bounds().Dx())
 	require.Equal(t, 4, dst.Bounds().Dy())
 
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 3; x++ {
+	for y := range 4 {
+		for x := range 3 {
 			expected := pixelAt(src, 3-y, 2-x)
 			actual := pixelAt(dst, x, y)
 			assert.Equal(t, expected, actual, "pixel (%d,%d)", x, y)

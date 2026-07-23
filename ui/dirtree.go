@@ -129,7 +129,7 @@ func (dt *DirTree) OpenPath(path string) {
 	}
 
 	current := root
-	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+	for seg := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		current = filepath.Join(current, seg)
 		dt.tree.OpenBranch(current)
 	}

@@ -179,7 +179,7 @@ func TestColorService_ConcurrentAccess(t *testing.T) {
 	svc := NewColorService()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()

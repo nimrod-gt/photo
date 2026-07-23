@@ -277,7 +277,7 @@ func TestNavigator_ConcurrentAccess(t *testing.T) {
 	nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"))
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		wg.Add(4)
 		go func() {
 			defer wg.Done()

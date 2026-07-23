@@ -21,8 +21,10 @@ linters:
     - gosmopolitan
     - iface
     - importas
+    - intrange
     - mirror
     - misspell
+    - modernize
     - nilerr
     - nilnesserr
     - nolintlint

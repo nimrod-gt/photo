@@ -62,12 +62,7 @@ func (cm ColorMap) Clone() ColorMap {
 }
 
 func (cm ColorMap) HasColor(filename string, color ColorLabel) bool {
-	for _, c := range cm[filename] {
-		if c == color {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(cm[filename], color)
 }
 
 func (cm ColorMap) ToggleColor(filename string, color ColorLabel) {

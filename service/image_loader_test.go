@@ -226,11 +226,9 @@ func TestImageLoader_Dedup(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for range 10 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				_, _ = l.Get("/photo.jpg", 2000)
-			}()
+			})
 		}
 
 		<-started
@@ -260,13 +258,11 @@ func TestImageLoader_Dedup(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for range 5 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				img, err := l.Get("/photo.jpg", 2000)
-				assert.NoError(t, err)
+				assert.NoError(t, err) //nolint:testifylint // require is unsafe outside the test goroutine
 				assert.NotNil(t, img)
-			}()
+			})
 		}
 
 		time.Sleep(20 * time.Millisecond)

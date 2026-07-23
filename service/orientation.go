@@ -96,8 +96,8 @@ func transformPixels(img image.Image, swapDims bool, srcXY func(x, y, w, h int) 
 		dw, dh = h, w
 	}
 	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
-	for y := 0; y < dh; y++ {
-		for x := 0; x < dw; x++ {
+	for y := range dh {
+		for x := range dw {
 			sx, sy := srcXY(x, y, w, h)
 			srcIdx := sy*src.Stride + sx*4
 			dstIdx := y*dst.Stride + x*4

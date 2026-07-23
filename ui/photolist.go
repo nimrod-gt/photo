@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"maps"
 	"sync"
 
 	"photo/model"
@@ -110,9 +111,7 @@ func (pl *photoList) filterState() (map[model.ColorLabel]bool, bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	colors := make(map[model.ColorLabel]bool, len(pl.filterColors))
-	for k, v := range pl.filterColors {
-		colors[k] = v
-	}
+	maps.Copy(colors, pl.filterColors)
 	return colors, pl.filterFavorite
 }
 
