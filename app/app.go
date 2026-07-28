@@ -79,6 +79,7 @@ func (a *Application) Run() {
 		OnFilteredChanged:   a.handleFilteredChanged,
 		OnDeleteAll:         a.handleDeleteAll,
 		OnCopyAll:           a.handleCopyAll,
+		OnUnselectAll:       a.handleUnselectAll,
 		OnHelp:              a.handleHelp,
 	})
 

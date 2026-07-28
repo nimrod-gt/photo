@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
+	"photo/model"
 	"photo/service"
 
 	"fyne.io/fyne/v2"
@@ -20,6 +22,19 @@ func NewDeleteAllDialogContent(count int) (*fyne.Container, *widget.Check) {
 
 	content := container.NewVBox(label, rawCheck)
 	return container.New(&minWidthLayout{width: copyDialogWidth}, content), rawCheck
+}
+
+func NewUnselectAllDialogContent(count int, colors []model.ColorLabel) *fyne.Container {
+	names := make([]string, 0, len(colors))
+	for _, c := range colors {
+		name := string(c)
+		names = append(names, strings.ToUpper(name[:1])+name[1:])
+	}
+	label := widget.NewLabel(fmt.Sprintf("Remove %s labels from %d photos?", strings.Join(names, ", "), count))
+	label.TextStyle = fyne.TextStyle{Bold: true}
+
+	content := container.NewVBox(label)
+	return container.New(&minWidthLayout{width: copyDialogWidth}, content)
 }
 
 type CopyAllDialog struct {

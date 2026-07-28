@@ -36,6 +36,7 @@ type FileBrowserCallbacks struct {
 	OnFilteredChanged   func(photos []model.Photo)
 	OnDeleteAll         func()
 	OnCopyAll           func()
+	OnUnselectAll       func()
 	OnHelp              func()
 }
 
@@ -51,9 +52,10 @@ type FileBrowser struct {
 	filterGreenBtn *widget.Button
 	filterBlueBtn  *widget.Button
 
-	bulkBar      *fyne.Container
-	deleteAllBtn *widget.Button
-	copyAllBtn   *widget.Button
+	bulkBar        *fyne.Container
+	deleteAllBtn   *widget.Button
+	copyAllBtn     *widget.Button
+	unselectAllBtn *widget.Button
 
 	data          *photoList
 	items         map[fyne.CanvasObject]*browserItem
@@ -213,6 +215,14 @@ func (fb *FileBrowser) RefreshFilter() {
 	fb.list.Refresh()
 }
 
+func (fb *FileBrowser) ActiveFilterColors() []model.ColorLabel {
+	return fb.data.activeFilterColors()
+}
+
+func (fb *FileBrowser) RemoveColorLabels(paths map[string]bool, colors []model.ColorLabel) {
+	fb.data.removeColorsFromPaths(paths, colors)
+}
+
 func (fb *FileBrowser) FilteredPhotos() []model.Photo {
 	return fb.data.filteredPhotos()
 }
@@ -246,11 +256,16 @@ func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
 }
 
 func (fb *FileBrowser) updateBulkBarVisibility() {
-	active, count := fb.data.bulkState()
+	active, colorActive, count := fb.data.bulkState()
 	if active && count > 0 {
 		fb.bulkBar.Show()
 	} else {
 		fb.bulkBar.Hide()
+	}
+	if colorActive {
+		fb.unselectAllBtn.Show()
+	} else {
+		fb.unselectAllBtn.Hide()
 	}
 }
 
@@ -361,7 +376,15 @@ func (fb *FileBrowser) build() {
 			fb.callbacks.OnCopyAll()
 		}
 	})
-	fb.bulkBar = container.NewGridWithColumns(2, fb.deleteAllBtn, fb.copyAllBtn)
+	fb.unselectAllBtn = widget.NewButtonWithIcon("Unselect All", theme.CancelIcon(), func() {
+		if fb.callbacks.OnUnselectAll != nil {
+			fb.callbacks.OnUnselectAll()
+		}
+	})
+	fb.bulkBar = container.NewVBox(
+		container.NewGridWithColumns(2, fb.deleteAllBtn, fb.copyAllBtn),
+		fb.unselectAllBtn,
+	)
 	fb.bulkBar.Hide()
 
 	topBars := container.NewVBox(sortBar, filterBar, fb.bulkBar)

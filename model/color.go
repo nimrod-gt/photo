@@ -65,6 +65,17 @@ func (cm ColorMap) HasColor(filename string, color ColorLabel) bool {
 	return slices.Contains(cm[filename], color)
 }
 
+func (cm ColorMap) RemoveLabels(filename string, colors []ColorLabel) {
+	remaining := slices.DeleteFunc(cm[filename], func(c ColorLabel) bool {
+		return slices.Contains(colors, c)
+	})
+	if len(remaining) == 0 {
+		delete(cm, filename)
+		return
+	}
+	cm[filename] = remaining
+}
+
 func (cm ColorMap) ToggleColor(filename string, color ColorLabel) {
 	colors := cm[filename]
 	for i, c := range colors {

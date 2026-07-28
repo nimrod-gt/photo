@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -293,6 +294,64 @@ func (a *Application) handleDeleteAll() {
 	)
 	a.dialogs.open(dialogDeleteAll, deleteAllDialog, nil)
 	deleteAllDialog.Show()
+}
+
+func (a *Application) handleUnselectAll() {
+	if a.gridMode || a.dialogs.anyOpen() {
+		return
+	}
+	activeColors := a.fileBrowser.ActiveFilterColors()
+	if len(activeColors) == 0 {
+		return
+	}
+
+	filtered := a.fileBrowser.FilteredPhotos()
+	meta := a.fileBrowser.FilteredMeta()
+	var affected []model.Photo
+	for i, photo := range filtered {
+		if i < len(meta) && slices.ContainsFunc(meta[i].Colors, func(c model.ColorLabel) bool {
+			return slices.Contains(activeColors, c)
+		}) {
+			affected = append(affected, photo)
+		}
+	}
+	if len(affected) == 0 {
+		return
+	}
+
+	unselectDialog := dialog.NewCustomConfirm("Unselect All",
+		"Remove", "Cancel",
+		ui.NewUnselectAllDialogContent(len(affected), activeColors),
+		func(confirmed bool) {
+			a.dialogs.closed()
+			if !confirmed {
+				return
+			}
+			go func() {
+				err := a.colorService.RemoveColorLabels(affected, activeColors)
+				fyne.Do(func() {
+					if err != nil {
+						a.showError("Failed to remove color labels", err)
+						return
+					}
+					paths := make(map[string]bool, len(affected))
+					for _, p := range affected {
+						paths[p.ImagePath] = true
+					}
+					a.fileBrowser.RemoveColorLabels(paths, activeColors)
+					for _, c := range activeColors {
+						a.fileBrowser.ToggleColorFilter(c)
+					}
+					a.fileBrowser.ClearPinnedPath()
+					a.reapplyFilter()
+					a.mainWindow.ShowNotification(fmt.Sprintf("Removed color labels from %d photos", len(affected)))
+				})
+			}()
+		},
+		a.mainWindow.Window(),
+	)
+	a.dialogs.open(dialogUnselectAll, unselectDialog, nil)
+	unselectDialog.Show()
 }
 
 func (a *Application) handleCopyAll() {

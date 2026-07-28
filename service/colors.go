@@ -119,6 +119,37 @@ func (s *ColorService) RemoveMultipleColors(photos []model.Photo) error {
 	return nil
 }
 
+func (s *ColorService) RemoveColorLabels(photos []model.Photo, colors []model.ColorLabel) error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
+	grouped := make(map[string][]string)
+	for _, p := range photos {
+		dir := filepath.Dir(p.ImagePath)
+		grouped[dir] = append(grouped[dir], p.Name)
+	}
+
+	for dir, names := range grouped {
+		s.mu.Lock()
+		cm, err := s.loadOrGet(dir)
+		if err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		for _, name := range names {
+			cm.RemoveLabels(name, colors)
+		}
+		snapshot := cm.Clone()
+		s.mu.Unlock()
+
+		if err := model.SaveColors(dir, snapshot); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

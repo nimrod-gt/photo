@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"maps"
+	"slices"
 	"sync"
 
 	"photo/model"
@@ -115,10 +116,41 @@ func (pl *photoList) filterState() (map[model.ColorLabel]bool, bool) {
 	return colors, pl.filterFavorite
 }
 
-func (pl *photoList) bulkState() (active bool, count int) {
+func (pl *photoList) bulkState() (active bool, colorActive bool, count int) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	return HasActiveFilter(pl.filterColors, pl.filterFavorite), len(pl.photos)
+	return HasActiveFilter(pl.filterColors, pl.filterFavorite),
+		HasActiveFilter(pl.filterColors, false),
+		len(pl.photos)
+}
+
+func (pl *photoList) activeFilterColors() []model.ColorLabel {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	var colors []model.ColorLabel
+	for _, c := range []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue} {
+		if pl.filterColors[c] {
+			colors = append(colors, c)
+		}
+	}
+	return colors
+}
+
+func (pl *photoList) removeColorsFromPaths(paths map[string]bool, colors []model.ColorLabel) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	for i, p := range pl.allPhotos {
+		if !paths[p.ImagePath] {
+			continue
+		}
+		remaining := slices.DeleteFunc(pl.allMeta[i].Colors, func(c model.ColorLabel) bool {
+			return slices.Contains(colors, c)
+		})
+		if len(remaining) == 0 {
+			remaining = nil
+		}
+		pl.allMeta[i].Colors = remaining
+	}
 }
 
 func (pl *photoList) applyFilter() {

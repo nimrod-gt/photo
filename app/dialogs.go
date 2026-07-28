@@ -9,6 +9,7 @@ const (
 	dialogHelp
 	dialogDeleteAll
 	dialogCopyAll
+	dialogUnselectAll
 )
 
 type hideable interface {

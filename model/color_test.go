@@ -68,6 +68,46 @@ func TestColorMap_ToggleColor(t *testing.T) {
 	})
 }
 
+func TestColorMap_RemoveLabels(t *testing.T) {
+	t.Parallel()
+
+	t.Run("removes one of several colors", func(t *testing.T) {
+		cm := ColorMap{"photo.jpg": {ColorRed, ColorGreen}}
+		cm.RemoveLabels("photo.jpg", []ColorLabel{ColorRed})
+		assert.False(t, cm.HasColor("photo.jpg", ColorRed))
+		assert.True(t, cm.HasColor("photo.jpg", ColorGreen))
+	})
+
+	t.Run("removes multiple colors at once", func(t *testing.T) {
+		cm := ColorMap{"photo.jpg": {ColorRed, ColorGreen, ColorBlue}}
+		cm.RemoveLabels("photo.jpg", []ColorLabel{ColorRed, ColorGreen})
+		assert.False(t, cm.HasColor("photo.jpg", ColorRed))
+		assert.False(t, cm.HasColor("photo.jpg", ColorGreen))
+		assert.True(t, cm.HasColor("photo.jpg", ColorBlue))
+	})
+
+	t.Run("deletes key when entry becomes empty", func(t *testing.T) {
+		cm := ColorMap{"photo.jpg": {ColorRed, ColorGreen}}
+		cm.RemoveLabels("photo.jpg", []ColorLabel{ColorRed, ColorGreen})
+		_, exists := cm["photo.jpg"]
+		assert.False(t, exists)
+	})
+
+	t.Run("no-op for absent filename", func(t *testing.T) {
+		cm := ColorMap{"other.jpg": {ColorRed}}
+		cm.RemoveLabels("photo.jpg", []ColorLabel{ColorRed})
+		assert.True(t, cm.HasColor("other.jpg", ColorRed))
+		_, exists := cm["photo.jpg"]
+		assert.False(t, exists)
+	})
+
+	t.Run("no-op for color not present", func(t *testing.T) {
+		cm := ColorMap{"photo.jpg": {ColorGreen}}
+		cm.RemoveLabels("photo.jpg", []ColorLabel{ColorRed})
+		assert.True(t, cm.HasColor("photo.jpg", ColorGreen))
+	})
+}
+
 func TestLoadColors(t *testing.T) {
 	t.Parallel()
 
