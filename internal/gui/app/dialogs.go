@@ -10,6 +10,7 @@ const (
 	dialogDeleteAll
 	dialogCopyAll
 	dialogUnselectAll
+	dialogTags
 )
 
 type hideable interface {
@@ -36,6 +37,10 @@ func (m *dialogManager) closed() {
 
 func (m *dialogManager) isOpen(kind dialogKind) bool {
 	return m.kind == kind
+}
+
+func (m *dialogManager) isCurrent(d hideable) bool {
+	return m.dialog == d
 }
 
 func (m *dialogManager) anyOpen() bool {

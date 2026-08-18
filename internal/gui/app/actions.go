@@ -13,6 +13,7 @@ import (
 	"photo/internal/core/clipboard"
 	"photo/internal/core/library"
 	"photo/internal/core/model"
+	"photo/internal/core/tags"
 	"photo/internal/gui/ui"
 )
 
@@ -434,4 +435,75 @@ func (a *Application) handleCopyAll() {
 	)
 	a.dialogs.open(dialogCopyAll, copyAllDialog, cancel)
 	copyAllDialog.Show()
+}
+
+func (a *Application) handleTags() {
+	if a.gridMode || a.dialogs.anyOpen() {
+		return
+	}
+	photo, ok := a.navigator.Current()
+	if !ok {
+		return
+	}
+
+	prefs := a.fyneApp.Preferences()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	opts := ui.TagsDialogOptions{
+		Filename:   photo.Name,
+		ClaudePath: prefs.String("claudePath"),
+		Date:       photo.ModTime,
+	}
+
+	var tagsDialog *ui.TagsDialog
+	tagsDialog = ui.NewTagsDialog(opts, a.mainWindow.Window(), ui.TagsDialogCallbacks{
+		OnGenerate: func() {
+			req := tags.Request{Photo: photo, Notes: tagsDialog.Notes(), ClaudePath: tagsDialog.ClaudePath()}
+			prefs.SetString("claudePath", req.ClaudePath)
+			go func() {
+				generated, err := a.tagger.Generate(ctx, req)
+				fyne.Do(func() {
+					if !a.dialogs.isCurrent(tagsDialog) {
+						return
+					}
+					if err != nil {
+						log.Println("Failed to generate tags:", err)
+						tagsDialog.Fail(err)
+						return
+					}
+					tagsDialog.SetTags(generated)
+				})
+			}()
+		},
+		OnCopy: func() {
+			generated := tagsDialog.Tags()
+			a.fyneApp.Clipboard().SetContent(generated.Title + "\n" + generated.KeywordLine())
+			a.mainWindow.ShowNotification("Tags copied to clipboard")
+		},
+		OnClose: func() {
+			cancel()
+			if a.dialogs.isCurrent(tagsDialog) {
+				a.dialogs.closed()
+			}
+			tagsDialog.Hide()
+		},
+	})
+	a.dialogs.open(dialogTags, tagsDialog, cancel)
+	tagsDialog.Show()
+
+	if !photo.IsJPEG() {
+		return
+	}
+	go func() {
+		info, err := a.exifService.GetStockInfo(photo.ImagePath)
+		if err != nil {
+			log.Printf("Failed to read tags of %s: %v", photo.Name, err)
+			return
+		}
+		fyne.Do(func() {
+			if a.dialogs.isCurrent(tagsDialog) {
+				tagsDialog.SetPhotoInfo(info.Tags, info.Taken)
+			}
+		})
+	}()
 }

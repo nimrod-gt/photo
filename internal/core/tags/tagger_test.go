@@ -212,7 +212,9 @@ func TestStockPhotoPrompt(t *testing.T) {
 
 	assert.NotEmpty(t, stockPhotoPrompt)
 	assert.Contains(t, stockPhotoPrompt, "keywords")
-	assert.Contains(t, stockPhotoPrompt, "Photo:")
+	for _, key := range []string{"Photo:", "Concept:", "Location:", "Editorial:"} {
+		assert.Contains(t, stockPhotoPrompt, key, "the prompt must document every request key the dialog sends")
+	}
 }
 
 func TestRunClaude_CancelKillsTheProcess(t *testing.T) {

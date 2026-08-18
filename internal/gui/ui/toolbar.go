@@ -13,6 +13,7 @@ type ActionPanelCallbacks struct {
 	OnRed    func()
 	OnGreen  func()
 	OnBlue   func()
+	OnTags   func()
 	OnDelete func()
 }
 
@@ -70,11 +71,16 @@ func (p *ActionPanel) build() {
 			p.callbacks.OnBlue()
 		}
 	})
+	tagsBtn := widget.NewButtonWithIcon("Tags", theme.DocumentCreateIcon(), func() {
+		if p.callbacks.OnTags != nil {
+			p.callbacks.OnTags()
+		}
+	})
 	deleteBtn := widget.NewButtonWithIcon("Delete", theme.DeleteIcon(), func() {
 		if p.callbacks.OnDelete != nil {
 			p.callbacks.OnDelete()
 		}
 	})
 
-	p.container = container.NewGridWithColumns(4, p.redBtn, p.greenBtn, p.blueBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(5, p.redBtn, p.greenBtn, p.blueBtn, tagsBtn, deleteBtn)
 }

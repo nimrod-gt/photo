@@ -36,6 +36,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `Z` — reset zoom
 - `+`/`-` — zoom in/out
 - `L` — toggle grid view
+- `T` — generate stock tags for the current photo
 - Arrow keys — navigate photos
 
 ### Tech Stack

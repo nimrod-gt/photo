@@ -16,6 +16,7 @@ import (
 	"photo/internal/core/imaging"
 	"photo/internal/core/library"
 	"photo/internal/core/model"
+	"photo/internal/core/tags"
 	"photo/internal/gui/ui"
 )
 
@@ -31,6 +32,7 @@ type Application struct {
 	navigator        *library.Navigator
 	exifService      *imaging.ExifService
 	imageProvider    *imaging.Provider
+	tagger           *tags.Tagger
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
 	viewer           *ui.Viewer
@@ -53,6 +55,7 @@ func New() *Application {
 		navigator:     library.NewNavigator(),
 		exifService:   exifService,
 		imageProvider: imaging.NewProvider(exifService),
+		tagger:        tags.NewTagger(),
 	}
 }
 
@@ -65,6 +68,7 @@ func (a *Application) Run() {
 		OnRed:    func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:  func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:   func() { a.handleColorToggle(model.ColorBlue) },
+		OnTags:   a.handleTags,
 		OnDelete: a.handleDelete,
 	})
 
@@ -105,6 +109,7 @@ func (a *Application) Run() {
 		OnBlue:          func() { a.handleColorToggle(model.ColorBlue) },
 		OnDelete:        a.handleDelete,
 		OnCopyClipboard: a.handleCopyToClipboard,
+		OnTags:          a.handleTags,
 	})
 
 	notifier := ui.NewNotifier()
@@ -130,6 +135,7 @@ func (a *Application) Run() {
 		OnZoomReset:      a.handleZoomReset,
 		OnZoomIn:         a.handleZoomIn,
 		OnZoomOut:        a.handleZoomOut,
+		OnTags:           a.handleTags,
 	})
 
 	a.loadInitialDirectory()
