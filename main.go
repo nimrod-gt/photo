@@ -1,6 +1,6 @@
 package main
 
-import "photo/app"
+import "photo/internal/gui/app"
 
 func main() {
 	app.New().Run()

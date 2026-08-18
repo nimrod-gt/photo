@@ -46,6 +46,25 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - JSON files for color labels
 - Linting: `golangci-lint` (go.mod tool dependency)
 
+### Project Layout
+
+GUI code lives under `internal/gui`, everything else under `internal/core`.
+Nothing in `internal/core` may import Fyne.
+
+```
+main.go
+internal/
+  core/
+    model/      photo, color labels, tags - data types and validation, no I/O
+    library/    scanner, navigator, copier, deleter, color service
+    imaging/    image loader, thumbnail provider, orientation, EXIF read
+    tags/       stock metadata generation via the claude CLI + prompts/
+    clipboard/  per-OS clipboard image copy
+  gui/
+    app/        wiring, actions, dialog state
+    ui/         Fyne widgets
+```
+
 ## Commands
 
 ### Building and Testing
