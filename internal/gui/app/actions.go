@@ -475,10 +475,13 @@ func (a *Application) handleTags() {
 				})
 			}()
 		},
-		OnCopy: func() {
-			generated := tagsDialog.Tags()
-			a.fyneApp.Clipboard().SetContent(generated.Title + "\n" + generated.KeywordLine())
-			a.mainWindow.ShowNotification("Tags copied to clipboard")
+		OnCopyTitle: func() {
+			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().Title)
+			a.mainWindow.ShowNotification("Title copied to clipboard")
+		},
+		OnCopyKeywords: func() {
+			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().KeywordLine())
+			a.mainWindow.ShowNotification("Keywords copied to clipboard")
 		},
 		OnClose: func() {
 			cancel()

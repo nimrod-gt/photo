@@ -49,9 +49,10 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 	}
 
 	keyActions := map[fyne.KeyName]func(){
-		fyne.KeyPlus:  callbacks.OnZoomIn,
-		fyne.KeyEqual: callbacks.OnZoomIn,
-		fyne.KeyMinus: callbacks.OnZoomOut,
+		fyne.KeyPlus:   callbacks.OnZoomIn,
+		fyne.KeyEqual:  callbacks.OnZoomIn,
+		fyne.KeyMinus:  callbacks.OnZoomOut,
+		fyne.KeyEscape: callbacks.OnCancel,
 	}
 
 	canvas.SetOnTypedKey(func(ev *fyne.KeyEvent) {

@@ -3,6 +3,7 @@ package tags
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -35,10 +36,16 @@ func (f *fakeRun) argValue(flag string) string {
 	return ""
 }
 
+// Reset times are rendered in the machine's own zone, so the tests live there too.
+//
+//nolint:gosmopolitan // deliberate: the parser formats local times
+var testNow = time.Date(2026, time.August, 19, 9, 30, 0, 0, time.Local)
+
 func newTestTagger(run *fakeRun) *Tagger {
 	return &Tagger{
 		run:     run.run,
 		lookup:  func(string) (string, error) { return "/usr/local/bin/claude", nil },
+		now:     func() time.Time { return testNow },
 		timeout: time.Minute,
 	}
 }
@@ -101,6 +108,7 @@ func TestTagger_Generate(t *testing.T) {
 		tagger := &Tagger{
 			run:     (&fakeRun{}).run,
 			lookup:  func(string) (string, error) { return "", ErrClaudeNotFound },
+			now:     func() time.Time { return testNow },
 			timeout: time.Minute,
 		}
 
@@ -117,6 +125,7 @@ func TestTagger_Generate(t *testing.T) {
 				got = configured
 				return configured, nil
 			},
+			now:     func() time.Time { return testNow },
 			timeout: time.Minute,
 		}
 
@@ -165,25 +174,64 @@ func TestParseTagsResponse(t *testing.T) {
 	t.Parallel()
 
 	t.Run("malformed JSON", func(t *testing.T) {
-		_, err := parseTagsResponse([]byte("not json"))
+		_, err := parseTagsResponse([]byte("not json"), testNow)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not json")
 	})
 
 	t.Run("is_error surfaces the result text", func(t *testing.T) {
-		_, err := parseTagsResponse([]byte(`{"is_error":true,"result":"credit balance too low"}`))
+		_, err := parseTagsResponse([]byte(`{"is_error":true,"result":"credit balance too low"}`), testNow)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "credit balance too low")
 	})
 
 	t.Run("missing structured output", func(t *testing.T) {
-		_, err := parseTagsResponse([]byte(`{"is_error":false,"result":"I cannot read that file"}`))
+		_, err := parseTagsResponse([]byte(`{"is_error":false,"result":"I cannot read that file"}`), testNow)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "I cannot read that file")
 	})
 
+	t.Run("names the failing stage and the HTTP status", func(t *testing.T) {
+		_, err := parseTagsResponse([]byte(`{"is_error":true,"subtype":"error_during_execution",
+			"api_error_status":429,"result":"Overloaded"}`), testNow)
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error, error_during_execution, HTTP 429: Overloaded", err.Error())
+	})
+
+	t.Run("keeps a silent failure readable", func(t *testing.T) {
+		_, err := parseTagsResponse([]byte(`{"is_error":true,"subtype":"error_max_turns","result":""}`), testNow)
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error, error_max_turns: empty response", err.Error())
+	})
+
+	t.Run("spells out when the subscription limit resets", func(t *testing.T) {
+		reset := testNow.Add(90 * time.Minute)
+		out := fmt.Appendf(nil, `{"is_error":true,"result":"Claude usage limit reached|%d"}`, reset.Unix())
+
+		_, err := parseTagsResponse(out, testNow)
+
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error: Claude usage limit reached, resets at 11:00", err.Error())
+	})
+
+	t.Run("dates a limit that resets on another day", func(t *testing.T) {
+		reset := testNow.AddDate(0, 0, 2)
+		out := fmt.Appendf(nil, `{"is_error":true,"result":"Claude usage limit reached|%d"}`, reset.Unix())
+
+		_, err := parseTagsResponse(out, testNow)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "resets at Aug 21, 09:30")
+	})
+
+	t.Run("keeps a limit without a reset time as it came", func(t *testing.T) {
+		_, err := parseTagsResponse([]byte(`{"is_error":true,"result":"Usage limit reached"}`), testNow)
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error: Usage limit reached", err.Error())
+	})
+
 	t.Run("empty response", func(t *testing.T) {
-		_, err := parseTagsResponse([]byte(`{}`))
+		_, err := parseTagsResponse([]byte(`{}`), testNow)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty response")
 	})

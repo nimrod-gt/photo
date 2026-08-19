@@ -20,15 +20,17 @@ const (
 	tagsDialogWidth = float32(700)
 	tagsLabelWidth  = float32(90)
 	keywordRows     = 5
+	titleRows       = 2
 	// The prompt spells editorial dates out as "June 13, 2026", while the entry
 	// itself shows and accepts the user's own locale format.
 	editorialDateLayout = "January 2, 2006"
 )
 
 type TagsDialogCallbacks struct {
-	OnGenerate func()
-	OnCopy     func()
-	OnClose    func()
+	OnGenerate     func()
+	OnCopyTitle    func()
+	OnCopyKeywords func()
+	OnClose        func()
 }
 
 type TagsDialogOptions struct {
@@ -38,27 +40,28 @@ type TagsDialogOptions struct {
 }
 
 type TagsDialog struct {
-	dialog      *dialog.CustomDialog
-	callbacks   TagsDialogCallbacks
-	concept     *widget.Entry
-	location    *widget.Entry
-	editorial   *widget.Check
-	date        *widget.DateEntry
-	dateRow     *fyne.Container
-	defaultDate time.Time
-	pathEntry   *widget.Entry
-	pathRow     *fyne.Container
-	existingBox *fyne.Container
-	existing    *widget.Label
-	progress    *widget.ProgressBarInfinite
-	resultBox   *fyne.Container
-	title       *widget.Entry
-	keywords    *widget.Entry
-	status      *widget.Label
-	generateBtn *widget.Button
-	copyBtn     *widget.Button
-	closeBtn    *widget.Button
-	closed      bool
+	dialog          *dialog.CustomDialog
+	callbacks       TagsDialogCallbacks
+	concept         *escapeEntry
+	location        *escapeEntry
+	editorial       *escapeCheck
+	date            *escapeDateEntry
+	dateRow         *fyne.Container
+	defaultDate     time.Time
+	pathEntry       *escapeEntry
+	pathRow         *fyne.Container
+	existingBox     *fyne.Container
+	existing        *widget.Label
+	progress        *widget.ProgressBarInfinite
+	resultBox       *fyne.Container
+	title           *escapeEntry
+	keywords        *escapeEntry
+	status          *widget.Label
+	generateBtn     *widget.Button
+	copyTitleBtn    *widget.Button
+	copyKeywordsBtn *widget.Button
+	closeBtn        *widget.Button
+	closed          bool
 }
 
 func NewTagsDialog(opts TagsDialogOptions, window fyne.Window, callbacks TagsDialogCallbacks) *TagsDialog {
@@ -91,7 +94,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 		d.progress,
 		d.resultBox,
 		d.status,
-		container.NewGridWithColumns(3, d.closeBtn, d.copyBtn, d.generateBtn),
+		container.NewGridWithColumns(4, d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.generateBtn),
 	)
 	wrapped := container.New(&minWidthLayout{width: tagsDialogWidth}, content)
 
@@ -108,28 +111,28 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 }
 
 func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
-	d.concept = widget.NewEntry()
+	d.concept = newEscapeEntry(d.requestClose)
 	d.concept.SetPlaceHolder("What the photo is about, optional")
 
-	d.location = widget.NewEntry()
+	d.location = newEscapeEntry(d.requestClose)
 	d.location.SetPlaceHolder("City, country, optional")
 
-	d.date = widget.NewDateEntry()
+	d.date = newEscapeDateEntry(d.requestClose)
 	if !opts.Date.IsZero() {
 		d.date.SetDate(&opts.Date)
 	}
 	d.dateRow = labeledRow("Date:", d.date)
 	d.dateRow.Hide()
 
-	d.editorial = widget.NewCheck("Editorial", func(checked bool) {
+	d.editorial = newEscapeCheck("Editorial", func(checked bool) {
 		if checked {
 			d.dateRow.Show()
 			return
 		}
 		d.dateRow.Hide()
-	})
+	}, d.requestClose)
 
-	d.pathEntry = widget.NewEntry()
+	d.pathEntry = newEscapeEntry(d.requestClose)
 	d.pathEntry.SetPlaceHolder("Path to the claude binary")
 	d.pathEntry.SetText(opts.ClaudePath)
 	d.pathRow = labeledRow("claude:", d.pathEntry)
@@ -137,14 +140,12 @@ func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
 }
 
 func (d *TagsDialog) buildResult() {
-	d.title = widget.NewEntry()
+	d.title = newEscapeMultiLineEntry(titleRows, d.requestClose)
 	d.title.SetPlaceHolder("Title")
 	d.title.OnChanged = func(string) { d.refreshStatus() }
 
-	d.keywords = widget.NewMultiLineEntry()
+	d.keywords = newEscapeMultiLineEntry(keywordRows, d.requestClose)
 	d.keywords.SetPlaceHolder("Keywords, comma separated")
-	d.keywords.Wrapping = fyne.TextWrapWord
-	d.keywords.SetMinRowsVisible(keywordRows)
 	d.keywords.OnChanged = func(string) { d.refreshStatus() }
 
 	d.resultBox = container.NewVBox(d.title, d.keywords)
@@ -184,18 +185,27 @@ func (d *TagsDialog) buildButtons() {
 	})
 	d.generateBtn.Importance = widget.HighImportance
 
-	d.copyBtn = widget.NewButton("Copy", func() {
-		if d.callbacks.OnCopy != nil {
-			d.callbacks.OnCopy()
+	d.copyTitleBtn = widget.NewButton("Copy title", func() {
+		if d.callbacks.OnCopyTitle != nil {
+			d.callbacks.OnCopyTitle()
 		}
 	})
-	d.copyBtn.Disable()
+	d.copyTitleBtn.Disable()
 
-	d.closeBtn = widget.NewButton("Close", func() {
-		if d.callbacks.OnClose != nil {
-			d.callbacks.OnClose()
+	d.copyKeywordsBtn = widget.NewButton("Copy keywords", func() {
+		if d.callbacks.OnCopyKeywords != nil {
+			d.callbacks.OnCopyKeywords()
 		}
 	})
+	d.copyKeywordsBtn.Disable()
+
+	d.closeBtn = widget.NewButton("Close", d.requestClose)
+}
+
+func (d *TagsDialog) requestClose() {
+	if d.callbacks.OnClose != nil {
+		d.callbacks.OnClose()
+	}
 }
 
 func (d *TagsDialog) Show() {
@@ -270,10 +280,10 @@ func (d *TagsDialog) dateUntouched() bool {
 	return d.date.Date.Equal(d.defaultDate)
 }
 
-func (d *TagsDialog) SetTags(tags model.Tags) {
+func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.finishRun()
-	d.title.SetText(tags.Title)
-	d.keywords.SetText(tags.KeywordLine())
+	d.title.SetText(generated.Title)
+	d.keywords.SetText(generated.KeywordLine())
 	d.resultBox.Show()
 	d.refreshStatus()
 }
@@ -295,17 +305,25 @@ func (d *TagsDialog) finishRun() {
 
 func (d *TagsDialog) refreshStatus() {
 	tags := d.Tags()
+	setEnabled(d.copyTitleBtn, len(tags.Title) != 0)
+	setEnabled(d.copyKeywordsBtn, len(tags.Keywords) != 0)
 	if len(tags.Title) == 0 && len(tags.Keywords) == 0 {
-		d.copyBtn.Disable()
 		d.setStatus("")
 		return
 	}
-	d.copyBtn.Enable()
 	if problems := tags.Problems(); len(problems) > 0 {
 		d.setStatus(strings.Join(problems, "; "))
 		return
 	}
 	d.setStatus(fmt.Sprintf("%d keywords, ready to upload", len(tags.Keywords)))
+}
+
+func setEnabled(button *widget.Button, enabled bool) {
+	if enabled {
+		button.Enable()
+		return
+	}
+	button.Disable()
 }
 
 func (d *TagsDialog) setStatus(text string) {
