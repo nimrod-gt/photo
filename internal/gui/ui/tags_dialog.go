@@ -27,6 +27,7 @@ const (
 )
 
 type TagsDialogCallbacks struct {
+	OnEscape       func()
 	OnGenerate     func()
 	OnCopyTitle    func()
 	OnCopyKeywords func()
@@ -110,13 +111,13 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 }
 
 func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
-	d.concept = newEscapeEntry(d.requestClose)
+	d.concept = newEscapeEntry(d.requestEscape)
 	d.concept.SetPlaceHolder("What the photo is about, optional")
 
-	d.location = newEscapeEntry(d.requestClose)
+	d.location = newEscapeEntry(d.requestEscape)
 	d.location.SetPlaceHolder("City, country, optional")
 
-	d.date = newEscapeDateEntry(d.requestClose)
+	d.date = newEscapeDateEntry(d.requestEscape)
 	if !opts.Date.IsZero() {
 		d.date.SetDate(&opts.Date)
 	}
@@ -129,9 +130,9 @@ func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
 			return
 		}
 		d.dateRow.Hide()
-	}, d.requestClose)
+	}, d.requestEscape)
 
-	d.pathEntry = newEscapeEntry(d.requestClose)
+	d.pathEntry = newEscapeEntry(d.requestEscape)
 	d.pathEntry.SetPlaceHolder("Path to the claude binary")
 	d.pathEntry.SetText(opts.ClaudePath)
 	d.pathRow = labeledRow("claude:", d.pathEntry)
@@ -139,11 +140,11 @@ func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
 }
 
 func (d *TagsDialog) buildResult() {
-	d.title = newEscapeMultiLineEntry(titleRows, d.requestClose)
+	d.title = newEscapeMultiLineEntry(titleRows, d.requestEscape)
 	d.title.SetPlaceHolder("Title")
 	d.title.OnChanged = func(string) { d.refreshStatus() }
 
-	d.keywords = newEscapeMultiLineEntry(keywordRows, d.requestClose)
+	d.keywords = newEscapeMultiLineEntry(keywordRows, d.requestEscape)
 	d.keywords.SetPlaceHolder("Keywords, comma separated")
 	d.keywords.OnChanged = func(string) { d.refreshStatus() }
 
@@ -213,6 +214,18 @@ func (d *TagsDialog) requestClose() {
 	if d.callbacks.OnClose != nil {
 		d.callbacks.OnClose()
 	}
+}
+
+// Escape is answered by the app rather than here, because a Fyne popup - the
+// calendar of the date entry - stacks its own overlay on top while the entry
+// below keeps the focus, and only the app can tell that it is there. The Close
+// button closes regardless.
+func (d *TagsDialog) requestEscape() {
+	if d.callbacks.OnEscape != nil {
+		d.callbacks.OnEscape()
+		return
+	}
+	d.requestClose()
 }
 
 func (d *TagsDialog) Show() {

@@ -156,9 +156,14 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 	}
 }
 
+var dcProperties = []string{"title", "description", "subject"}
+
 var (
-	dcElementPattern = regexp.MustCompile(
-		`(?s)[ \t]*<dc:(?:title|description|subject)\b.*?</dc:(?:title|description|subject)>[ \t]*\n?`)
+	// One pattern per property, never an alternation: RE2 has no backreferences,
+	// so a single pattern lets the opening tag of one property be closed by the
+	// closing tag of another and swallow every develop setting in between.
+	dcElementPatterns = elementPatterns()
+
 	dcEmptyPattern = regexp.MustCompile(`[ \t]*<dc:(?:title|description|subject)\b[^>]*/>[ \t]*\n?`)
 	dcAttrPattern  = regexp.MustCompile(`\s+dc:(?:title|description|subject)\s*=\s*("[^"]*"|'[^']*')`)
 
@@ -178,9 +183,7 @@ func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 	if len(strings.TrimSpace(text)) == 0 {
 		return []byte(newSidecar(tags)), nil
 	}
-	text = dcElementPattern.ReplaceAllString(text, "")
-	text = dcEmptyPattern.ReplaceAllString(text, "")
-	text = dcAttrPattern.ReplaceAllString(text, "")
+	text = stripProperties(text)
 
 	opened, err := openDescription(text)
 	if err != nil {
@@ -191,6 +194,25 @@ func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 		return nil, errors.New("no rdf:Description element to update")
 	}
 	return []byte(withProperties(opened, opened.bodyStart+cut, sidecarProperties(tags, propertyDepth))), nil
+}
+
+func elementPatterns() []*regexp.Regexp {
+	patterns := make([]*regexp.Regexp, 0, len(dcProperties))
+	for _, name := range dcProperties {
+		patterns = append(patterns, regexp.MustCompile(
+			`(?s)[ \t]*<dc:`+name+`\b(?:[^>]*[^/>])?>.*?</dc:`+name+`>[ \t]*\n?`))
+	}
+	return patterns
+}
+
+// The self-closing form goes first, so that an empty property left by an earlier
+// save cannot stand in as the opening tag of the paired one below it.
+func stripProperties(text string) string {
+	text = dcEmptyPattern.ReplaceAllString(text, "")
+	for _, pattern := range dcElementPatterns {
+		text = pattern.ReplaceAllString(text, "")
+	}
+	return dcAttrPattern.ReplaceAllString(text, "")
 }
 
 type description struct {

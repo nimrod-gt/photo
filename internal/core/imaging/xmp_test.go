@@ -291,3 +291,66 @@ func TestMergeSidecar_DeclaresTheDCPrefixItWrites(t *testing.T) {
 	assert.Equal(t, "A tram climbs the hill.", parsed.tags().Title)
 	assert.Equal(t, []string{"lisbon"}, parsed.tags().Keywords)
 }
+
+// A sidecar an earlier save left with an empty property used to lose everything
+// between it and the next Dublin Core element, develop settings included.
+func TestMergeSidecar_KeepsWhatSitsBetweenTheProperties(t *testing.T) {
+	t.Parallel()
+
+	const unpaired = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+   <dc:subject/>
+   <crs:Exposure2012>+1.25</crs:Exposure2012>
+   <crs:Contrast2012>+30</crs:Contrast2012>
+   <dc:title>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">Old title</rdf:li>
+    </rdf:Alt>
+   </dc:title>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
+	merged, err := mergeSidecar([]byte(unpaired), model.Tags{Title: "New title.", Keywords: []string{"new"}})
+	require.NoError(t, err)
+
+	content := string(merged)
+	assert.Contains(t, content, "<crs:Exposure2012>+1.25</crs:Exposure2012>")
+	assert.Contains(t, content, "<crs:Contrast2012>+30</crs:Contrast2012>")
+	assert.NotContains(t, content, "Old title")
+	assert.NotContains(t, content, "<dc:subject/>")
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, model.Tags{Title: "New title.", Keywords: []string{"new"}}, parsed.tags())
+}
+
+func TestStripProperties(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "a bare property", in: "<dc:title>x</dc:title>", want: ""},
+		{name: "a property with attributes", in: `<dc:subject rdf:parseType="Resource">x</dc:subject>`, want: ""},
+		{name: "a self-closing property", in: "<dc:subject/>", want: ""},
+		{name: "a self-closing property with attributes", in: `<dc:subject rdf:about=""/>`, want: ""},
+		{name: "a foreign element between two properties", in: "<dc:subject/><crs:Keep>1</crs:Keep><dc:title>x</dc:title>", want: "<crs:Keep>1</crs:Keep>"},
+		{name: "a property of another vocabulary", in: "<xmp:title>x</xmp:title>", want: "<xmp:title>x</xmp:title>"},
+		{name: "an element whose name only starts like ours", in: "<dc:titles>x</dc:titles>", want: "<dc:titles>x</dc:titles>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, stripProperties(tt.in))
+		})
+	}
+}

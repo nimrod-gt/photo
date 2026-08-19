@@ -377,3 +377,53 @@ func TestNotesStayASCII(t *testing.T) {
 		assert.LessOrEqual(t, r, rune(unicode.MaxASCII), "notes must stay ASCII so they match the prompt")
 	}
 }
+
+func TestTagsDialog_Escape(t *testing.T) {
+	t.Run("an input hands Escape to the app", func(t *testing.T) {
+		var escapes, closes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnEscape: func() { escapes++ },
+			OnClose:  func() { closes++ },
+		})
+
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+
+		assert.Equal(t, 1, escapes)
+		assert.Equal(t, 0, closes, "the app decides whether the dialog closes")
+	})
+
+	t.Run("every escapable input takes the same route", func(t *testing.T) {
+		var escapes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnEscape: func() { escapes++ }})
+
+		for _, entry := range []*escapeEntry{d.concept, d.location, d.pathEntry, d.title, d.keywords} {
+			entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+		}
+		d.date.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+		d.editorial.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+
+		assert.Equal(t, 7, escapes)
+	})
+
+	t.Run("Escape closes when the app registers no handler", func(t *testing.T) {
+		var closes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnClose: func() { closes++ }})
+
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+
+		assert.Equal(t, 1, closes)
+	})
+
+	t.Run("the Close button closes whatever else is on screen", func(t *testing.T) {
+		var escapes, closes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnEscape: func() { escapes++ },
+			OnClose:  func() { closes++ },
+		})
+
+		test.Tap(d.closeBtn)
+
+		assert.Equal(t, 1, closes)
+		assert.Equal(t, 0, escapes)
+	})
+}

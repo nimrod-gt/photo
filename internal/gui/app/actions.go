@@ -474,6 +474,7 @@ func (a *Application) handleTags() {
 		Date:       photo.ModTime,
 		IsJPEG:     photo.IsJPEG(),
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
+		OnEscape:   a.handleCancel,
 		OnGenerate: func() { session.generate(ctx) },
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)
@@ -502,9 +503,6 @@ type tagsSession struct {
 
 func (s *tagsSession) generate(ctx context.Context) {
 	req := tags.Request{Photo: s.photo, Notes: s.dialog.Notes(), ClaudePath: s.dialog.ClaudePath()}
-	if len(req.ClaudePath) != 0 {
-		s.prefs.SetString("claudePath", req.ClaudePath)
-	}
 
 	go func() {
 		generated, err := s.app.tagger.Generate(ctx, req)
@@ -517,6 +515,10 @@ func (s *tagsSession) generate(ctx context.Context) {
 				s.dialog.Fail(err)
 				return
 			}
+			// Only a path that produced tags is remembered, and an empty one
+			// clears the preference: a stored path short-circuits the search
+			// for the binary, so a typo saved eagerly would disable it for good.
+			s.prefs.SetString("claudePath", req.ClaudePath)
 			s.dialog.SetTags(generated)
 			s.saveSidecar(generated)
 		})
@@ -526,11 +528,14 @@ func (s *tagsSession) generate(ctx context.Context) {
 // The sidecar belongs to us alone, so it is written without asking - right
 // after a run and again on close, once the user has edited the tags. Writing
 // into the JPEG stays behind its button, because that file is the photo itself.
+// Emptying both fields is an edit like any other and clears the tags in the
+// sidecar, the way it clears them in the JPEG; only a photo that never had any
+// is left without a sidecar.
 // The tags count as saved before the write finishes, so a second close does not
 // repeat it, and a failed write puts the previous ones back so the next close
 // tries again.
 func (s *tagsSession) saveSidecar(written model.Tags) {
-	if !s.photo.HasRAW() || written.IsEmpty() || written.Equal(s.saved) {
+	if !s.photo.HasRAW() || written.Equal(s.saved) || (written.IsEmpty() && s.saved.IsEmpty()) {
 		return
 	}
 	previous := s.saved
