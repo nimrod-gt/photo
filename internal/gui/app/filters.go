@@ -19,6 +19,9 @@ func (a *Application) handleSortBy(order library.SortOrder) {
 }
 
 func (a *Application) handleSortToggle() {
+	if a.dialogs.anyOpen() {
+		return
+	}
 	if a.sortDescending {
 		if a.sortOrder == library.SortByName {
 			a.sortOrder = library.SortByTime
@@ -74,12 +77,18 @@ func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
 }
 
 func (a *Application) handleFilterColor(color model.ColorLabel) {
+	if a.dialogs.anyOpen() {
+		return
+	}
 	a.fileBrowser.ToggleColorFilter(color)
 	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()
 }
 
 func (a *Application) handleFilterFavorite() {
+	if a.dialogs.anyOpen() {
+		return
+	}
 	a.fileBrowser.ToggleFavoriteFilter()
 	a.fileBrowser.ClearPinnedPath()
 	a.reapplyFilter()

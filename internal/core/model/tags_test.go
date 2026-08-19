@@ -61,13 +61,6 @@ func TestTags_Problems(t *testing.T) {
 		assert.Contains(t, tags.Problems(), "keywords have disallowed characters: cascaisï")
 	})
 
-	t.Run("empty keyword", func(t *testing.T) {
-		keywords := validKeywords()
-		keywords[3] = " "
-		tags := Tags{Title: "Title", Keywords: keywords}
-		assert.Contains(t, tags.Problems(), "empty keywords at position 4")
-	})
-
 	t.Run("keyword repeated three times is reported once", func(t *testing.T) {
 		keywords := validKeywords()
 		keywords[1] = "keyword0"
@@ -112,7 +105,7 @@ func TestDisallowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, Disallowed(tt.input))
+			assert.Equal(t, tt.want, disallowed(tt.input))
 		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,18 +146,51 @@ func TestTagger_Generate(t *testing.T) {
 		assert.ErrorIs(t, err, failure)
 	})
 
-	t.Run("applies the timeout", func(t *testing.T) {
+	t.Run("applies the timeout and names it", func(t *testing.T) {
 		tagger := &Tagger{
 			run: func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
 				<-ctx.Done()
 				return nil, ctx.Err()
 			},
 			lookup:  func(string) (string, error) { return "/usr/local/bin/claude", nil },
+			now:     func() time.Time { return testNow },
 			timeout: 10 * time.Millisecond,
 		}
 
 		_, err := tagger.Generate(t.Context(), testRequest(""))
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.Contains(t, err.Error(), "claude timed out after 10ms")
+	})
+
+	t.Run("reads the report of a run that exited non-zero", func(t *testing.T) {
+		run := &fakeRun{
+			output: `{"is_error":true,"subtype":"error_during_execution","api_error_status":429,"result":"Overloaded"}`,
+			err:    errors.New("exit status 1"),
+		}
+
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error, error_during_execution, HTTP 429: Overloaded", err.Error())
+	})
+
+	t.Run("keeps tags that came with a non-zero exit", func(t *testing.T) {
+		run := &fakeRun{
+			output: `{"structured_output":{"title":"Sunset","keywords":["sunset"]}}`,
+			err:    errors.New("exit status 1"),
+		}
+
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		require.NoError(t, err)
+		assert.Equal(t, "Sunset", tags.Title)
+	})
+
+	t.Run("falls back to the exit status when stdout is not a report", func(t *testing.T) {
+		failure := errors.New("exit status 127")
+		run := &fakeRun{output: "command not found", err: failure}
+
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		require.ErrorIs(t, err, failure)
+		assert.Contains(t, err.Error(), "running claude")
 	})
 
 	t.Run("keeps a response without keywords", func(t *testing.T) {
@@ -230,6 +264,27 @@ func TestParseTagsResponse(t *testing.T) {
 		assert.Equal(t, "claude reported an error: Usage limit reached", err.Error())
 	})
 
+	t.Run("keeps a pipe inside the limit message", func(t *testing.T) {
+		reset := testNow.Add(90 * time.Minute)
+		out := fmt.Appendf(nil, `{"is_error":true,"result":"Claude usage limit reached (plan a|b)|%d"}`, reset.Unix())
+
+		_, err := parseTagsResponse(out, testNow)
+
+		require.Error(t, err)
+		assert.Equal(t, "claude reported an error: Claude usage limit reached (plan a|b), resets at 11:00", err.Error())
+	})
+
+	t.Run("caps a limit message that has no reset time", func(t *testing.T) {
+		long := strings.Repeat("x", excerptLimit+50)
+		out := fmt.Appendf(nil, `{"is_error":true,"result":"Usage limit reached %s"}`, long)
+
+		_, err := parseTagsResponse(out, testNow)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "...")
+		assert.Less(t, len([]rune(err.Error())), excerptLimit+60)
+	})
+
 	t.Run("empty response", func(t *testing.T) {
 		_, err := parseTagsResponse([]byte(`{}`), testNow)
 		require.Error(t, err)
@@ -279,5 +334,4 @@ func TestRunClaude_CancelKillsTheProcess(t *testing.T) {
 	_, err := runClaude(ctx, "sleep", "30")
 	require.Error(t, err)
 	assert.Less(t, time.Since(start), 5*time.Second)
-	assert.Contains(t, err.Error(), "timed out")
 }

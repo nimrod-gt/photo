@@ -53,7 +53,7 @@ func (a *Application) handlePhotoSelected(photo model.Photo) {
 }
 
 func (a *Application) handleNext() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	if photo, idx, ok := a.navigator.Next(); ok {
@@ -64,7 +64,7 @@ func (a *Application) handleNext() {
 }
 
 func (a *Application) handlePrevious() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	if photo, idx, ok := a.navigator.Previous(); ok {
@@ -149,21 +149,21 @@ func (a *Application) handleZoomChanged(zoom float32) {
 }
 
 func (a *Application) handleZoomReset() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	a.viewer.ResetZoom()
 }
 
 func (a *Application) handleZoomIn() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	a.viewer.ZoomIn()
 }
 
 func (a *Application) handleZoomOut() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	a.viewer.ZoomOut()

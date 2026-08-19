@@ -38,7 +38,7 @@ func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
 }
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	photo, ok := a.navigator.Current()
@@ -78,7 +78,7 @@ func (a *Application) refreshFileBrowserItem(photo model.Photo) {
 }
 
 func (a *Application) handleCopyToClipboard() {
-	if a.gridMode {
+	if a.shortcutsBlocked() {
 		return
 	}
 	photo, ok := a.navigator.Current()
@@ -167,7 +167,23 @@ func (a *Application) handleHelp() {
 	helpDialog.Show()
 }
 
+// A canvas shortcut fires whenever no widget holds focus, which includes an open
+// dialog that has nothing focused inside it, so every photo action goes through
+// this guard.
+func (a *Application) shortcutsBlocked() bool {
+	return a.gridMode || a.dialogs.anyOpen()
+}
+
+// A Fyne file picker or popup menu stacks its own overlay on top of ours and
+// handles no keys itself, so Escape would otherwise cancel the dialog beneath it.
+func (a *Application) foreignOverlayOnTop() bool {
+	return len(a.mainWindow.Window().Canvas().Overlays().List()) > 1
+}
+
 func (a *Application) handleCancel() {
+	if a.foreignOverlayOnTop() {
+		return
+	}
 	a.dialogs.cancel()
 }
 
@@ -438,7 +454,7 @@ func (a *Application) handleCopyAll() {
 }
 
 func (a *Application) handleTags() {
-	if a.gridMode || a.dialogs.anyOpen() {
+	if a.shortcutsBlocked() {
 		return
 	}
 	photo, ok := a.navigator.Current()
@@ -460,20 +476,7 @@ func (a *Application) handleTags() {
 		OnGenerate: func() {
 			req := tags.Request{Photo: photo, Notes: tagsDialog.Notes(), ClaudePath: tagsDialog.ClaudePath()}
 			prefs.SetString("claudePath", req.ClaudePath)
-			go func() {
-				generated, err := a.tagger.Generate(ctx, req)
-				fyne.Do(func() {
-					if !a.dialogs.isCurrent(tagsDialog) {
-						return
-					}
-					if err != nil {
-						log.Println("Failed to generate tags:", err)
-						tagsDialog.Fail(err)
-						return
-					}
-					tagsDialog.SetTags(generated)
-				})
-			}()
+			a.generateTags(ctx, req, tagsDialog)
 		},
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().Title)
@@ -493,7 +496,27 @@ func (a *Application) handleTags() {
 	})
 	a.dialogs.open(dialogTags, tagsDialog, cancel)
 	tagsDialog.Show()
+	a.prefillTags(photo, tagsDialog)
+}
 
+func (a *Application) generateTags(ctx context.Context, req tags.Request, tagsDialog *ui.TagsDialog) {
+	go func() {
+		generated, err := a.tagger.Generate(ctx, req)
+		fyne.Do(func() {
+			if !a.dialogs.isCurrent(tagsDialog) {
+				return
+			}
+			if err != nil {
+				log.Println("Failed to generate tags:", err)
+				tagsDialog.Fail(err)
+				return
+			}
+			tagsDialog.SetTags(generated)
+		})
+	}()
+}
+
+func (a *Application) prefillTags(photo model.Photo, tagsDialog *ui.TagsDialog) {
 	if !photo.IsJPEG() {
 		return
 	}

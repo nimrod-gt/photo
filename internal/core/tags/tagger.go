@@ -26,6 +26,10 @@ const (
 	tagsSchema    = `{"type":"object","properties":{"title":{"type":"string"},` +
 		`"keywords":{"type":"array","items":{"type":"string"}}},` +
 		`"required":["title","keywords"],"additionalProperties":false}`
+
+	successSubtype   = "success"
+	usageLimitMarker = "usage limit reached"
+	excerptLimit     = 300
 )
 
 type Request struct {
@@ -54,12 +58,21 @@ func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) 
 	ctx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
 
-	out, err := t.run(ctx, binary, taggerArgs(req)...)
-	if err != nil {
-		return model.Tags{}, fmt.Errorf("running claude: %w", err)
+	// The CLI exits non-zero on a failed run but still writes its full JSON
+	// report to stdout, and that report explains the failure far better than
+	// the exit status does.
+	out, runErr := t.run(ctx, binary, taggerArgs(req)...)
+	generated, err := parseTagsResponse(out, t.now())
+	switch {
+	case err == nil:
+		return generated, nil
+	case runErr == nil || !errors.Is(err, errNoReport):
+		return model.Tags{}, err
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return model.Tags{}, fmt.Errorf("claude timed out after %s: %w", t.timeout, runErr)
+	default:
+		return model.Tags{}, fmt.Errorf("running claude: %w", runErr)
 	}
-
-	return parseTagsResponse(out, t.now())
 }
 
 func taggerArgs(req Request) []string {
@@ -96,10 +109,12 @@ type claudeResponse struct {
 	} `json:"structured_output"`
 }
 
+var errNoReport = errors.New("parsing claude response")
+
 func parseTagsResponse(out []byte, now time.Time) (model.Tags, error) {
 	var resp claudeResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return model.Tags{}, fmt.Errorf("parsing claude response: %w (%s)", err, excerpt(out))
+		return model.Tags{}, fmt.Errorf("%w: %w (%s)", errNoReport, err, excerpt(out))
 	}
 
 	if resp.IsError {
@@ -115,11 +130,6 @@ func parseTagsResponse(out []byte, now time.Time) (model.Tags, error) {
 		Keywords: resp.StructuredOutput.Keywords,
 	}, nil
 }
-
-const (
-	successSubtype   = "success"
-	usageLimitMarker = "usage limit reached"
-)
 
 func responseFailure(resp claudeResponse, reason string, now time.Time) error {
 	details := []string{reason}
@@ -137,7 +147,7 @@ func responseMessage(resp claudeResponse, now time.Time) string {
 	if limit, ok := usageLimitMessage(text, now); ok {
 		return limit
 	}
-	return excerpt([]byte(text))
+	return excerptText(text)
 }
 
 // An exhausted subscription arrives as free text, sometimes with the reset time
@@ -146,16 +156,15 @@ func usageLimitMessage(text string, now time.Time) (string, bool) {
 	if !strings.Contains(strings.ToLower(text), usageLimitMarker) {
 		return "", false
 	}
-	head, tail, found := strings.Cut(text, "|")
-	head = strings.TrimSpace(head)
-	if !found {
-		return text, true
+	cut := strings.LastIndex(text, "|")
+	if cut < 0 {
+		return excerptText(text), true
 	}
-	seconds, err := strconv.ParseInt(strings.TrimSpace(tail), 10, 64)
+	seconds, err := strconv.ParseInt(strings.TrimSpace(text[cut+1:]), 10, 64)
 	if err != nil {
-		return head, true
+		return excerptText(text), true
 	}
-	return head + ", resets at " + formatReset(time.Unix(seconds, 0), now), true
+	return excerptText(strings.TrimSpace(text[:cut])) + ", resets at " + formatReset(time.Unix(seconds, 0), now), true
 }
 
 func formatReset(reset, now time.Time) string {
@@ -165,10 +174,12 @@ func formatReset(reset, now time.Time) string {
 	return reset.Format("Jan 2, 15:04")
 }
 
-const excerptLimit = 300
-
 func excerpt(data []byte) string {
-	text := strings.TrimSpace(string(data))
+	return excerptText(string(data))
+}
+
+func excerptText(text string) string {
+	text = strings.TrimSpace(text)
 	if len(text) == 0 {
 		return "empty response"
 	}
@@ -186,14 +197,8 @@ func runClaude(ctx context.Context, name string, args ...string) ([]byte, error)
 	cmd.Stderr = &stderr
 
 	out, err := cmd.Output()
-	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, fmt.Errorf("timed out after %s: %w", taggerTimeout, err)
-		}
-		if stderr.Len() != 0 {
-			return nil, fmt.Errorf("%w (%s)", err, excerpt(stderr.Bytes()))
-		}
-		return nil, err
+	if err != nil && stderr.Len() != 0 {
+		return out, fmt.Errorf("%w (%s)", err, excerpt(stderr.Bytes()))
 	}
-	return out, nil
+	return out, err
 }

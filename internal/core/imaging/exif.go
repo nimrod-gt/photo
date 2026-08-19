@@ -16,20 +16,19 @@ func NewExifService() *ExifService {
 	return &ExifService{}
 }
 
-// returns (nil, nil) when the JPEG parses but carries no EXIF data
-func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
+func segmentsFromFile(jpegPath string) (*jpegstructure.SegmentList, error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseFile(jpegPath)
-	return exifRootOf(intfc, err, jpegPath)
+	return segmentsOf(intfc, err, jpegPath)
 }
 
-func exifRootFromBytes(data []byte) (*exif.Ifd, error) {
+func segmentsFromBytes(data []byte) (*jpegstructure.SegmentList, error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseBytes(data)
-	return exifRootOf(intfc, err, "buffer")
+	return segmentsOf(intfc, err, "buffer")
 }
 
-func exifRootOf(intfc any, parseErr error, source string) (*exif.Ifd, error) {
+func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.SegmentList, error) {
 	if parseErr != nil {
 		return nil, fmt.Errorf("parsing JPEG %s: %w", source, parseErr)
 	}
@@ -37,6 +36,27 @@ func exifRootOf(intfc any, parseErr error, source string) (*exif.Ifd, error) {
 	if !ok {
 		return nil, fmt.Errorf("unexpected parse result for %s", source)
 	}
+	return sl, nil
+}
+
+// returns (nil, nil) when the JPEG parses but carries no EXIF data
+func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
+	sl, err := segmentsFromFile(jpegPath)
+	if err != nil {
+		return nil, err
+	}
+	return exifRootOf(sl)
+}
+
+func exifRootFromBytes(data []byte) (*exif.Ifd, error) {
+	sl, err := segmentsFromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+	return exifRootOf(sl)
+}
+
+func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
 		//nolint:nilerr // no EXIF data means nothing to read

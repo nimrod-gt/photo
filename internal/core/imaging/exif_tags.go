@@ -8,7 +8,6 @@ import (
 	"unicode/utf16"
 
 	exif "github.com/dsoprea/go-exif/v3"
-	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 
 	"photo/internal/core/model"
 )
@@ -31,14 +30,9 @@ func (s *ExifService) GetStockInfo(jpegPath string) (StockInfo, error) {
 }
 
 func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
-	jmp := jpegstructure.NewJpegMediaParser()
-	intfc, err := jmp.ParseFile(jpegPath)
+	sl, err := segmentsFromFile(jpegPath)
 	if err != nil {
-		return nil, fmt.Errorf("parsing JPEG %s: %w", jpegPath, err)
-	}
-	sl, ok := intfc.(*jpegstructure.SegmentList)
-	if !ok {
-		return nil, fmt.Errorf("unexpected parse result for %s", jpegPath)
+		return nil, err
 	}
 	_, rawExif, err := sl.Exif()
 	if err != nil {

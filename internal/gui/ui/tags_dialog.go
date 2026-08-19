@@ -304,18 +304,18 @@ func (d *TagsDialog) finishRun() {
 }
 
 func (d *TagsDialog) refreshStatus() {
-	tags := d.Tags()
-	setEnabled(d.copyTitleBtn, len(tags.Title) != 0)
-	setEnabled(d.copyKeywordsBtn, len(tags.Keywords) != 0)
-	if len(tags.Title) == 0 && len(tags.Keywords) == 0 {
+	current := d.Tags()
+	setEnabled(d.copyTitleBtn, len(current.Title) != 0)
+	setEnabled(d.copyKeywordsBtn, len(current.Keywords) != 0)
+	if len(current.Title) == 0 && len(current.Keywords) == 0 {
 		d.setStatus("")
 		return
 	}
-	if problems := tags.Problems(); len(problems) > 0 {
+	if problems := current.Problems(); len(problems) > 0 {
 		d.setStatus(strings.Join(problems, "; "))
 		return
 	}
-	d.setStatus(fmt.Sprintf("%d keywords, ready to upload", len(tags.Keywords)))
+	d.setStatus(fmt.Sprintf("%d keywords, ready to upload", len(current.Keywords)))
 }
 
 func setEnabled(button *widget.Button, enabled bool) {

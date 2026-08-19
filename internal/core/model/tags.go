@@ -35,10 +35,7 @@ func (t Tags) Problems() []string {
 	if len(t.Keywords) != KeywordCount {
 		problems = append(problems, fmt.Sprintf("%d keywords, expected %d", len(t.Keywords), KeywordCount))
 	}
-	if empty := emptyKeywordPositions(t.Keywords); len(empty) > 0 {
-		problems = append(problems, "empty keywords at position "+strings.Join(empty, ", "))
-	}
-	if bad := Disallowed(t.Title); len(bad) > 0 {
+	if bad := disallowed(t.Title); len(bad) > 0 {
 		problems = append(problems, "title has disallowed characters: "+strings.Join(bad, " "))
 	}
 	if bad := disallowedKeywords(t.Keywords); len(bad) > 0 {
@@ -51,10 +48,10 @@ func (t Tags) Problems() []string {
 	return problems
 }
 
-// Disallowed returns the distinct characters outside the set the stock prompt
+// disallowed returns the distinct characters outside the set the stock prompt
 // allows: basic latin letters, digits, space, comma, period and hyphen.
 // Non-printable characters are quoted so the message stays readable.
-func Disallowed(s string) []string {
+func disallowed(s string) []string {
 	var found []string
 	seen := make(map[rune]bool)
 	for _, r := range s {
@@ -88,21 +85,11 @@ func isAllowed(r rune) bool {
 func disallowedKeywords(keywords []string) []string {
 	var bad []string
 	for _, keyword := range keywords {
-		if len(Disallowed(keyword)) > 0 {
+		if len(disallowed(keyword)) > 0 {
 			bad = append(bad, keyword)
 		}
 	}
 	return bad
-}
-
-func emptyKeywordPositions(keywords []string) []string {
-	var positions []string
-	for i, keyword := range keywords {
-		if len(strings.TrimSpace(keyword)) == 0 {
-			positions = append(positions, strconv.Itoa(i+1))
-		}
-	}
-	return positions
 }
 
 func duplicateKeywords(keywords []string) []string {
