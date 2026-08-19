@@ -59,18 +59,29 @@ func New() *Application {
 	}
 }
 
-// FyneApp.toml carries the same declaration, but Fyne only reads it next to the
+// FyneApp.toml carries the same declaration, and a packaged build carries it in
+// the metadata the fyne tool generates, but Fyne only reads the file next to the
 // working directory or the executable, which a run from an IDE satisfies neither
-// of. Nothing else is set here, so the file still supplies the metadata wherever
-// it is found.
-func declareThreadingMigration() {
-	fyneapp.SetMetadata(fyne.AppMetadata{Migrations: map[string]bool{"fyneDo": true}})
+// of. The flag is added to whatever metadata is already there rather than set on
+// its own, because SetMetadata replaces the struct whole and would drop the name,
+// the identifier and the icon a packaged build ships with.
+//
+// It has to happen before the first widget is built: the flag is read once, from
+// the thread check that every widget runs.
+func declareThreadingMigration(fyneApp fyne.App) {
+	meta := fyneApp.Metadata()
+	if meta.Migrations == nil {
+		meta.Migrations = map[string]bool{"fyneDo": true}
+		fyneapp.SetMetadata(meta)
+		return
+	}
+	meta.Migrations["fyneDo"] = true
 }
 
 func (a *Application) Run() {
-	declareThreadingMigration()
 	a.fyneApp = fyneapp.NewWithID("com.photo.viewer")
 	fyneApp := a.fyneApp
+	declareThreadingMigration(fyneApp)
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{

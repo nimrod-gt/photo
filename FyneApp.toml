@@ -1,2 +1,8 @@
+[Details]
+Icon = "Icon.png"
+Name = "Photo Viewer"
+ID = "com.photo.viewer"
+Version = "1.1.0"
+
 [Migrations]
 fyneDo = true

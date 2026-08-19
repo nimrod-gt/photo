@@ -68,10 +68,11 @@ internal/
 
 ### Threading
 
-The app is on the `fyne.Do` threading model. It is declared twice: `app.SetMetadata` in
-`internal/gui/app/app.go`, which holds wherever the binary is launched from, and `FyneApp.toml`
+The app is on the `fyne.Do` threading model. It is declared twice: `FyneApp.toml`
 (`[Migrations] fyneDo = true`), which is what makes `fyne package` build with the `migrated_fynedo`
-tag and compile the checks out.
+tag and compile the checks out, and `declareThreadingMigration` in `internal/gui/app/app.go`, which
+holds wherever the binary is launched from. The second one adds the flag to the metadata the app
+already has instead of setting it on its own, because `app.SetMetadata` replaces the struct whole.
 That declaration turns off Fyne's runtime thread checks, so nothing warns any more when a widget is
 touched from the wrong goroutine: every goroutine that reads or changes a widget must wrap that work
 in `fyne.Do`. Callbacks handed to `internal/core` run on its worker goroutines and count as such.
@@ -98,9 +99,9 @@ go tool golangci-lint run --fix
 go build ./...
 
 # Cross-compile for Windows (requires: brew install mingw-w64)
-CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --icon Icon.png --app-id com.photo.viewer --os windows
-x86_64-w64-mingw32-strip photo.exe
-zip photo-windows-amd64.zip photo.exe
+# Name, id, icon and version come from FyneApp.toml; the tool bumps its build number afterwards.
+CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --os windows
+zip photo-windows-amd64.zip "Photo Viewer.exe"
 ```
 
 ## Code Style
