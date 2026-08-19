@@ -21,12 +21,36 @@ type StockInfo struct {
 	Taken time.Time
 }
 
-func (s *ExifService) GetStockInfo(jpegPath string) (StockInfo, error) {
-	flat, err := flatExifFromFile(jpegPath)
+// GetStockInfo reads what the files already carry: the EXIF of the JPEG and,
+// when the photo has a RAW pair, the sidecar written next to it.
+func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
+	var info StockInfo
+	if photo.IsJPEG() {
+		flat, err := flatExifFromFile(photo.ImagePath)
+		if err != nil {
+			return StockInfo{}, err
+		}
+		info = stockInfoFromTags(flat)
+	}
+	if !photo.HasRAW() {
+		return info, nil
+	}
+	sidecar, err := ReadSidecar(SidecarPath(photo.RAWPath))
 	if err != nil {
 		return StockInfo{}, err
 	}
-	return stockInfoFromTags(flat), nil
+	info.Tags = fillMissing(info.Tags, sidecar)
+	return info, nil
+}
+
+func fillMissing(tags, fallback model.Tags) model.Tags {
+	if len(strings.TrimSpace(tags.Title)) == 0 {
+		tags.Title = fallback.Title
+	}
+	if len(tags.Keywords) == 0 {
+		tags.Keywords = fallback.Keywords
+	}
+	return tags
 }
 
 func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
@@ -46,11 +70,18 @@ func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
 	return flat, nil
 }
 
+// The thumbnail IFD repeats the tags of the primary one, and cameras leave its
+// copies blank, so it is skipped rather than allowed to overwrite them.
+const thumbnailIfdPath = "IFD1"
+
 func stockInfoFromTags(flat []exif.ExifTag) StockInfo {
 	var info StockInfo
 	dates := make(map[string]string, len(dateTagsByPriority))
 
 	for _, tag := range flat {
+		if tag.IfdPath == thumbnailIfdPath {
+			continue
+		}
 		switch tag.TagName {
 		case "ImageDescription":
 			info.Tags.Title = strings.TrimSpace(exifString(tag.Value))
@@ -84,6 +115,15 @@ func exifString(value any) string {
 		return decodeUTF16LE(v)
 	}
 	return ""
+}
+
+func encodeUTF16LE(text string) []byte {
+	codes := utf16.Encode([]rune(text + "\x00"))
+	data := make([]byte, 0, len(codes)*2)
+	for _, code := range codes {
+		data = binary.LittleEndian.AppendUint16(data, code)
+	}
+	return data
 }
 
 func decodeUTF16LE(data []byte) string {

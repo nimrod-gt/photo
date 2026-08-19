@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	tagsDialogWidth = float32(700)
+	tagsDialogWidth = float32(820)
 	tagsLabelWidth  = float32(90)
 	keywordRows     = 5
 	titleRows       = 2
@@ -30,6 +30,8 @@ type TagsDialogCallbacks struct {
 	OnGenerate     func()
 	OnCopyTitle    func()
 	OnCopyKeywords func()
+	OnSaveSidecar  func()
+	OnSaveJPEG     func()
 	OnClose        func()
 }
 
@@ -37,6 +39,8 @@ type TagsDialogOptions struct {
 	Filename   string
 	ClaudePath string
 	Date       time.Time
+	HasRAW     bool
+	IsJPEG     bool
 }
 
 type TagsDialog struct {
@@ -60,6 +64,8 @@ type TagsDialog struct {
 	generateBtn     *widget.Button
 	copyTitleBtn    *widget.Button
 	copyKeywordsBtn *widget.Button
+	saveSidecarBtn  *widget.Button
+	saveJPEGBtn     *widget.Button
 	closeBtn        *widget.Button
 	closed          bool
 }
@@ -81,7 +87,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 	d.progress.Hide()
 
 	d.buildResult()
-	d.buildButtons()
+	d.buildButtons(opts)
 
 	content := container.NewVBox(
 		nameLabel,
@@ -94,7 +100,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 		d.progress,
 		d.resultBox,
 		d.status,
-		container.NewGridWithColumns(4, d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.generateBtn),
+		d.buttonRow(),
 	)
 	wrapped := container.New(&minWidthLayout{width: tagsDialogWidth}, content)
 
@@ -173,7 +179,7 @@ func labeledRow(text string, content fyne.CanvasObject) *fyne.Container {
 	return container.NewBorder(nil, nil, sized, nil, content)
 }
 
-func (d *TagsDialog) buildButtons() {
+func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 	d.generateBtn = widget.NewButton("Generate", func() {
 		d.generateBtn.Disable()
 		d.setStatus("Generating, this takes up to a minute...")
@@ -199,7 +205,47 @@ func (d *TagsDialog) buildButtons() {
 	})
 	d.copyKeywordsBtn.Disable()
 
+	if opts.HasRAW {
+		d.saveSidecarBtn = widget.NewButton("Save XMP", func() {
+			if d.callbacks.OnSaveSidecar != nil {
+				d.callbacks.OnSaveSidecar()
+			}
+		})
+		d.saveSidecarBtn.Disable()
+	}
+
+	if opts.IsJPEG {
+		d.saveJPEGBtn = widget.NewButton("Save JPEG", func() {
+			if d.callbacks.OnSaveJPEG != nil {
+				d.callbacks.OnSaveJPEG()
+			}
+		})
+		d.saveJPEGBtn.Disable()
+	}
+
 	d.closeBtn = widget.NewButton("Close", d.requestClose)
+}
+
+func (d *TagsDialog) buttonRow() *fyne.Container {
+	saves := d.saveButtons()
+	buttons := make([]fyne.CanvasObject, 0, len(saves)+4)
+	buttons = append(buttons, d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn)
+	for _, button := range saves {
+		buttons = append(buttons, button)
+	}
+	buttons = append(buttons, d.generateBtn)
+	return container.NewGridWithColumns(len(buttons), buttons...)
+}
+
+func (d *TagsDialog) saveButtons() []*widget.Button {
+	var buttons []*widget.Button
+	if d.saveSidecarBtn != nil {
+		buttons = append(buttons, d.saveSidecarBtn)
+	}
+	if d.saveJPEGBtn != nil {
+		buttons = append(buttons, d.saveJPEGBtn)
+	}
+	return buttons
 }
 
 func (d *TagsDialog) requestClose() {
@@ -307,6 +353,9 @@ func (d *TagsDialog) refreshStatus() {
 	current := d.Tags()
 	setEnabled(d.copyTitleBtn, len(current.Title) != 0)
 	setEnabled(d.copyKeywordsBtn, len(current.Keywords) != 0)
+	for _, button := range d.saveButtons() {
+		setEnabled(button, len(current.Title) != 0 || len(current.Keywords) != 0)
+	}
 	if len(current.Title) == 0 && len(current.Keywords) == 0 {
 		d.setStatus("")
 		return

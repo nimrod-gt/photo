@@ -2,13 +2,11 @@ package imaging
 
 import (
 	"bytes"
-	"encoding/binary"
 	"image/jpeg"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-	"unicode/utf16"
 
 	exif "github.com/dsoprea/go-exif/v3"
 	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
@@ -17,15 +15,6 @@ import (
 
 	"photo/internal/core/model"
 )
-
-func encodeUTF16LE(s string) []byte {
-	codes := utf16.Encode([]rune(s + "\x00"))
-	data := make([]byte, 0, len(codes)*2)
-	for _, code := range codes {
-		data = binary.LittleEndian.AppendUint16(data, code)
-	}
-	return data
-}
 
 func writeJPEGWithIfdTags(t *testing.T, dir, name string, byIfd map[string]map[string]any) string {
 	t.Helper()
@@ -65,7 +54,7 @@ func TestExifService_GetStockInfo(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 
-		info, err := svc.GetStockInfo(path)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
 
 		require.NoError(t, err)
 		assert.Equal(t, StockInfo{}, info)
@@ -84,7 +73,7 @@ func TestExifService_GetStockInfo(t *testing.T) {
 			},
 		})
 
-		info, err := svc.GetStockInfo(path)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
 
 		require.NoError(t, err)
 		assert.Equal(t, "Lisbon, Portugal - June 13, 2026 A tram climbs the hill.", info.Tags.Title)
@@ -98,16 +87,55 @@ func TestExifService_GetStockInfo(t *testing.T) {
 			"IFD0": {"DateTime": "2026:06:14 08:00:00"},
 		})
 
-		info, err := svc.GetStockInfo(path)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
 
 		require.NoError(t, err)
 		assert.Equal(t, time.Date(2026, time.June, 14, 8, 0, 0, 0, time.UTC), info.Taken)
 	})
 
+	t.Run("reads the sidecar of the RAW pair", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := writePlainJPEG(t, dir, "DSC001.jpg")
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC001.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC001.xmp"), model.Tags{
+			Title:    "A tram climbs the hill.",
+			Keywords: []string{"lisbon", "tram"},
+		}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "A tram climbs the hill.", info.Tags.Title)
+		assert.Equal(t, []string{"lisbon", "tram"}, info.Tags.Keywords)
+	})
+
+	t.Run("prefers the tags of the JPEG over the sidecar", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := writeJPEGWithIfdTags(t, dir, "DSC002.jpg", map[string]map[string]any{
+			"IFD0": {
+				"ImageDescription": "From the JPEG.",
+				"XPKeywords":       encodeUTF16LE("jpeg"),
+			},
+		})
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC002.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC002.xmp"), model.Tags{
+			Title:    "From the sidecar.",
+			Keywords: []string{"sidecar"},
+		}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "From the JPEG.", info.Tags.Title)
+		assert.Equal(t, []string{"jpeg"}, info.Tags.Keywords)
+	})
+
 	t.Run("reports a missing file", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := svc.GetStockInfo(filepath.Join(t.TempDir(), "absent.jpg"))
+		_, err := svc.GetStockInfo(model.NewPhoto(filepath.Join(t.TempDir(), "absent.jpg")))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "parsing JPEG")

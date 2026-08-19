@@ -18,8 +18,12 @@ import (
 
 func newTestTagsDialog(t *testing.T, callbacks TagsDialogCallbacks) *TagsDialog {
 	t.Helper()
+	return newTestTagsDialogWith(t, TagsDialogOptions{Filename: "DSC001.JPG", Date: defaultTestDate}, callbacks)
+}
+
+func newTestTagsDialogWith(t *testing.T, opts TagsDialogOptions, callbacks TagsDialogCallbacks) *TagsDialog {
+	t.Helper()
 	window := test.NewTempWindow(t, nil)
-	opts := TagsDialogOptions{Filename: "DSC001.JPG", Date: defaultTestDate}
 	return NewTagsDialog(opts, window, callbacks)
 }
 
@@ -96,6 +100,47 @@ func TestTagsDialog(t *testing.T) {
 
 		assert.True(t, d.copyTitleBtn.Disabled())
 		assert.False(t, d.copyKeywordsBtn.Disabled())
+	})
+
+	t.Run("offers no saving when there is nothing to save into", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		assert.Nil(t, d.saveSidecarBtn)
+		assert.Nil(t, d.saveJPEGBtn)
+	})
+
+	t.Run("saves to the sidecar of the RAW pair and to the JPEG", func(t *testing.T) {
+		sidecarCalls, jpegCalls := 0, 0
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", HasRAW: true, IsJPEG: true},
+			TagsDialogCallbacks{
+				OnSaveSidecar: func() { sidecarCalls++ },
+				OnSaveJPEG:    func() { jpegCalls++ },
+			})
+		require.NotNil(t, d.saveSidecarBtn)
+		require.NotNil(t, d.saveJPEGBtn)
+		assert.True(t, d.saveSidecarBtn.Disabled())
+		assert.True(t, d.saveJPEGBtn.Disabled())
+
+		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+		test.Tap(d.saveSidecarBtn)
+		test.Tap(d.saveJPEGBtn)
+
+		assert.Equal(t, 1, sidecarCalls)
+		assert.Equal(t, 1, jpegCalls)
+	})
+
+	t.Run("saving needs a title or keywords", func(t *testing.T) {
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+		assert.False(t, d.saveJPEGBtn.Disabled())
+
+		d.title.SetText("")
+		assert.False(t, d.saveJPEGBtn.Disabled())
+
+		d.keywords.SetText("")
+		assert.True(t, d.saveJPEGBtn.Disabled())
 	})
 
 	t.Run("generate disables the button and runs the callback", func(t *testing.T) {

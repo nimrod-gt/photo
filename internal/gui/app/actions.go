@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"slices"
 
 	"fyne.io/fyne/v2"
@@ -11,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"photo/internal/core/clipboard"
+	"photo/internal/core/imaging"
 	"photo/internal/core/library"
 	"photo/internal/core/model"
 	"photo/internal/core/tags"
@@ -469,6 +471,8 @@ func (a *Application) handleTags() {
 		Filename:   photo.Name,
 		ClaudePath: prefs.String("claudePath"),
 		Date:       photo.ModTime,
+		HasRAW:     photo.HasRAW(),
+		IsJPEG:     photo.IsJPEG(),
 	}
 
 	var tagsDialog *ui.TagsDialog
@@ -486,6 +490,17 @@ func (a *Application) handleTags() {
 			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().KeywordLine())
 			a.mainWindow.ShowNotification("Keywords copied to clipboard")
 		},
+		OnSaveSidecar: func() {
+			sidecarPath := imaging.SidecarPath(photo.RAWPath)
+			a.saveTags(tagsDialog.Tags(), filepath.Base(sidecarPath), func(saved model.Tags) error {
+				return imaging.WriteSidecar(sidecarPath, saved)
+			})
+		},
+		OnSaveJPEG: func() {
+			a.saveTags(tagsDialog.Tags(), photo.Name, func(saved model.Tags) error {
+				return a.exifService.WriteStockTags(photo.ImagePath, saved)
+			})
+		},
 		OnClose: func() {
 			cancel()
 			if a.dialogs.isCurrent(tagsDialog) {
@@ -497,6 +512,19 @@ func (a *Application) handleTags() {
 	a.dialogs.open(dialogTags, tagsDialog, cancel)
 	tagsDialog.Show()
 	a.prefillTags(photo, tagsDialog)
+}
+
+func (a *Application) saveTags(tags model.Tags, target string, save func(model.Tags) error) {
+	go func() {
+		err := save(tags)
+		fyne.Do(func() {
+			if err != nil {
+				a.showError("Failed to save tags to "+target, err)
+				return
+			}
+			a.mainWindow.ShowNotification("Tags saved to " + target)
+		})
+	}()
 }
 
 func (a *Application) generateTags(ctx context.Context, req tags.Request, tagsDialog *ui.TagsDialog) {
@@ -517,11 +545,8 @@ func (a *Application) generateTags(ctx context.Context, req tags.Request, tagsDi
 }
 
 func (a *Application) prefillTags(photo model.Photo, tagsDialog *ui.TagsDialog) {
-	if !photo.IsJPEG() {
-		return
-	}
 	go func() {
-		info, err := a.exifService.GetStockInfo(photo.ImagePath)
+		info, err := a.exifService.GetStockInfo(photo)
 		if err != nil {
 			log.Printf("Failed to read tags of %s: %v", photo.Name, err)
 			return
