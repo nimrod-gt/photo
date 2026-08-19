@@ -232,6 +232,19 @@ func TestDownscaleToFit(t *testing.T) {
 			maxW: 400, maxH: 200,
 			wantW: 266, wantH: 200,
 		},
+		{
+			name: "zero maxSize skips downscaling",
+			srcW: 400, srcH: 200,
+			maxW: 0, maxH: 0,
+			wantW: 400, wantH: 200,
+			wantSameRef: true,
+		},
+		{
+			name: "extreme aspect ratio keeps a non-empty short side",
+			srcW: 20000, srcH: 100,
+			maxW: 160, maxH: 160,
+			wantW: 160, wantH: 1,
+		},
 	}
 
 	for _, tt := range tests {

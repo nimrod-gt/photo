@@ -60,3 +60,17 @@ func BenchmarkDownscaleToFit(b *testing.B) {
 		_ = DownscaleToFit(src, image.Point{X: benchFit, Y: benchFit})
 	}
 }
+
+// orientation 1 is the common case and the only one where the decoded
+// *image.YCbCr reaches DownscaleToFit unconverted
+func BenchmarkLoadImageOrientedUpright(b *testing.B) {
+	path := benchJPEGPath(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		img, err := LoadImageOriented(path, 1)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = DownscaleToFit(img, image.Point{X: benchFit, Y: benchFit})
+	}
+}

@@ -107,7 +107,12 @@ func transformPixels(img image.Image, swapDims bool, srcXY func(x, y, w, h int) 
 	return dst
 }
 
+// a zero or negative maxSize coordinate means "no downscaling"
 func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
+	if maxSize.X <= 0 || maxSize.Y <= 0 {
+		return img
+	}
+
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= maxSize.X && h <= maxSize.Y {
@@ -121,9 +126,14 @@ func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
 		scale = scaleY
 	}
 
-	newW := int(float64(w) * scale)
-	newH := int(float64(h) * scale)
-	dst := image.NewNRGBA(image.Rect(0, 0, newW, newH))
-	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, xdraw.Over, nil)
+	// an extreme aspect ratio truncates the short side to zero, which would
+	// cache an empty image
+	newW := max(int(float64(w)*scale), 1)
+	newH := max(int(float64(h)*scale), 1)
+
+	// x/image only has type-specialized scalers for an *image.RGBA destination
+	// with op Src; anything else falls back to a per-pixel generic path
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
 	return dst
 }
