@@ -38,7 +38,7 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	}
 	// The EXIF is already read at this point, so an unreadable sidecar is
 	// reported without throwing away what the JPEG itself carries.
-	sidecar, err := ReadSidecar(SidecarPath(photo.RAWPath))
+	sidecar, err := ReadSidecar(model.SidecarPath(photo.RAWPath))
 	if err != nil {
 		return info, err
 	}

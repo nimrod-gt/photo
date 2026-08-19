@@ -121,3 +121,50 @@ func TestDeleter_DeleteWithOption(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleter_DeletesTheSidecarWithTheRAW(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the sidecar goes with the RAW", func(t *testing.T) {
+		t.Parallel()
+		photo, sidecar := writePairWithSidecar(t)
+
+		require.NoError(t, NewDeleter().Delete(photo))
+
+		assert.NoFileExists(t, photo.RAWPath)
+		assert.NoFileExists(t, sidecar)
+	})
+
+	t.Run("the sidecar stays when the RAW is kept", func(t *testing.T) {
+		t.Parallel()
+		photo, sidecar := writePairWithSidecar(t)
+
+		require.NoError(t, NewDeleter().DeleteWithOption(photo, false))
+
+		assert.FileExists(t, photo.RAWPath)
+		assert.FileExists(t, sidecar)
+	})
+
+	t.Run("a RAW without a sidecar deletes cleanly", func(t *testing.T) {
+		t.Parallel()
+		photo, sidecar := writePairWithSidecar(t)
+		require.NoError(t, os.Remove(sidecar))
+
+		assert.NoError(t, NewDeleter().Delete(photo))
+	})
+}
+
+func writePairWithSidecar(t *testing.T) (model.Photo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	photo := model.Photo{
+		ImagePath: filepath.Join(dir, "photo.jpg"),
+		RAWPath:   filepath.Join(dir, "photo.ARW"),
+		Name:      "photo.jpg",
+	}
+	sidecar := model.SidecarPath(photo.RAWPath)
+	for _, path := range []string{photo.ImagePath, photo.RAWPath, sidecar} {
+		require.NoError(t, os.WriteFile(path, nil, 0600))
+	}
+	return photo, sidecar
+}

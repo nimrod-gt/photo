@@ -535,7 +535,7 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	}
 	previous := s.saved
 	s.saved = written
-	path := imaging.SidecarPath(s.photo.RAWPath)
+	path := model.SidecarPath(s.photo.RAWPath)
 	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) error {
 		return imaging.WriteSidecar(path, saved)
 	}, func() { s.saved = previous })

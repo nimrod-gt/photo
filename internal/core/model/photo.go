@@ -67,3 +67,11 @@ func findRAWPair(jpegPath string, exists func(string) bool) string {
 	}
 	return ""
 }
+
+const sidecarExt = ".xmp"
+
+// A RAW file cannot carry EXIF written by us, so its metadata goes into an XMP
+// sidecar named after the RAW file - the convention Lightroom and Bridge use.
+func SidecarPath(rawPath string) string {
+	return strings.TrimSuffix(rawPath, filepath.Ext(rawPath)) + sidecarExt
+}

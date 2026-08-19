@@ -45,10 +45,7 @@ func (c *Copier) CopyWithContext(ctx context.Context, photo model.Photo, destDir
 		if !photo.HasRAW() {
 			return fmt.Errorf("no RAW file for %s", photo.Name)
 		}
-		if err := copyFile(photo.RAWPath, filepath.Join(destDir, filepath.Base(photo.RAWPath))); err != nil {
-			return fmt.Errorf("copying RAW %s: %w", photo.RAWPath, err)
-		}
-		return nil
+		return copyRAW(photo.RAWPath, destDir)
 	}
 
 	if err := copyFile(photo.ImagePath, filepath.Join(destDir, filepath.Base(photo.ImagePath))); err != nil {
@@ -60,11 +57,32 @@ func (c *Copier) CopyWithContext(ctx context.Context, photo model.Photo, destDir
 	}
 
 	if mode == CopyWithRAW && photo.HasRAW() {
-		if err := copyFile(photo.RAWPath, filepath.Join(destDir, filepath.Base(photo.RAWPath))); err != nil {
-			return fmt.Errorf("copying RAW %s: %w", photo.RAWPath, err)
-		}
+		return copyRAW(photo.RAWPath, destDir)
 	}
 
+	return nil
+}
+
+func copyRAW(rawPath, destDir string) error {
+	if err := copyFile(rawPath, filepath.Join(destDir, filepath.Base(rawPath))); err != nil {
+		return fmt.Errorf("copying RAW %s: %w", rawPath, err)
+	}
+	return copySidecar(rawPath, destDir)
+}
+
+// The XMP sidecar carries the tags and the develop settings of the RAW, so it
+// travels with it. A RAW that never got one is copied alone.
+func copySidecar(rawPath, destDir string) error {
+	sidecar := model.SidecarPath(rawPath)
+	if _, err := os.Stat(sidecar); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading sidecar %s: %w", sidecar, err)
+	}
+	if err := copyFile(sidecar, filepath.Join(destDir, filepath.Base(sidecar))); err != nil {
+		return fmt.Errorf("copying sidecar %s: %w", sidecar, err)
+	}
 	return nil
 }
 

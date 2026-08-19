@@ -251,3 +251,58 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 }
+
+func TestCopier_CopiesTheSidecarWithTheRAW(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mode CopyMode
+		want bool
+	}{
+		{name: "CopyWithRAW takes the sidecar", mode: CopyWithRAW, want: true},
+		{name: "CopyOnlyRAW takes the sidecar", mode: CopyOnlyRAW, want: true},
+		{name: "CopyJPEGOnly leaves the sidecar", mode: CopyJPEGOnly, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srcDir, destDir := t.TempDir(), t.TempDir()
+			photo := writePair(t, srcDir)
+			require.NoError(t, os.WriteFile(model.SidecarPath(photo.RAWPath), []byte("<x:xmpmeta/>"), 0600))
+
+			require.NoError(t, NewCopier().Copy(photo, destDir, tt.mode))
+
+			copied := filepath.Join(destDir, "photo.xmp")
+			if !tt.want {
+				assert.NoFileExists(t, copied)
+				return
+			}
+			content, err := os.ReadFile(copied)
+			require.NoError(t, err)
+			assert.Equal(t, "<x:xmpmeta/>", string(content))
+		})
+	}
+}
+
+func TestCopier_CopiesARAWWithoutASidecar(t *testing.T) {
+	t.Parallel()
+
+	srcDir, destDir := t.TempDir(), t.TempDir()
+	photo := writePair(t, srcDir)
+
+	require.NoError(t, NewCopier().Copy(photo, destDir, CopyWithRAW))
+
+	assert.FileExists(t, filepath.Join(destDir, "photo.ARW"))
+	assert.NoFileExists(t, filepath.Join(destDir, "photo.xmp"))
+}
+
+func writePair(t *testing.T, dir string) model.Photo {
+	t.Helper()
+	jpegPath := filepath.Join(dir, "photo.jpg")
+	rawPath := filepath.Join(dir, "photo.ARW")
+	require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg-data"), 0600))
+	require.NoError(t, os.WriteFile(rawPath, []byte("raw-data"), 0600))
+	return model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
+}

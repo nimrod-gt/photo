@@ -26,6 +26,12 @@ func (d *Deleter) DeleteWithOption(photo model.Photo, includeRAW bool) error {
 		if err := os.Remove(photo.RAWPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("deleting RAW %s: %w", photo.RAWPath, err)
 		}
+		// The sidecar describes the RAW alone, so it goes with it instead of
+		// staying behind as an orphan the next scan cannot explain.
+		sidecar := model.SidecarPath(photo.RAWPath)
+		if err := os.Remove(sidecar); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("deleting sidecar %s: %w", sidecar, err)
+		}
 	}
 
 	return nil

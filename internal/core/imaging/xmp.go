@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -16,17 +15,10 @@ import (
 
 const (
 	dcNamespace    = "http://purl.org/dc/elements/1.1/"
-	sidecarExt     = ".xmp"
 	sidecarIndent  = "  "
 	descriptionEnd = "</rdf:Description>"
 	propertyDepth  = 2
 )
-
-// A RAW file cannot carry EXIF written by us, so its metadata goes into an XMP
-// sidecar named after the RAW file - the convention Lightroom and Bridge use.
-func SidecarPath(rawPath string) string {
-	return strings.TrimSuffix(rawPath, filepath.Ext(rawPath)) + sidecarExt
-}
 
 func ReadSidecar(path string) (model.Tags, error) {
 	data, err := os.ReadFile(path)

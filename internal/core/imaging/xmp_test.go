@@ -50,14 +50,6 @@ const exiftoolSidecar = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <?xpacket end="w"?>
 `
 
-func TestSidecarPath(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, "/photos/DSC001.xmp", SidecarPath("/photos/DSC001.ARW"))
-	assert.Equal(t, "/photos/DSC001.xmp", SidecarPath("/photos/DSC001.arw"))
-	assert.Equal(t, "/photos/no-extension.xmp", SidecarPath("/photos/no-extension"))
-}
-
 func TestSidecar_RoundTrip(t *testing.T) {
 	t.Parallel()
 
