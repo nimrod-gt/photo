@@ -3,6 +3,8 @@ package imaging
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -264,6 +266,39 @@ func TestWriteSidecar_RewritesASidecarItCreatedUnchanged(t *testing.T) {
 	assert.Equal(t, created, readFile(t, path))
 }
 
+func TestWriteSidecar_Permissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not enforced on Windows")
+	}
+	t.Parallel()
+
+	written := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}}
+
+	t.Run("a new sidecar is readable by the tools the user points at it", func(t *testing.T) {
+		t.Parallel()
+
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, written))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	})
+
+	t.Run("an existing sidecar keeps the mode it had", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeSidecarFile(t, lightroomSidecar)
+		require.NoError(t, os.Chmod(path, 0o640))
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	})
+}
+
 func TestMergeSidecar_DeclaresTheDCPrefixItWrites(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +363,89 @@ func TestMergeSidecar_KeepsWhatSitsBetweenTheProperties(t *testing.T) {
 	parsed, err := parseSidecar(merged)
 	require.NoError(t, err)
 	assert.Equal(t, model.Tags{Title: "New title.", Keywords: []string{"new"}}, parsed.tags())
+}
+
+// Camera Raw writes structured values as nested rdf:Description elements, and
+// properties left inside one describe the preset rather than the photo, where no
+// other tool goes looking for them.
+func TestMergeSidecar_WritesIntoTheDescriptionItOpened(t *testing.T) {
+	t.Parallel()
+
+	const nested = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Exposure2012="+1.25">
+   <crs:Look>
+    <rdf:Description
+     crs:Name="Adobe Color">
+     <crs:Parameters>
+      <rdf:Description
+       crs:Version="15.0"/>
+     </crs:Parameters>
+    </rdf:Description>
+   </crs:Look>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
+	written := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}}
+	merged, err := mergeSidecar([]byte(nested), written)
+	require.NoError(t, err)
+
+	content := string(merged)
+	assert.Contains(t, content, `crs:Exposure2012="+1.25"`)
+	assert.Contains(t, content, `crs:Name="Adobe Color"`)
+	for _, property := range []string{"<dc:title>", "<dc:description>", "<dc:subject>"} {
+		assert.Greater(t, strings.Index(content, property), strings.Index(content, "</crs:Look>"),
+			"%s belongs to the photo, not to the preset", property)
+	}
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, written, parsed.tags())
+}
+
+func TestDescriptionClose(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		text string
+		want int
+	}{
+		{name: "the only close", text: "|</rdf:Description>", want: 1},
+		{
+			name: "a close behind a nested element",
+			text: "|<rdf:Description a=\"1\"></rdf:Description></rdf:Description>",
+			want: 42,
+		},
+		{
+			name: "a close behind a self-closing element",
+			text: "|<rdf:Description a=\"1\"/></rdf:Description>",
+			want: 25,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			at, err := descriptionClose(tt.text, strings.Index(tt.text, "|")+1)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, at)
+			assert.True(t, strings.HasPrefix(tt.text[at:], descriptionEnd))
+		})
+	}
+
+	t.Run("no close at all", func(t *testing.T) {
+		t.Parallel()
+		_, err := descriptionClose("<rdf:Description>", 17)
+		require.Error(t, err)
+	})
 }
 
 func TestStripProperties(t *testing.T) {

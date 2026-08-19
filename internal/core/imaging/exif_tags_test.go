@@ -110,7 +110,7 @@ func TestExifService_GetStockInfo(t *testing.T) {
 		assert.Equal(t, []string{"lisbon", "tram"}, info.Tags.Keywords)
 	})
 
-	t.Run("prefers the tags of the JPEG over the sidecar", func(t *testing.T) {
+	t.Run("prefers the tags of the sidecar over the JPEG", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		path := writeJPEGWithIfdTags(t, dir, "DSC002.jpg", map[string]map[string]any{
@@ -128,8 +128,29 @@ func TestExifService_GetStockInfo(t *testing.T) {
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 
 		require.NoError(t, err)
+		assert.Equal(t, "From the sidecar.", info.Tags.Title)
+		assert.Equal(t, []string{"sidecar"}, info.Tags.Keywords)
+	})
+
+	t.Run("falls back to the JPEG for what the sidecar lacks", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := writeJPEGWithIfdTags(t, dir, "DSC003.jpg", map[string]map[string]any{
+			"IFD0": {
+				"ImageDescription": "From the JPEG.",
+				"XPKeywords":       encodeUTF16LE("jpeg"),
+			},
+		})
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC003.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC003.xmp"), model.Tags{
+			Keywords: []string{"sidecar"},
+		}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
 		assert.Equal(t, "From the JPEG.", info.Tags.Title)
-		assert.Equal(t, []string{"jpeg"}, info.Tags.Keywords)
+		assert.Equal(t, []string{"sidecar"}, info.Tags.Keywords)
 	})
 
 	t.Run("reports a missing file", func(t *testing.T) {

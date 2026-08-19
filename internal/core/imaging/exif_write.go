@@ -17,7 +17,9 @@ const (
 	// Windows Explorer and the stock uploaders read XPKeywords as a semicolon
 	// separated list.
 	keywordSeparator = ";"
-	defaultFilePerm  = os.FileMode(0600)
+	// A file we create rather than replace is readable by the tools the user
+	// points at it later, Lightroom and Bridge included.
+	defaultFilePerm = os.FileMode(0o644)
 
 	tagImageDescription = 0x010e
 	tagXPKeywords       = 0x9c9e

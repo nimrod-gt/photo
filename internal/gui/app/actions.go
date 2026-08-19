@@ -564,6 +564,8 @@ func (s *tagsSession) close(cancel context.CancelFunc) {
 // The tags the dialog is filled with count as saved, so closing it without
 // touching them writes nothing. Comparing against the sidecar instead would
 // overwrite it with the EXIF of the JPEG whenever the two disagree.
+// A run that finished before this read - the file may sit on a slow volume -
+// already wrote what the sidecar holds, so its tags are the ones kept.
 func (s *tagsSession) prefill() {
 	go func() {
 		info, err := s.app.exifService.GetStockInfo(s.photo)
@@ -574,15 +576,17 @@ func (s *tagsSession) prefill() {
 			if !s.app.dialogs.isCurrent(s.dialog) {
 				return
 			}
-			s.saved = info.Tags
+			if s.saved.IsEmpty() {
+				s.saved = info.Tags
+			}
 			s.dialog.SetPhotoInfo(info.Tags, info.Taken)
 		})
 	}()
 }
 
-func (a *Application) saveTags(tags model.Tags, target string, save func(model.Tags) error, failed func()) {
+func (a *Application) saveTags(written model.Tags, target string, save func(model.Tags) error, failed func()) {
 	go func() {
-		err := save(tags)
+		err := save(written)
 		fyne.Do(func() {
 			if err != nil {
 				if failed != nil {

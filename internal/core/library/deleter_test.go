@@ -145,6 +145,22 @@ func TestDeleter_DeletesTheSidecarWithTheRAW(t *testing.T) {
 		assert.FileExists(t, sidecar)
 	})
 
+	// The photo is gone by the time the sidecar is reached, so failing here would
+	// leave it in the list as an entry with no file behind it.
+	t.Run("a sidecar that cannot be removed does not fail the delete", func(t *testing.T) {
+		t.Parallel()
+		photo, sidecar := writePairWithSidecar(t)
+		require.NoError(t, os.Remove(sidecar))
+		require.NoError(t, os.Mkdir(sidecar, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(sidecar, "blocker"), nil, 0600))
+
+		require.NoError(t, NewDeleter().Delete(photo))
+
+		assert.NoFileExists(t, photo.ImagePath)
+		assert.NoFileExists(t, photo.RAWPath)
+		assert.DirExists(t, sidecar)
+	})
+
 	t.Run("a RAW without a sidecar deletes cleanly", func(t *testing.T) {
 		t.Parallel()
 		photo, sidecar := writePairWithSidecar(t)

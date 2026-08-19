@@ -42,7 +42,9 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	if err != nil {
 		return info, err
 	}
-	info.Tags = fillMissing(info.Tags, sidecar)
+	// The sidecar is the store the dialog writes on its own, so it holds the
+	// newer tags whenever the two disagree; the EXIF only fills what it lacks.
+	info.Tags = fillMissing(sidecar, info.Tags)
 	return info, nil
 }
 

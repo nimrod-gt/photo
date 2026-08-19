@@ -225,6 +225,18 @@ func TestParseTagsResponse(t *testing.T) {
 		assert.Contains(t, err.Error(), "I cannot read that file")
 	})
 
+	// Taken as a result it would blank the dialog and clear the sidecar.
+	t.Run("an empty structured output is a failure", func(t *testing.T) {
+		for _, output := range []string{
+			`{"structured_output":{"title":"","keywords":[]}}`,
+			`{"structured_output":{"title":"   ","keywords":null},"result":"nothing to describe"}`,
+		} {
+			_, err := parseTagsResponse([]byte(output), testNow)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "claude returned no tags")
+		}
+	})
+
 	t.Run("names the failing stage and the HTTP status", func(t *testing.T) {
 		_, err := parseTagsResponse([]byte(`{"is_error":true,"subtype":"error_during_execution",
 			"api_error_status":429,"result":"Overloaded"}`), testNow)

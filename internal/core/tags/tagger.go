@@ -125,10 +125,16 @@ func parseTagsResponse(out []byte, now time.Time) (model.Tags, error) {
 		return model.Tags{}, responseFailure(resp, "claude returned no tags", now)
 	}
 
-	return model.Tags{
+	generated := model.Tags{
 		Title:    resp.StructuredOutput.Title,
 		Keywords: resp.StructuredOutput.Keywords,
-	}, nil
+	}
+	// An empty answer is a failed run, not a result: taken as one it would blank
+	// the fields the dialog was filled with and clear the tags of the sidecar.
+	if generated.IsEmpty() {
+		return model.Tags{}, responseFailure(resp, "claude returned no tags", now)
+	}
+	return generated, nil
 }
 
 func responseFailure(resp claudeResponse, reason string, now time.Time) error {

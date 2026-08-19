@@ -169,6 +169,10 @@ var (
 
 	descriptionOpenPattern = regexp.MustCompile(`<rdf:Description\b[^>]*>`)
 
+	// The slash is captured so one pass over the text sees both ends of every
+	// nested element.
+	descriptionTagPattern = regexp.MustCompile(`<(/?)rdf:Description\b[^>]*>`)
+
 	// The URI alone is not enough: another sidecar may bind it to a prefix of its
 	// own, and the properties written below always spell the prefix dc.
 	dcBindingPattern = regexp.MustCompile(`xmlns:dc\s*=\s*['"]` + regexp.QuoteMeta(dcNamespace) + `['"]`)
@@ -189,11 +193,32 @@ func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cut := strings.Index(opened.text[opened.bodyStart:], descriptionEnd)
-	if cut < 0 {
-		return nil, errors.New("no rdf:Description element to update")
+	cut, err := descriptionClose(opened.text, opened.bodyStart)
+	if err != nil {
+		return nil, err
 	}
-	return []byte(withProperties(opened, opened.bodyStart+cut, sidecarProperties(tags, propertyDepth))), nil
+	return []byte(withProperties(opened, cut, sidecarProperties(tags, propertyDepth))), nil
+}
+
+// descriptionClose finds the close that pairs with the element openDescription
+// opened, not the first one in the text. Camera Raw writes whole rdf:Description
+// elements inside its structured values - crs:Look and its crs:Parameters among
+// them - and properties written before their close would describe the preset
+// instead of the photo, where no other tool looks for them.
+func descriptionClose(text string, from int) (int, error) {
+	depth := 0
+	for _, at := range descriptionTagPattern.FindAllStringSubmatchIndex(text[from:], -1) {
+		closing := at[2] != at[3]
+		switch {
+		case closing && depth == 0:
+			return from + at[0], nil
+		case closing:
+			depth--
+		case !strings.HasSuffix(text[from+at[0]:from+at[1]], "/>"):
+			depth++
+		}
+	}
+	return 0, errors.New("no rdf:Description element to update")
 }
 
 func elementPatterns() []*regexp.Regexp {
