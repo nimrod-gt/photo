@@ -165,40 +165,84 @@ var (
 		`(?s)[ \t]*<dc:(?:title|description|subject)\b.*?</dc:(?:title|description|subject)>[ \t]*\n?`)
 	dcEmptyPattern = regexp.MustCompile(`[ \t]*<dc:(?:title|description|subject)\b[^>]*/>[ \t]*\n?`)
 	dcAttrPattern  = regexp.MustCompile(`\s+dc:(?:title|description|subject)\s*=\s*("[^"]*"|'[^']*')`)
+
+	descriptionOpenPattern = regexp.MustCompile(`<rdf:Description\b[^>]*>`)
 )
 
 // A sidecar written by Lightroom carries develop settings we must not lose, so
-// only the Dublin Core properties we own are replaced.
+// only the Dublin Core properties we own are replaced. Regular expressions do
+// the surgery because encoding/xml cannot round-trip namespace prefixes and
+// would rewrite the whole document.
 func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 	text := string(existing)
 	if len(strings.TrimSpace(text)) == 0 {
 		return []byte(newSidecar(tags)), nil
 	}
-	if !strings.Contains(text, descriptionEnd) {
-		return nil, errors.New("no rdf:Description element to update")
-	}
 	text = dcElementPattern.ReplaceAllString(text, "")
 	text = dcEmptyPattern.ReplaceAllString(text, "")
 	text = dcAttrPattern.ReplaceAllString(text, "")
-	text = ensureDCNamespace(text)
 
-	cut := strings.Index(text, descriptionEnd)
+	opened, err := openDescription(text)
+	if err != nil {
+		return nil, err
+	}
+	cut := strings.Index(opened.text[opened.bodyStart:], descriptionEnd)
 	if cut < 0 {
 		return nil, errors.New("no rdf:Description element to update")
 	}
-	head := strings.TrimRight(text[:cut], " \t")
-	indent := text[len(head):cut]
-	if !strings.HasSuffix(head, "\n") {
-		head += "\n"
-	}
-	return []byte(head + sidecarProperties(tags, 2) + indent + text[cut:]), nil
+	return []byte(withProperties(opened, opened.bodyStart+cut, sidecarProperties(tags, 2))), nil
 }
 
-func ensureDCNamespace(text string) string {
-	if strings.Contains(text, dcNamespace) {
-		return text
+type description struct {
+	text      string
+	bodyStart int
+	indent    string
+}
+
+// The properties and the namespace declaration have to land in the same
+// rdf:Description, and exiftool writes a self-closing one that carries every
+// property as an attribute, so that form is expanded into an empty element
+// first. Declaring xmlns:dc on the element itself is redundant when an ancestor
+// already declares it, which XML allows, and it is the only form that is right
+// no matter where the sidecar came from.
+func openDescription(text string) (description, error) {
+	at := descriptionOpenPattern.FindStringIndex(text)
+	if at == nil {
+		return description{}, errors.New("no rdf:Description element to update")
 	}
-	return strings.Replace(text, "<rdf:Description", `<rdf:Description xmlns:dc="`+dcNamespace+`"`, 1)
+
+	tag := text[at[0]:at[1]]
+	if !strings.Contains(tag, dcNamespace) {
+		tag = strings.Replace(tag, "<rdf:Description", `<rdf:Description xmlns:dc="`+dcNamespace+`"`, 1)
+	}
+	bodyStart := len(tag)
+	if open, ok := strings.CutSuffix(tag, "/>"); ok {
+		tag = open + ">"
+		bodyStart = len(tag)
+		tag += descriptionEnd
+	}
+
+	return description{
+		text:      text[:at[0]] + tag + text[at[1]:],
+		bodyStart: at[0] + bodyStart,
+		indent:    lineIndent(text, at[0]),
+	}, nil
+}
+
+func withProperties(opened description, cut int, properties string) string {
+	head := strings.TrimRight(opened.text[:cut], " \t")
+	indent := opened.text[len(head):cut]
+	if !strings.HasSuffix(head, "\n") {
+		head += "\n"
+		if len(indent) == 0 {
+			indent = opened.indent
+		}
+	}
+	return head + properties + indent + opened.text[cut:]
+}
+
+func lineIndent(text string, at int) string {
+	return text[strings.LastIndex(text[:at], "\n")+1 : at]
 }
 
 const sidecarTemplate = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>

@@ -360,7 +360,7 @@ func (d *TagsDialog) refreshStatus() {
 		d.setStatus("")
 		return
 	}
-	if problems := current.Problems(); len(problems) > 0 {
+	if problems := current.Problems(); len(problems) != 0 {
 		d.setStatus(strings.Join(problems, "; "))
 		return
 	}

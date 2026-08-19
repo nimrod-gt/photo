@@ -5,6 +5,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	exif "github.com/dsoprea/go-exif/v3"
@@ -204,4 +205,79 @@ func writeBigEndianJPEG(t *testing.T, dir, name string) string {
 	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, withExif, 0600))
 	return path
+}
+
+func TestExifService_WriteStockTags_Clears(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	path := writeJPEGWithTags(t, t.TempDir(), "camera.jpg", map[string]any{"Make": "SONY"})
+	require.NoError(t, svc.WriteStockTags(path, model.Tags{
+		Title:    "The title written first.",
+		Keywords: []string{"lake", "fog"},
+	}))
+
+	t.Run("drops the title the user emptied", func(t *testing.T) {
+		require.NoError(t, svc.WriteStockTags(path, model.Tags{Keywords: []string{"lake"}}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Empty(t, info.Tags.Title)
+		assert.Equal(t, []string{"lake"}, info.Tags.Keywords)
+	})
+
+	t.Run("drops the keywords the user emptied", func(t *testing.T) {
+		require.NoError(t, svc.WriteStockTags(path, model.Tags{Title: "A second title."}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, "A second title.", info.Tags.Title)
+		assert.Empty(t, info.Tags.Keywords)
+	})
+
+	t.Run("keeps what the camera wrote", func(t *testing.T) {
+		flat, err := flatExifFromFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, flatValues(flat), "SONY")
+	})
+}
+
+func TestExifService_WriteStockTags_LeavesTheFileAloneWithNothingToWrite(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.WriteStockTags(path, model.Tags{}))
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+// JFIF claims the first segment of the file, so the EXIF one goes behind it.
+func TestExifService_WriteStockTags_KeepsTheJFIFHeaderFirst(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	plain, err := os.ReadFile(writePlainJPEG(t, dir, "plain.jpg"))
+	require.NoError(t, err)
+	jfif := []byte{markerStart, markerAPP0, 0, 16, 'J', 'F', 'I', 'F', 0, 1, 2, 0, 0, 1, 0, 1, 0, 0}
+
+	path := filepath.Join(dir, "jfif.jpg")
+	withJFIF := slices.Concat(plain[:2], jfif, plain[2:])
+	require.NoError(t, os.WriteFile(path, withJFIF, 0600))
+
+	require.NoError(t, NewExifService().WriteStockTags(path, model.Tags{Title: "A title."}))
+
+	updated, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, jfif, updated[2:2+len(jfif)], "the JFIF header must stay the first segment")
+	start, _, err := exifSegmentSpan(updated)
+	require.NoError(t, err)
+	assert.Equal(t, 2+len(jfif), start)
+	_, err = jpeg.Decode(bytes.NewReader(updated))
+	require.NoError(t, err)
 }

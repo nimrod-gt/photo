@@ -38,6 +38,9 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) error {
 	if err != nil {
 		return fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
+	if bytes.Equal(updated, original) {
+		return nil
+	}
 	return replaceFile(jpegPath, updated)
 }
 
@@ -46,19 +49,19 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) error {
 // Every existing tag - the MakerNote and the thumbnail included - keeps its
 // bytes and its offset, which no EXIF library manages when it re-encodes.
 func withStockTags(original []byte, tags model.Tags) ([]byte, error) {
-	entries := stockEntries(tags)
-	if len(entries) == 0 {
-		return original, nil
-	}
-
 	start, end, err := exifSegmentSpan(original)
 	if err != nil {
 		return nil, err
 	}
+	entries := stockEntries(tags)
 
 	var updatedExif []byte
 	if start == end {
-		updatedExif, err = newExif(entries)
+		written := filledEntries(entries)
+		if len(written) == 0 {
+			return original, nil
+		}
+		updatedExif, err = newExif(written)
 	} else {
 		updatedExif, err = exifWithTags(original[start+segmentHeaderSize+len(exifSegmentPrefix):end], entries)
 	}
@@ -76,25 +79,26 @@ type exifEntry struct {
 	value    []byte
 }
 
+// An empty value means the tag is dropped, so a title the user cleared in the
+// dialog is cleared in the file as well - the way the XMP sidecar behaves.
+// XPKeywords is UTF-16LE whatever byte order the file uses, because its type is
+// BYTE and the bytes are stored as they are written here.
 func stockEntries(tags model.Tags) []exifEntry {
-	var entries []exifEntry
+	description := exifEntry{tagID: tagImageDescription, tagType: typeASCII, unitSize: 1}
 	if title := strings.TrimSpace(tags.Title); len(title) != 0 {
-		entries = append(entries, exifEntry{
-			tagID:    tagImageDescription,
-			tagType:  typeASCII,
-			unitSize: 1,
-			value:    append([]byte(title), 0),
-		})
+		description.value = append([]byte(title), 0)
 	}
+
+	keywords := exifEntry{tagID: tagXPKeywords, tagType: typeByte, unitSize: 1}
 	if len(tags.Keywords) != 0 {
-		entries = append(entries, exifEntry{
-			tagID:    tagXPKeywords,
-			tagType:  typeByte,
-			unitSize: 1,
-			value:    encodeUTF16LE(strings.Join(tags.Keywords, keywordSeparator)),
-		})
+		keywords.value = encodeUTF16LE(strings.Join(tags.Keywords, keywordSeparator))
 	}
-	return entries
+
+	return []exifEntry{description, keywords}
+}
+
+func filledEntries(entries []exifEntry) []exifEntry {
+	return slices.DeleteFunc(slices.Clone(entries), func(entry exifEntry) bool { return len(entry.value) == 0 })
 }
 
 func exifWithTags(tiff []byte, entries []exifEntry) ([]byte, error) {
@@ -106,7 +110,7 @@ func exifWithTags(tiff []byte, entries []exifEntry) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return appendIfd(trimAppendedIfd(tiff, ifdOffset, existing, next), order, mergeEntries(existing, entries, order), next)
+	return appendIfd(trimAppendedIfd(tiff, ifdOffset, existing, next), order, mergeEntries(existing, entries), next)
 }
 
 func newExif(entries []exifEntry) ([]byte, error) {
@@ -166,10 +170,10 @@ func readEntry(tiff []byte, order binary.ByteOrder, at int) (exifEntry, error) {
 		tagType: order.Uint16(tiff[at+2:]),
 	}
 	entry.unitSize = tagTypeSize(entry.tagType)
-	size := entry.unitSize * int(order.Uint32(tiff[at+4:]))
-	if entry.unitSize == 0 || size < 0 {
+	if entry.unitSize == 0 {
 		return exifEntry{}, fmt.Errorf("tag 0x%04x has unknown type %d", entry.tagID, entry.tagType)
 	}
+	size := entry.unitSize * int(order.Uint32(tiff[at+4:]))
 	if size <= inlineSize {
 		entry.value = slices.Clone(tiff[at+8 : at+8+size])
 		return entry, nil
@@ -188,18 +192,20 @@ func tagTypeSize(tagType uint16) int {
 	return tagTypeSizes[tagType]
 }
 
-func mergeEntries(existing, added []exifEntry, order binary.ByteOrder) []exifEntry {
+func mergeEntries(existing, added []exifEntry) []exifEntry {
 	merged := slices.Clone(existing)
 	for _, entry := range added {
-		if entry.tagType == typeByte && order == binary.BigEndian {
-			// XPKeywords is always UTF-16LE, whatever the file's byte order is.
-			entry.tagType = typeByte
-		}
-		if index := slices.IndexFunc(merged, func(e exifEntry) bool { return e.tagID == entry.tagID }); index >= 0 {
+		index := slices.IndexFunc(merged, func(e exifEntry) bool { return e.tagID == entry.tagID })
+		switch {
+		case len(entry.value) == 0:
+			if index >= 0 {
+				merged = slices.Delete(merged, index, index+1)
+			}
+		case index >= 0:
 			merged[index] = entry
-			continue
+		default:
+			merged = append(merged, entry)
 		}
-		merged = append(merged, entry)
 	}
 	slices.SortStableFunc(merged, func(a, b exifEntry) int { return int(a.tagID) - int(b.tagID) })
 	return merged
@@ -254,7 +260,7 @@ func appendIfd(tiff []byte, order binary.ByteOrder, entries []exifEntry, next ui
 
 	for i, entry := range entries {
 		at := int(ifdOffset) + 2 + i*entrySize
-		units, err := exifOffset(len(entry.value) / entry.unitSize)
+		units, err := exifCount(len(entry.value) / entry.unitSize)
 		if err != nil {
 			return nil, err
 		}
@@ -285,6 +291,13 @@ func appendIfd(tiff []byte, order binary.ByteOrder, entries []exifEntry, next ui
 func exifOffset(value int) (uint32, error) {
 	if value < 0 || value > maxSegmentSize {
 		return 0, fmt.Errorf("the EXIF needs %d bytes, a JPEG segment holds %d", value, maxSegmentSize)
+	}
+	return uint32(value), nil
+}
+
+func exifCount(value int) (uint32, error) {
+	if value < 0 || value > maxSegmentSize {
+		return 0, fmt.Errorf("a tag holds %d values, a JPEG segment holds %d bytes", value, maxSegmentSize)
 	}
 	return uint32(value), nil
 }

@@ -35,6 +35,21 @@ const lightroomSidecar = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <?xpacket end="w"?>
 `
 
+const exiftoolSidecar = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+   tiff:Make="SONY"/>
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:Exposure2012="+0.35">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
 func TestSidecarPath(t *testing.T) {
 	t.Parallel()
 
@@ -168,6 +183,38 @@ func TestWriteSidecar(t *testing.T) {
 		tags, err := ReadSidecar(path)
 		require.NoError(t, err)
 		assert.Equal(t, "New title.", tags.Title)
+	})
+
+	t.Run("writes into a self-closing description", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, exiftoolSidecar)
+
+		require.NoError(t, WriteSidecar(path, model.Tags{Title: "New title.", Keywords: []string{"new"}}))
+
+		tags, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{Title: "New title.", Keywords: []string{"new"}}, tags)
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `tiff:Make="SONY"`)
+		assert.Contains(t, content, `crs:Exposure2012="+0.35"`)
+	})
+
+	t.Run("writes into a description that only carries attributes", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
+   dc:title="Old title." dc:subject="old"/>
+ </rdf:RDF>
+</x:xmpmeta>`)
+
+		require.NoError(t, WriteSidecar(path, model.Tags{Title: "New title.", Keywords: []string{"new"}}))
+
+		tags, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{Title: "New title.", Keywords: []string{"new"}}, tags)
+		assert.NotContains(t, readFile(t, path), "Old title.")
 	})
 
 	t.Run("leaves a sidecar it cannot update alone", func(t *testing.T) {

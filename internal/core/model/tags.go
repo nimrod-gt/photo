@@ -35,13 +35,13 @@ func (t Tags) Problems() []string {
 	if len(t.Keywords) != KeywordCount {
 		problems = append(problems, fmt.Sprintf("%d keywords, expected %d", len(t.Keywords), KeywordCount))
 	}
-	if bad := disallowed(t.Title); len(bad) > 0 {
+	if bad := disallowed(t.Title); len(bad) != 0 {
 		problems = append(problems, "title has disallowed characters: "+strings.Join(bad, " "))
 	}
-	if bad := disallowedKeywords(t.Keywords); len(bad) > 0 {
+	if bad := disallowedKeywords(t.Keywords); len(bad) != 0 {
 		problems = append(problems, "keywords have disallowed characters: "+strings.Join(bad, ", "))
 	}
-	if dupes := duplicateKeywords(t.Keywords); len(dupes) > 0 {
+	if dupes := duplicateKeywords(t.Keywords); len(dupes) != 0 {
 		problems = append(problems, "duplicate keywords: "+strings.Join(dupes, ", "))
 	}
 
@@ -85,7 +85,7 @@ func isAllowed(r rune) bool {
 func disallowedKeywords(keywords []string) []string {
 	var bad []string
 	for _, keyword := range keywords {
-		if len(disallowed(keyword)) > 0 {
+		if len(disallowed(keyword)) != 0 {
 			bad = append(bad, keyword)
 		}
 	}
@@ -116,7 +116,7 @@ func duplicateKeywords(keywords []string) []string {
 func ParseKeywordLine(line string) []string {
 	var keywords []string
 	for part := range strings.SplitSeq(line, ",") {
-		if trimmed := strings.TrimSpace(part); len(trimmed) > 0 {
+		if trimmed := strings.TrimSpace(part); len(trimmed) != 0 {
 			keywords = append(keywords, trimmed)
 		}
 	}

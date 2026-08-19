@@ -479,7 +479,9 @@ func (a *Application) handleTags() {
 	tagsDialog = ui.NewTagsDialog(opts, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnGenerate: func() {
 			req := tags.Request{Photo: photo, Notes: tagsDialog.Notes(), ClaudePath: tagsDialog.ClaudePath()}
-			prefs.SetString("claudePath", req.ClaudePath)
+			if len(req.ClaudePath) != 0 {
+				prefs.SetString("claudePath", req.ClaudePath)
+			}
 			a.generateTags(ctx, req, tagsDialog)
 		},
 		OnCopyTitle: func() {

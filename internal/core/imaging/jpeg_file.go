@@ -14,6 +14,7 @@ const (
 	markerSOI   = 0xd8
 	markerEOI   = 0xd9
 	markerSOS   = 0xda
+	markerAPP0  = 0xe0
 	markerAPP1  = 0xe1
 
 	segmentHeaderSize = 4
@@ -44,12 +45,14 @@ func spliceExifSegment(original []byte, start, end int, tiff []byte) ([]byte, er
 }
 
 // exifSegmentSpan reports where the EXIF segment sits. A file without one gets
-// an empty span right behind the start marker, where the EXIF specification
-// wants the segment.
+// an empty span where the segment belongs: right behind the start marker, or
+// behind the JFIF header when the file opens with one, because JFIF claims the
+// first segment for itself.
 func exifSegmentSpan(data []byte) (start, end int, err error) {
 	if len(data) < segmentHeaderSize || data[0] != markerStart || data[1] != markerSOI {
 		return 0, 0, errors.New("not a JPEG")
 	}
+	insertAt := 2
 	for pos := 2; pos+segmentHeaderSize <= len(data); {
 		marker := data[pos+1]
 		if data[pos] != markerStart || marker == markerSOS || marker == markerEOI {
@@ -63,9 +66,12 @@ func exifSegmentSpan(data []byte) (start, end int, err error) {
 		if marker == markerAPP1 && bytes.HasPrefix(data[pos+segmentHeaderSize:segmentEnd], exifSegmentPrefix) {
 			return pos, segmentEnd, nil
 		}
+		if marker == markerAPP0 && insertAt == pos {
+			insertAt = segmentEnd
+		}
 		pos = segmentEnd
 	}
-	return 2, 2, nil
+	return insertAt, insertAt, nil
 }
 
 // The file is replaced through a temp file in its own directory, so a failed
@@ -99,8 +105,15 @@ func writeTempFile(path string, data []byte) (string, error) {
 	return tmpPath, nil
 }
 
+// The data is flushed before the rename, because the rename only publishes the
+// directory entry: without the sync a crash can leave a truncated file standing
+// where the original photo used to be.
 func writeAndClose(file *os.File, data []byte) error {
 	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return err
 	}
