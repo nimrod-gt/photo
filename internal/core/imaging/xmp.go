@@ -19,6 +19,7 @@ const (
 	sidecarExt     = ".xmp"
 	sidecarIndent  = "  "
 	descriptionEnd = "</rdf:Description>"
+	propertyDepth  = 2
 )
 
 // A RAW file cannot carry EXIF written by us, so its metadata goes into an XMP
@@ -170,6 +171,10 @@ var (
 	dcAttrPattern  = regexp.MustCompile(`\s+dc:(?:title|description|subject)\s*=\s*("[^"]*"|'[^']*')`)
 
 	descriptionOpenPattern = regexp.MustCompile(`<rdf:Description\b[^>]*>`)
+
+	// The URI alone is not enough: another sidecar may bind it to a prefix of its
+	// own, and the properties written below always spell the prefix dc.
+	dcBindingPattern = regexp.MustCompile(`xmlns:dc\s*=\s*['"]` + regexp.QuoteMeta(dcNamespace) + `['"]`)
 )
 
 // A sidecar written by Lightroom carries develop settings we must not lose, so
@@ -193,7 +198,7 @@ func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 	if cut < 0 {
 		return nil, errors.New("no rdf:Description element to update")
 	}
-	return []byte(withProperties(opened, opened.bodyStart+cut, sidecarProperties(tags, 2))), nil
+	return []byte(withProperties(opened, opened.bodyStart+cut, sidecarProperties(tags, propertyDepth))), nil
 }
 
 type description struct {
@@ -215,7 +220,7 @@ func openDescription(text string) (description, error) {
 	}
 
 	tag := text[at[0]:at[1]]
-	if !strings.Contains(tag, dcNamespace) {
+	if !dcBindingPattern.MatchString(tag) {
 		tag = strings.Replace(tag, "<rdf:Description", `<rdf:Description xmlns:dc="`+dcNamespace+`"`, 1)
 	}
 	bodyStart := len(tag)
@@ -258,8 +263,10 @@ const sidecarTemplate = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <?xpacket end="w"?>
 `
 
+// The depth matches the one mergeSidecar writes, so reopening a sidecar we
+// created and saving it again changes nothing.
 func newSidecar(tags model.Tags) string {
-	return fmt.Sprintf(sidecarTemplate, sidecarProperties(tags, 3))
+	return fmt.Sprintf(sidecarTemplate, sidecarProperties(tags, propertyDepth))
 }
 
 // The title is written to both dc:title and dc:description because stock sites

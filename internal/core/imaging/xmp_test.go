@@ -258,3 +258,44 @@ func TestWriteSidecar_LeavesAnUnchangedSidecarAlone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before.ModTime(), after.ModTime())
 }
+
+func TestWriteSidecar_RewritesASidecarItCreatedUnchanged(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "DSC001.xmp")
+	written := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon", "tram"}}
+	require.NoError(t, WriteSidecar(path, written))
+	created := readFile(t, path)
+
+	require.NoError(t, WriteSidecar(path, written))
+
+	assert.Equal(t, created, readFile(t, path))
+}
+
+func TestMergeSidecar_DeclaresTheDCPrefixItWrites(t *testing.T) {
+	t.Parallel()
+
+	// The Dublin Core URI is bound to a prefix of its own, so nothing in the file
+	// declares dc: and the properties written below have to bring it themselves.
+	const foreignPrefix = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:dcx="http://purl.org/dc/elements/1.1/">
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
+	merged, err := mergeSidecar([]byte(foreignPrefix), model.Tags{
+		Title:    "A tram climbs the hill.",
+		Keywords: []string{"lisbon"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(merged), `xmlns:dc="`+dcNamespace+`"`)
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, "A tram climbs the hill.", parsed.tags().Title)
+	assert.Equal(t, []string{"lisbon"}, parsed.tags().Keywords)
+}

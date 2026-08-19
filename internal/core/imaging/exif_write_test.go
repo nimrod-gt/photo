@@ -2,6 +2,7 @@ package imaging
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image/jpeg"
 	"os"
 	"path/filepath"
@@ -280,4 +281,85 @@ func TestExifService_WriteStockTags_KeepsTheJFIFHeaderFirst(t *testing.T) {
 	assert.Equal(t, 2+len(jfif), start)
 	_, err = jpeg.Decode(bytes.NewReader(updated))
 	require.NoError(t, err)
+}
+
+const (
+	subIfdTableOffset = 16
+	subIfdOffset      = 46
+)
+
+// tiffWithSubIfd lays out a block whose IFD0 sits past the header with its own
+// values ending at the block end - the shape trimAppendedIfd cuts - and reaches
+// a sub-IFD through an inline pointer.
+func tiffWithSubIfd(pointer uint32) []byte {
+	order := binary.LittleEndian
+	tiff := make([]byte, 66)
+	copy(tiff, "II")
+	order.PutUint16(tiff[2:], 42)
+	order.PutUint32(tiff[4:], subIfdTableOffset)
+
+	order.PutUint16(tiff[subIfdTableOffset:], 2)
+	writeTestEntry(tiff, 18, 0x8769, 4, 1, pointer)
+	writeTestEntry(tiff, 30, tagImageDescription, typeASCII, 10, 56)
+
+	copy(tiff[subIfdOffset:], "SUBIFDDATA")
+	copy(tiff[56:], "old title\x00")
+	return tiff
+}
+
+func writeTestEntry(tiff []byte, at int, tagID, tagType uint16, units, value uint32) {
+	order := binary.LittleEndian
+	order.PutUint16(tiff[at:], tagID)
+	order.PutUint16(tiff[at+2:], tagType)
+	order.PutUint32(tiff[at+4:], units)
+	order.PutUint32(tiff[at+8:], value)
+}
+
+func TestTrimAppendedIfd(t *testing.T) {
+	t.Parallel()
+
+	order := binary.ByteOrder(binary.LittleEndian)
+
+	t.Run("keeps a block whose sub-IFD sits behind the table", func(t *testing.T) {
+		t.Parallel()
+		tiff := tiffWithSubIfd(subIfdOffset)
+		entries, next, err := readIfd(tiff, order, subIfdTableOffset)
+		require.NoError(t, err)
+
+		assert.Equal(t, tiff, trimAppendedIfd(tiff, order, subIfdTableOffset, entries, next))
+	})
+
+	t.Run("cuts a block whose sub-IFD sits before the table", func(t *testing.T) {
+		t.Parallel()
+		tiff := tiffWithSubIfd(8)
+		entries, next, err := readIfd(tiff, order, subIfdTableOffset)
+		require.NoError(t, err)
+
+		assert.Equal(t, tiff[:subIfdTableOffset], trimAppendedIfd(tiff, order, subIfdTableOffset, entries, next))
+	})
+}
+
+func TestExifWithTags_KeepsASubIfdBehindTheTable(t *testing.T) {
+	t.Parallel()
+
+	tiff := tiffWithSubIfd(subIfdOffset)
+	updated, err := exifWithTags(tiff, stockEntries(model.Tags{Title: "New title.", Keywords: []string{"lisbon"}}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "SUBIFDDATA", string(updated[subIfdOffset:subIfdOffset+len("SUBIFDDATA")]))
+
+	entries, _, err := readIfd(updated, binary.LittleEndian, binary.LittleEndian.Uint32(updated[4:]))
+	require.NoError(t, err)
+	pointer, ok := entryByTag(entries, 0x8769)
+	require.True(t, ok)
+	assert.Equal(t, uint32(subIfdOffset), binary.LittleEndian.Uint32(pointer.value))
+}
+
+func entryByTag(entries []exifEntry, tagID uint16) (exifEntry, bool) {
+	for _, entry := range entries {
+		if entry.tagID == tagID {
+			return entry, true
+		}
+	}
+	return exifEntry{}, false
 }

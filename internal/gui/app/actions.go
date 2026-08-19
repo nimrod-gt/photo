@@ -487,7 +487,7 @@ func (a *Application) handleTags() {
 		OnClose:    func() { session.close(cancel) },
 	})
 
-	a.dialogs.open(dialogTags, session.dialog, cancel)
+	a.dialogs.open(dialogTags, session.dialog, func() { session.close(cancel) })
 	session.dialog.Show()
 	session.prefill()
 }
@@ -526,21 +526,25 @@ func (s *tagsSession) generate(ctx context.Context) {
 // The sidecar belongs to us alone, so it is written without asking - right
 // after a run and again on close, once the user has edited the tags. Writing
 // into the JPEG stays behind its button, because that file is the photo itself.
-func (s *tagsSession) saveSidecar(generated model.Tags) {
-	if !s.photo.HasRAW() || generated.IsEmpty() || generated.Equal(s.saved) {
+// The tags count as saved before the write finishes, so a second close does not
+// repeat it, and a failed write puts the previous ones back so the next close
+// tries again.
+func (s *tagsSession) saveSidecar(written model.Tags) {
+	if !s.photo.HasRAW() || written.IsEmpty() || written.Equal(s.saved) {
 		return
 	}
-	s.saved = generated
+	previous := s.saved
+	s.saved = written
 	path := imaging.SidecarPath(s.photo.RAWPath)
-	s.app.saveTags(generated, filepath.Base(path), func(saved model.Tags) error {
+	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) error {
 		return imaging.WriteSidecar(path, saved)
-	})
+	}, func() { s.saved = previous })
 }
 
 func (s *tagsSession) saveJPEG() {
 	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) error {
 		return s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
-	})
+	}, nil)
 }
 
 func (s *tagsSession) close(cancel context.CancelFunc) {
@@ -552,30 +556,33 @@ func (s *tagsSession) close(cancel context.CancelFunc) {
 	s.dialog.Hide()
 }
 
-// The tags already in the sidecar count as saved, so closing the dialog without
-// touching them writes nothing.
+// The tags the dialog is filled with count as saved, so closing it without
+// touching them writes nothing. Comparing against the sidecar instead would
+// overwrite it with the EXIF of the JPEG whenever the two disagree.
 func (s *tagsSession) prefill() {
 	go func() {
 		info, err := s.app.exifService.GetStockInfo(s.photo)
 		if err != nil {
 			log.Printf("Failed to read tags of %s: %v", s.photo.Name, err)
-			return
 		}
 		fyne.Do(func() {
 			if !s.app.dialogs.isCurrent(s.dialog) {
 				return
 			}
-			s.saved = info.Sidecar
+			s.saved = info.Tags
 			s.dialog.SetPhotoInfo(info.Tags, info.Taken)
 		})
 	}()
 }
 
-func (a *Application) saveTags(tags model.Tags, target string, save func(model.Tags) error) {
+func (a *Application) saveTags(tags model.Tags, target string, save func(model.Tags) error, failed func()) {
 	go func() {
 		err := save(tags)
 		fyne.Do(func() {
 			if err != nil {
+				if failed != nil {
+					failed()
+				}
 				a.showError("Failed to save tags to "+target, err)
 				return
 			}

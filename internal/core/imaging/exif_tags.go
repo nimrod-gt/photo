@@ -3,6 +3,7 @@ package imaging
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -17,9 +18,8 @@ const exifDateLayout = "2006:01:02 15:04:05"
 var dateTagsByPriority = []string{"DateTimeOriginal", "DateTimeDigitized", "DateTime"}
 
 type StockInfo struct {
-	Tags    model.Tags
-	Sidecar model.Tags
-	Taken   time.Time
+	Tags  model.Tags
+	Taken time.Time
 }
 
 // GetStockInfo reads what the files already carry: the EXIF of the JPEG and,
@@ -36,11 +36,12 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	if !photo.HasRAW() {
 		return info, nil
 	}
+	// The EXIF is already read at this point, so an unreadable sidecar is
+	// reported without throwing away what the JPEG itself carries.
 	sidecar, err := ReadSidecar(SidecarPath(photo.RAWPath))
 	if err != nil {
-		return StockInfo{}, err
+		return info, err
 	}
-	info.Sidecar = sidecar
 	info.Tags = fillMissing(info.Tags, sidecar)
 	return info, nil
 }
@@ -84,12 +85,12 @@ func stockInfoFromTags(flat []exif.ExifTag) StockInfo {
 		if tag.IfdPath == thumbnailIfdPath {
 			continue
 		}
-		switch tag.TagName {
-		case "ImageDescription":
+		switch {
+		case tag.TagName == "ImageDescription":
 			info.Tags.Title = strings.TrimSpace(exifString(tag.Value))
-		case "XPKeywords":
+		case tag.TagName == "XPKeywords":
 			info.Tags.Keywords = parseKeywordTag(tag.Value)
-		case "DateTimeOriginal", "DateTimeDigitized", "DateTime":
+		case slices.Contains(dateTagsByPriority, tag.TagName):
 			dates[tag.TagName] = strings.TrimSpace(exifString(tag.Value))
 		}
 	}

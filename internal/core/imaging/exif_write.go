@@ -110,7 +110,8 @@ func exifWithTags(tiff []byte, entries []exifEntry) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return appendIfd(trimAppendedIfd(tiff, ifdOffset, existing, next), order, mergeEntries(existing, entries), next)
+	trimmed := trimAppendedIfd(tiff, order, ifdOffset, existing, next)
+	return appendIfd(trimmed, order, mergeEntries(existing, entries), next)
 }
 
 func newExif(entries []exifEntry) ([]byte, error) {
@@ -173,7 +174,11 @@ func readEntry(tiff []byte, order binary.ByteOrder, at int) (exifEntry, error) {
 	if entry.unitSize == 0 {
 		return exifEntry{}, fmt.Errorf("tag 0x%04x has unknown type %d", entry.tagID, entry.tagType)
 	}
-	size := entry.unitSize * int(order.Uint32(tiff[at+4:]))
+	units, err := exifCount(int(order.Uint32(tiff[at+4:])))
+	if err != nil {
+		return exifEntry{}, fmt.Errorf("tag 0x%04x: %w", entry.tagID, err)
+	}
+	size := entry.unitSize * int(units)
 	if size <= inlineSize {
 		entry.value = slices.Clone(tiff[at+8 : at+8+size])
 		return entry, nil
@@ -214,12 +219,15 @@ func mergeEntries(existing, added []exifEntry) []exifEntry {
 // trimAppendedIfd drops the IFD0 an earlier save appended, so that saving the
 // tags again reuses its bytes instead of growing the block every time. The tail
 // is only cut when it holds nothing but that IFD and the values it owns.
-func trimAppendedIfd(tiff []byte, ifdOffset uint32, entries []exifEntry, next uint32) []byte {
+func trimAppendedIfd(tiff []byte, order binary.ByteOrder, ifdOffset uint32, entries []exifEntry, next uint32) []byte {
 	if ifdOffset <= tiffHeaderSize || next >= ifdOffset {
 		return tiff
 	}
 	tail := int(ifdOffset) + 2 + len(entries)*entrySize + 4
 	for _, entry := range entries {
+		if pointsPastIfd(entry, order, ifdOffset) {
+			return tiff
+		}
 		if len(entry.value) <= inlineSize {
 			continue
 		}
@@ -232,6 +240,18 @@ func trimAppendedIfd(tiff []byte, ifdOffset uint32, entries []exifEntry, next ui
 		return tiff
 	}
 	return tiff[:ifdOffset]
+}
+
+var ifdPointerTags = []uint16{0x8769, 0x8825, 0xa005}
+
+// A sub-IFD is reached through a four byte offset stored inline, so the loop
+// over the values the IFD owns never sees it. Cutting the tail would take the
+// Exif or GPS block with it and leave the pointer aimed at rewritten bytes.
+func pointsPastIfd(entry exifEntry, order binary.ByteOrder, ifdOffset uint32) bool {
+	if !slices.Contains(ifdPointerTags, entry.tagID) || len(entry.value) < inlineSize {
+		return false
+	}
+	return order.Uint32(entry.value) >= ifdOffset
 }
 
 // appendIfd writes the IFD and the values it owns behind the existing block and
@@ -259,31 +279,38 @@ func appendIfd(tiff []byte, order binary.ByteOrder, entries []exifEntry, next ui
 	out = append(out, table...)
 
 	for i, entry := range entries {
-		at := int(ifdOffset) + 2 + i*entrySize
-		units, err := exifCount(len(entry.value) / entry.unitSize)
+		out, err = writeEntry(out, order, int(ifdOffset)+2+i*entrySize, entry)
 		if err != nil {
 			return nil, err
 		}
-		order.PutUint16(out[at:], entry.tagID)
-		order.PutUint16(out[at+2:], entry.tagType)
-		order.PutUint32(out[at+4:], units)
-		if len(entry.value) <= inlineSize {
-			copy(out[at+8:at+8+inlineSize], entry.value)
-			continue
-		}
-		if len(out)%2 != 0 {
-			out = append(out, 0)
-		}
-		valueOffset, err := exifOffset(len(out))
-		if err != nil {
-			return nil, err
-		}
-		order.PutUint32(out[at+8:], valueOffset)
-		out = append(out, entry.value...)
 	}
 
 	order.PutUint32(out[4:], ifdOffset)
 	return out, nil
+}
+
+func writeEntry(out []byte, order binary.ByteOrder, at int, entry exifEntry) ([]byte, error) {
+	units, err := exifCount(len(entry.value) / entry.unitSize)
+	if err != nil {
+		return nil, err
+	}
+	order.PutUint16(out[at:], entry.tagID)
+	order.PutUint16(out[at+2:], entry.tagType)
+	order.PutUint32(out[at+4:], units)
+	if len(entry.value) <= inlineSize {
+		copy(out[at+8:at+8+inlineSize], entry.value)
+		return out, nil
+	}
+
+	if len(out)%2 != 0 {
+		out = append(out, 0)
+	}
+	valueOffset, err := exifOffset(len(out))
+	if err != nil {
+		return nil, err
+	}
+	order.PutUint32(out[at+8:], valueOffset)
+	return append(out, entry.value...), nil
 }
 
 // Everything an EXIF block addresses has to fit into one JPEG segment, which
