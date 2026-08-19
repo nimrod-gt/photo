@@ -66,6 +66,17 @@ internal/
     ui/         Fyne widgets
 ```
 
+### Threading
+
+The app is on the `fyne.Do` threading model. It is declared twice: `app.SetMetadata` in
+`internal/gui/app/app.go`, which holds wherever the binary is launched from, and `FyneApp.toml`
+(`[Migrations] fyneDo = true`), which is what makes `fyne package` build with the `migrated_fynedo`
+tag and compile the checks out.
+That declaration turns off Fyne's runtime thread checks, so nothing warns any more when a widget is
+touched from the wrong goroutine: every goroutine that reads or changes a widget must wrap that work
+in `fyne.Do`. Callbacks handed to `internal/core` run on its worker goroutines and count as such.
+`fyne.DoAndWait` deadlocks when called from the main goroutine and is used nowhere.
+
 ## Commands
 
 ### Building and Testing

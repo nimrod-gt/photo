@@ -59,7 +59,16 @@ func New() *Application {
 	}
 }
 
+// FyneApp.toml carries the same declaration, but Fyne only reads it next to the
+// working directory or the executable, which a run from an IDE satisfies neither
+// of. Nothing else is set here, so the file still supplies the metadata wherever
+// it is found.
+func declareThreadingMigration() {
+	fyneapp.SetMetadata(fyne.AppMetadata{Migrations: map[string]bool{"fyneDo": true}})
+}
+
 func (a *Application) Run() {
+	declareThreadingMigration()
 	a.fyneApp = fyneapp.NewWithID("com.photo.viewer")
 	fyneApp := a.fyneApp
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
