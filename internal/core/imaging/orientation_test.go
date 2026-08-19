@@ -268,21 +268,21 @@ func TestApplyOrientationIdentity(t *testing.T) {
 	assert.Equal(t, src, dst)
 }
 
-func TestToNRGBA_AlreadyNRGBA(t *testing.T) {
-	t.Parallel()
-
-	src := makeTestImage(4, 3)
-	dst := toNRGBA(src)
-	assert.Same(t, src, dst)
-}
-
-func TestToNRGBA_ConvertsOtherTypes(t *testing.T) {
+func TestToRGBA_AlreadyRGBA(t *testing.T) {
 	t.Parallel()
 
 	src := image.NewRGBA(image.Rect(0, 0, 4, 3))
+	dst := toRGBA(src)
+	assert.Same(t, src, dst)
+}
+
+func TestToRGBA_ConvertsOtherTypes(t *testing.T) {
+	t.Parallel()
+
+	src := image.NewNRGBA(image.Rect(0, 0, 4, 3))
 	src.Set(1, 2, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
 
-	dst := toNRGBA(src)
+	dst := toRGBA(src)
 	assert.Equal(t, 4, dst.Bounds().Dx())
 	assert.Equal(t, 3, dst.Bounds().Dy())
 	assert.Equal(t, color.NRGBA{R: 10, G: 20, B: 30, A: 255}, pixelAt(dst, 1, 2))
@@ -325,4 +325,27 @@ func TestLoadImageOriented(t *testing.T) {
 		_, err := LoadImageOriented("/nonexistent/x.jpg", 1)
 		assert.Error(t, err)
 	})
+}
+
+func TestApplyOrientationSubImage(t *testing.T) {
+	t.Parallel()
+
+	full := image.NewRGBA(image.Rect(0, 0, 8, 6))
+	for y := range 6 {
+		for x := range 8 {
+			full.SetRGBA(x, y, color.RGBA{R: uint8(x * 10), G: uint8(y * 10), B: uint8(x + y), A: 255})
+		}
+	}
+	src := full.SubImage(image.Rect(2, 1, 6, 4)).(*image.RGBA)
+
+	dst := applyOrientation(src, 6)
+	require.Equal(t, 3, dst.Bounds().Dx())
+	require.Equal(t, 4, dst.Bounds().Dy())
+
+	for y := range 4 {
+		for x := range 3 {
+			expected := pixelAt(src, 2+y, 1+2-x)
+			assert.Equal(t, expected, pixelAt(dst, x, y), "pixel (%d,%d)", x, y)
+		}
+	}
 }

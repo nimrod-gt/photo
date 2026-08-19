@@ -75,27 +75,29 @@ func applyOrientation(img image.Image, orientation uint16) image.Image {
 	}
 }
 
-func toNRGBA(img image.Image) *image.NRGBA {
-	if n, ok := img.(*image.NRGBA); ok {
-		return n
+// image/draw only has a specialized YCbCr converter for an *image.RGBA
+// destination; an *image.NRGBA one falls back to a per-pixel interface path
+func toRGBA(img image.Image) *image.RGBA {
+	if rgba, ok := img.(*image.RGBA); ok {
+		return rgba
 	}
 	b := img.Bounds()
-	dst := image.NewNRGBA(b)
+	dst := image.NewRGBA(b)
 	draw.Draw(dst, b, img, b.Min, draw.Src)
 	return dst
 }
 
 // srcXY maps a destination pixel (x, y) to its source coordinates given the
 // source width and height
-func transformPixels(img image.Image, swapDims bool, srcXY func(x, y, w, h int) (int, int)) *image.NRGBA {
-	src := toNRGBA(img)
+func transformPixels(img image.Image, swapDims bool, srcXY func(x, y, w, h int) (int, int)) *image.RGBA {
+	src := toRGBA(img)
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	dw, dh := w, h
 	if swapDims {
 		dw, dh = h, w
 	}
-	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
+	dst := image.NewRGBA(image.Rect(0, 0, dw, dh))
 	for y := range dh {
 		for x := range dw {
 			sx, sy := srcXY(x, y, w, h)
