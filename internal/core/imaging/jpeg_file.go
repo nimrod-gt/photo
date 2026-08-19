@@ -88,6 +88,21 @@ func replaceFile(path string, data []byte) error {
 	return nil
 }
 
+// Writing tags changes what the photo says about itself, not when it was taken,
+// so its modification time is put back afterwards. A fresh one would move the
+// file under the time sort, out of the group the Today button selects, and
+// shift the date the tags dialog offers the next time it opens.
+func replaceFileKeepingModTime(path string, data []byte) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if err := replaceFile(path, data); err != nil {
+		return err
+	}
+	return os.Chtimes(path, info.ModTime(), info.ModTime())
+}
+
 func writeTempFile(path string, data []byte) (string, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {

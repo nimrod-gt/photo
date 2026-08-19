@@ -326,28 +326,34 @@ func (d *TagsDialog) finishRun() {
 
 func (d *TagsDialog) refreshStatus() {
 	current := d.Tags()
+	problems := current.Problems()
 	setEnabled(d.copyTitleBtn, len(current.Title) != 0)
 	setEnabled(d.copyKeywordsBtn, len(current.Keywords) != 0)
-	if d.saveJPEGBtn != nil {
-		setEnabled(d.saveJPEGBtn, !current.IsEmpty())
-	}
+	// Writing into the JPEG is the one action here that changes the photo itself,
+	// so it stays shut until the tags meet every stock requirement - the status
+	// line below already spells out what is missing. Nothing is lost meanwhile:
+	// the sidecar is written whatever state the fields are in.
+	setEnabled(d.saveJPEGBtn, len(problems) == 0)
 	if len(current.Title) == 0 && len(current.Keywords) == 0 {
 		d.setStatus("")
 		return
 	}
-	if problems := current.Problems(); len(problems) != 0 {
+	if len(problems) != 0 {
 		d.setStatus(strings.Join(problems, "; "))
 		return
 	}
 	d.setStatus(fmt.Sprintf("%d keywords, ready to upload", len(current.Keywords)))
 }
 
+// A photo with no JPEG to write into has no button to enable.
 func setEnabled(button *widget.Button, enabled bool) {
-	if enabled {
+	switch {
+	case button == nil:
+	case enabled:
 		button.Enable()
-		return
+	default:
+		button.Disable()
 	}
-	button.Disable()
 }
 
 func (d *TagsDialog) setStatus(text string) {

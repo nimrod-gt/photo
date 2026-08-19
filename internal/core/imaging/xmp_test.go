@@ -1,6 +1,10 @@
 package imaging
 
 import (
+	"bytes"
+	"encoding/xml"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -325,6 +329,72 @@ func TestMergeSidecar_DeclaresTheDCPrefixItWrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "A tram climbs the hill.", parsed.tags().Title)
 	assert.Equal(t, []string{"lisbon"}, parsed.tags().Keywords)
+}
+
+// A second xmlns:dc on one element is not a document a strict parser will read,
+// and the develop settings the regex surgery exists to preserve would go down
+// with it.
+func TestMergeSidecar_DescriptionBoundToAnotherVocabulary(t *testing.T) {
+	t.Parallel()
+
+	const foreignDC = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/terms/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+   <crs:Exposure2012>+0.50</crs:Exposure2012>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+	written := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}}
+
+	merged, err := mergeSidecar([]byte(foreignDC), written)
+	require.NoError(t, err)
+
+	text := string(merged)
+	assert.Equal(t, 1, strings.Count(text, `xmlns:dc="`+dcNamespace+`"`))
+	assert.Contains(t, text, `xmlns:dc="http://purl.org/dc/terms/"`,
+		"the foreign binding must be left as it was found")
+	assert.Contains(t, text, "<crs:Exposure2012>+0.50</crs:Exposure2012>",
+		"the develop settings must survive")
+	requireWellFormed(t, merged)
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, written, parsed.tags())
+
+	// The description written here comes first, so the next save edits it in
+	// place instead of adding another one beside it.
+	again, err := mergeSidecar(merged, written)
+	require.NoError(t, err)
+	assert.Equal(t, text, string(again))
+}
+
+func TestMergeSidecar_NoRDFToHoldADescriptionOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	const noRDF = `<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/terms/">
+</rdf:Description>
+`
+
+	_, err := mergeSidecar([]byte(noRDF), model.Tags{Title: "A tram climbs the hill."})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no rdf:RDF element")
+}
+
+func requireWellFormed(t *testing.T, data []byte) {
+	t.Helper()
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Strict = true
+	for {
+		_, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		require.NoError(t, err)
+	}
 }
 
 // A sidecar an earlier save left with an empty property used to lose everything

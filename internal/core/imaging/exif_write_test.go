@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	exif "github.com/dsoprea/go-exif/v3"
 
@@ -95,6 +96,20 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		assert.Equal(t, os.FileMode(0640), info.Mode().Perm())
 	})
 
+	t.Run("keeps the modification time of the original", func(t *testing.T) {
+		t.Parallel()
+		path := writePlainJPEG(t, t.TempDir(), "modtime.jpg")
+		taken := time.Date(2024, time.June, 13, 10, 30, 0, 0, time.UTC)
+		require.NoError(t, os.Chtimes(path, taken, taken))
+
+		require.NoError(t, svc.WriteStockTags(path, written))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.True(t, info.ModTime().Equal(taken),
+			"writing tags must not move the photo under the time sort, got %s", info.ModTime())
+	})
+
 	t.Run("keeps what follows the primary image", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
@@ -142,6 +157,46 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		assert.Equal(t, firstSize, sizeOf(t, path), "saving again must reuse the appended IFD")
 	})
 
+	t.Run("carries a title outside ASCII in XPTitle alone", func(t *testing.T) {
+		t.Parallel()
+		path := writePlainJPEG(t, t.TempDir(), "accented.jpg")
+		accented := model.Tags{Title: "Un cafe\u0301 sur la place, Montre\u0301al.", Keywords: []string{"cafe"}}
+
+		require.NoError(t, svc.WriteStockTags(path, accented))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, accented, info.Tags)
+
+		names := tagNamesOf(t, path)
+		assert.Contains(t, names, "XPTitle")
+		assert.NotContains(t, names, "ImageDescription",
+			"a tag typed ASCII must not be handed bytes outside ASCII")
+	})
+
+	t.Run("writes a title inside ASCII into both title tags", func(t *testing.T) {
+		t.Parallel()
+		path := writePlainJPEG(t, t.TempDir(), "ascii.jpg")
+
+		require.NoError(t, svc.WriteStockTags(path, written))
+
+		names := tagNamesOf(t, path)
+		assert.Contains(t, names, "ImageDescription")
+		assert.Contains(t, names, "XPTitle")
+	})
+
+	t.Run("clears both title tags when the title is emptied", func(t *testing.T) {
+		t.Parallel()
+		path := writePlainJPEG(t, t.TempDir(), "cleared.jpg")
+		require.NoError(t, svc.WriteStockTags(path, written))
+
+		require.NoError(t, svc.WriteStockTags(path, model.Tags{Keywords: written.Keywords}))
+
+		names := tagNamesOf(t, path)
+		assert.NotContains(t, names, "ImageDescription")
+		assert.NotContains(t, names, "XPTitle")
+	})
+
 	t.Run("refuses a file that is not a JPEG", func(t *testing.T) {
 		t.Parallel()
 		path := filepath.Join(t.TempDir(), "notes.txt")
@@ -160,6 +215,17 @@ func TestExifService_WriteStockTags(t *testing.T) {
 
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
+}
+
+func tagNamesOf(t *testing.T, path string) []string {
+	t.Helper()
+	flat, err := flatExifFromFile(path)
+	require.NoError(t, err)
+	names := make([]string, 0, len(flat))
+	for _, tag := range flat {
+		names = append(names, tag.TagName)
+	}
+	return names
 }
 
 func flatValues(flat []exif.ExifTag) []string {

@@ -81,6 +81,7 @@ const thumbnailIfdPath = "IFD1"
 
 func stockInfoFromTags(flat []exif.ExifTag) StockInfo {
 	var info StockInfo
+	var xpTitle string
 	dates := make(map[string]string, len(dateTagsByPriority))
 
 	for _, tag := range flat {
@@ -90,11 +91,19 @@ func stockInfoFromTags(flat []exif.ExifTag) StockInfo {
 		switch {
 		case tag.TagName == "ImageDescription":
 			info.Tags.Title = strings.TrimSpace(exifString(tag.Value))
+		case tag.TagName == "XPTitle":
+			xpTitle = strings.TrimSpace(exifString(tag.Value))
 		case tag.TagName == "XPKeywords":
 			info.Tags.Keywords = parseKeywordTag(tag.Value)
 		case slices.Contains(dateTagsByPriority, tag.TagName):
 			dates[tag.TagName] = strings.TrimSpace(exifString(tag.Value))
 		}
+	}
+
+	// XPTitle is UTF-16 and carries the titles ImageDescription cannot spell, so
+	// it wins wherever a file has both.
+	if len(xpTitle) != 0 {
+		info.Tags.Title = xpTitle
 	}
 
 	for _, name := range dateTagsByPriority {

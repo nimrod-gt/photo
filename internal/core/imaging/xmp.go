@@ -176,6 +176,10 @@ var (
 	// The URI alone is not enough: another sidecar may bind it to a prefix of its
 	// own, and the properties written below always spell the prefix dc.
 	dcBindingPattern = regexp.MustCompile(`xmlns:dc\s*=\s*['"]` + regexp.QuoteMeta(dcNamespace) + `['"]`)
+
+	anyDCBindingPattern = regexp.MustCompile(`xmlns:dc\s*=`)
+
+	rdfOpenPattern = regexp.MustCompile(`<rdf:RDF\b[^>]*>`)
 )
 
 // A sidecar written by Lightroom carries develop settings we must not lose, so
@@ -190,6 +194,9 @@ func mergeSidecar(existing []byte, tags model.Tags) ([]byte, error) {
 	text = stripProperties(text)
 
 	opened, err := openDescription(text)
+	if errors.Is(err, errForeignDC) {
+		return insertDescription(text, tags)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +267,9 @@ func openDescription(text string) (description, error) {
 
 	tag := text[at[0]:at[1]]
 	if !dcBindingPattern.MatchString(tag) {
+		if anyDCBindingPattern.MatchString(tag) {
+			return description{}, errForeignDC
+		}
 		tag = strings.Replace(tag, "<rdf:Description", `<rdf:Description xmlns:dc="`+dcNamespace+`"`, 1)
 	}
 	bodyStart := len(tag)
@@ -274,6 +284,30 @@ func openDescription(text string) (description, error) {
 		bodyStart: at[0] + bodyStart,
 		indent:    lineIndent(text, at[0]),
 	}, nil
+}
+
+var errForeignDC = errors.New("the rdf:Description binds dc to another vocabulary")
+
+// XML gives a prefix one meaning per element, so an rdf:Description that already
+// spells dc as a vocabulary of its own cannot carry ours beside it - a second
+// xmlns:dc on the same element is not a document any strict parser will read.
+// The properties go into an rdf:Description of their own instead, which is how
+// XMP describes one resource across as many of them as it likes, and the foreign
+// element is left exactly as it was found. Ours is written first, so the save
+// after this one finds it and edits it in place.
+func insertDescription(text string, tags model.Tags) ([]byte, error) {
+	properties := sidecarProperties(tags, propertyDepth)
+	if len(properties) == 0 {
+		return []byte(text), nil
+	}
+	at := rdfOpenPattern.FindStringIndex(text)
+	if at == nil {
+		return nil, errors.New("no rdf:RDF element to update")
+	}
+	indent := lineIndent(text, at[0]) + sidecarIndent
+	block := "\n" + indent + `<rdf:Description rdf:about="" xmlns:dc="` + dcNamespace + `">` + "\n" +
+		properties + indent + descriptionEnd
+	return []byte(text[:at[1]] + block + text[at[1]:]), nil
 }
 
 func withProperties(opened description, cut int, properties string) string {

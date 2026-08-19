@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"unicode"
 
 	"photo/internal/core/model"
 )
@@ -22,6 +23,7 @@ const (
 	defaultFilePerm = os.FileMode(0o644)
 
 	tagImageDescription = 0x010e
+	tagXPTitle          = 0x9c9b
 	tagXPKeywords       = 0x9c9e
 	typeASCII           = 2
 	typeByte            = 1
@@ -43,7 +45,7 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) error {
 	if bytes.Equal(updated, original) {
 		return nil
 	}
-	return replaceFile(jpegPath, updated)
+	return replaceFileKeepingModTime(jpegPath, updated)
 }
 
 // The EXIF block is never rebuilt: the tags are appended as a new IFD0 behind
@@ -83,12 +85,21 @@ type exifEntry struct {
 
 // An empty value means the tag is dropped, so a title the user cleared in the
 // dialog is cleared in the file as well - the way the XMP sidecar behaves.
-// XPKeywords is UTF-16LE whatever byte order the file uses, because its type is
-// BYTE and the bytes are stored as they are written here.
+// The XP tags are UTF-16LE whatever byte order the file uses, because their type
+// is BYTE and the bytes are stored as they are written here. ImageDescription is
+// typed ASCII and holds no other alphabet, so a title that leaves that range is
+// carried by XPTitle alone rather than written as bytes no reader can decode.
 func stockEntries(tags model.Tags) []exifEntry {
+	title := strings.TrimSpace(tags.Title)
+
 	description := exifEntry{tagID: tagImageDescription, tagType: typeASCII, unitSize: 1}
-	if title := strings.TrimSpace(tags.Title); len(title) != 0 {
+	if len(title) != 0 && isASCII(title) {
 		description.value = append([]byte(title), 0)
+	}
+
+	xpTitle := exifEntry{tagID: tagXPTitle, tagType: typeByte, unitSize: 1}
+	if len(title) != 0 {
+		xpTitle.value = encodeUTF16LE(title)
 	}
 
 	keywords := exifEntry{tagID: tagXPKeywords, tagType: typeByte, unitSize: 1}
@@ -96,7 +107,11 @@ func stockEntries(tags model.Tags) []exifEntry {
 		keywords.value = encodeUTF16LE(strings.Join(tags.Keywords, keywordSeparator))
 	}
 
-	return []exifEntry{description, keywords}
+	return []exifEntry{description, xpTitle, keywords}
+}
+
+func isASCII(text string) bool {
+	return !strings.ContainsFunc(text, func(r rune) bool { return r > unicode.MaxASCII })
 }
 
 func filledEntries(entries []exifEntry) []exifEntry {

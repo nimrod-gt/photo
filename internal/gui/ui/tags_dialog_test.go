@@ -121,17 +121,25 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, 1, jpegCalls)
 	})
 
-	t.Run("saving needs a title or keywords", func(t *testing.T) {
+	t.Run("saving waits for tags that meet every stock requirement", func(t *testing.T) {
 		d := newTestTagsDialogWith(t,
 			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
-		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+		ready := model.Tags{Title: "A calm morning.", Keywords: fullKeywords()}
+		d.SetTags(ready)
 		assert.False(t, d.saveJPEGBtn.Disabled())
 
+		d.keywords.SetText("lake, forest")
+		assert.True(t, d.saveJPEGBtn.Disabled(), "too few keywords to upload")
+
+		d.keywords.SetText(ready.KeywordLine())
 		d.title.SetText("")
-		assert.False(t, d.saveJPEGBtn.Disabled())
+		assert.True(t, d.saveJPEGBtn.Disabled(), "a photo without a title is not ready either")
 
-		d.keywords.SetText("")
-		assert.True(t, d.saveJPEGBtn.Disabled())
+		d.title.SetText("Cafe\u0301 at dawn.")
+		assert.True(t, d.saveJPEGBtn.Disabled(), "the title leaves the characters stock sites accept")
+
+		d.title.SetText(ready.Title)
+		assert.False(t, d.saveJPEGBtn.Disabled())
 	})
 
 	t.Run("generate disables the button and runs the callback", func(t *testing.T) {
@@ -281,7 +289,7 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "Old title.", d.title.Text)
 		assert.Equal(t, "lake, forest", d.keywords.Text)
 		assert.Equal(t, model.Tags{Title: "Old title.", Keywords: []string{"lake", "forest"}}, d.Tags())
-		assert.False(t, d.saveJPEGBtn.Disabled())
+		assert.True(t, d.saveJPEGBtn.Disabled(), "two keywords are not a stock upload")
 		assert.True(t, d.status.Visible())
 	})
 
