@@ -46,7 +46,6 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.copyKeywordsBtn.Disabled())
 		assert.False(t, d.resultBox.Visible())
 		assert.False(t, d.status.Visible())
-		assert.False(t, d.existingBox.Visible())
 		assert.False(t, d.pathRow.Visible())
 		assert.False(t, d.progress.Visible())
 	})
@@ -102,31 +101,23 @@ func TestTagsDialog(t *testing.T) {
 		assert.False(t, d.copyKeywordsBtn.Disabled())
 	})
 
-	t.Run("offers no saving when there is nothing to save into", func(t *testing.T) {
+	t.Run("offers no saving when there is no JPEG to save into", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
-		assert.Nil(t, d.saveSidecarBtn)
 		assert.Nil(t, d.saveJPEGBtn)
 	})
 
-	t.Run("saves to the sidecar of the RAW pair and to the JPEG", func(t *testing.T) {
-		sidecarCalls, jpegCalls := 0, 0
+	t.Run("saves into the JPEG", func(t *testing.T) {
+		jpegCalls := 0
 		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", HasRAW: true, IsJPEG: true},
-			TagsDialogCallbacks{
-				OnSaveSidecar: func() { sidecarCalls++ },
-				OnSaveJPEG:    func() { jpegCalls++ },
-			})
-		require.NotNil(t, d.saveSidecarBtn)
+			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true},
+			TagsDialogCallbacks{OnSaveJPEG: func() { jpegCalls++ }})
 		require.NotNil(t, d.saveJPEGBtn)
-		assert.True(t, d.saveSidecarBtn.Disabled())
 		assert.True(t, d.saveJPEGBtn.Disabled())
 
 		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
-		test.Tap(d.saveSidecarBtn)
 		test.Tap(d.saveJPEGBtn)
 
-		assert.Equal(t, 1, sidecarCalls)
 		assert.Equal(t, 1, jpegCalls)
 	})
 
@@ -238,25 +229,26 @@ func TestTagsDialog(t *testing.T) {
 
 		d.editorial.SetChecked(true)
 		assert.Equal(t, "Editorial: June 13, 2024", d.Notes())
-		assert.False(t, d.existingBox.Visible())
-		assert.Empty(t, d.existing.Text)
+		assert.False(t, d.resultBox.Visible())
 	})
 
-	t.Run("keeps the existing block hidden for a file without tags", func(t *testing.T) {
+	t.Run("keeps the fields hidden for a file without tags", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
 		d.SetPhotoInfo(model.Tags{Title: "  ", Keywords: nil}, time.Time{})
 
-		assert.False(t, d.existingBox.Visible())
+		assert.False(t, d.resultBox.Visible())
+		assert.Empty(t, d.title.Text)
 	})
 
-	t.Run("shows only the half the file carries", func(t *testing.T) {
+	t.Run("fills only the half the file carries", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
 		d.SetPhotoInfo(model.Tags{Keywords: []string{"lake"}}, time.Time{})
 
-		assert.True(t, d.existingBox.Visible())
-		assert.Equal(t, "lake", d.existing.Text)
+		assert.True(t, d.resultBox.Visible())
+		assert.Empty(t, d.title.Text)
+		assert.Equal(t, "lake", d.keywords.Text)
 	})
 
 	t.Run("shooting date does not overwrite a typed date", func(t *testing.T) {
@@ -279,15 +271,27 @@ func TestTagsDialog(t *testing.T) {
 		assert.Nil(t, d.date.Date)
 	})
 
-	t.Run("shows tags already written to the file", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+	t.Run("fills the fields with the tags already written to the file", func(t *testing.T) {
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
 
 		d.SetPhotoInfo(model.Tags{Title: "Old title.", Keywords: []string{"lake", "forest"}}, time.Time{})
 
-		assert.True(t, d.existingBox.Visible())
-		assert.Equal(t, "Old title.\nlake, forest", d.existing.Text)
-		assert.Empty(t, d.title.Text, "existing tags must not overwrite the editable fields")
-		assert.Empty(t, d.keywords.Text)
+		assert.True(t, d.resultBox.Visible())
+		assert.Equal(t, "Old title.", d.title.Text)
+		assert.Equal(t, "lake, forest", d.keywords.Text)
+		assert.Equal(t, model.Tags{Title: "Old title.", Keywords: []string{"lake", "forest"}}, d.Tags())
+		assert.False(t, d.saveJPEGBtn.Disabled())
+		assert.True(t, d.status.Visible())
+	})
+
+	t.Run("existing tags do not overwrite a generated result", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+
+		d.SetPhotoInfo(model.Tags{Title: "Old title.", Keywords: []string{"lake"}}, time.Time{})
+
+		assert.Equal(t, "A calm morning.", d.title.Text)
 	})
 
 	t.Run("copy reports the current, edited tags", func(t *testing.T) {

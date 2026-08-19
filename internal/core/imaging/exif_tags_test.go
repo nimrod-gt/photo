@@ -130,6 +130,7 @@ func TestExifService_GetStockInfo(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "From the JPEG.", info.Tags.Title)
 		assert.Equal(t, []string{"jpeg"}, info.Tags.Keywords)
+		assert.Equal(t, model.Tags{Title: "From the sidecar.", Keywords: []string{"sidecar"}}, info.Sidecar)
 	})
 
 	t.Run("reports a missing file", func(t *testing.T) {

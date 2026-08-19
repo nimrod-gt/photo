@@ -17,8 +17,9 @@ const exifDateLayout = "2006:01:02 15:04:05"
 var dateTagsByPriority = []string{"DateTimeOriginal", "DateTimeDigitized", "DateTime"}
 
 type StockInfo struct {
-	Tags  model.Tags
-	Taken time.Time
+	Tags    model.Tags
+	Sidecar model.Tags
+	Taken   time.Time
 }
 
 // GetStockInfo reads what the files already carry: the EXIF of the JPEG and,
@@ -39,6 +40,7 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	if err != nil {
 		return StockInfo{}, err
 	}
+	info.Sidecar = sidecar
 	info.Tags = fillMissing(info.Tags, sidecar)
 	return info, nil
 }

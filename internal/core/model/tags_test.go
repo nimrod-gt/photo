@@ -138,3 +138,24 @@ func TestTags_KeywordLine(t *testing.T) {
 	assert.Equal(t, "beach, ocean, sand", tags.KeywordLine())
 	assert.Equal(t, tags.Keywords, ParseKeywordLine(tags.KeywordLine()))
 }
+
+func TestTags_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, Tags{}.IsEmpty())
+	assert.True(t, Tags{Title: "   "}.IsEmpty())
+	assert.False(t, Tags{Title: "A title."}.IsEmpty())
+	assert.False(t, Tags{Keywords: []string{"lake"}}.IsEmpty())
+}
+
+func TestTags_Equal(t *testing.T) {
+	t.Parallel()
+
+	tags := Tags{Title: "A title.", Keywords: []string{"lake", "fog"}}
+
+	assert.True(t, tags.Equal(Tags{Title: "A title.", Keywords: []string{"lake", "fog"}}))
+	assert.False(t, tags.Equal(Tags{Title: "Another title.", Keywords: []string{"lake", "fog"}}))
+	assert.False(t, tags.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+	assert.False(t, tags.Equal(Tags{Title: "A title.", Keywords: []string{"fog", "lake"}}))
+	assert.True(t, Tags{}.Equal(Tags{Keywords: nil}))
+}

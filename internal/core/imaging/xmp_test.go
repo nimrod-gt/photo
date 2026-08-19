@@ -242,3 +242,19 @@ func readFile(t *testing.T, path string) string {
 	require.NoError(t, err)
 	return string(data)
 }
+
+func TestWriteSidecar_LeavesAnUnchangedSidecarAlone(t *testing.T) {
+	t.Parallel()
+
+	path := writeSidecarFile(t, lightroomSidecar)
+	written := model.Tags{Title: "New title.", Keywords: []string{"new"}}
+	require.NoError(t, WriteSidecar(path, written))
+	before, err := os.Stat(path)
+	require.NoError(t, err)
+
+	require.NoError(t, WriteSidecar(path, written))
+
+	after, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, before.ModTime(), after.ModTime())
+}

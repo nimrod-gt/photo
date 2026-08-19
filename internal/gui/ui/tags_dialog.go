@@ -30,7 +30,6 @@ type TagsDialogCallbacks struct {
 	OnGenerate     func()
 	OnCopyTitle    func()
 	OnCopyKeywords func()
-	OnSaveSidecar  func()
 	OnSaveJPEG     func()
 	OnClose        func()
 }
@@ -39,7 +38,6 @@ type TagsDialogOptions struct {
 	Filename   string
 	ClaudePath string
 	Date       time.Time
-	HasRAW     bool
 	IsJPEG     bool
 }
 
@@ -54,8 +52,6 @@ type TagsDialog struct {
 	defaultDate     time.Time
 	pathEntry       *escapeEntry
 	pathRow         *fyne.Container
-	existingBox     *fyne.Container
-	existing        *widget.Label
 	progress        *widget.ProgressBarInfinite
 	resultBox       *fyne.Container
 	title           *escapeEntry
@@ -64,7 +60,6 @@ type TagsDialog struct {
 	generateBtn     *widget.Button
 	copyTitleBtn    *widget.Button
 	copyKeywordsBtn *widget.Button
-	saveSidecarBtn  *widget.Button
 	saveJPEGBtn     *widget.Button
 	closeBtn        *widget.Button
 	closed          bool
@@ -81,7 +76,6 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
 
 	d.buildInputs(opts)
-	d.buildExisting()
 
 	d.progress = widget.NewProgressBarInfinite()
 	d.progress.Hide()
@@ -96,7 +90,6 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 		d.editorial,
 		d.dateRow,
 		d.pathRow,
-		d.existingBox,
 		d.progress,
 		d.resultBox,
 		d.status,
@@ -162,17 +155,6 @@ func (d *TagsDialog) buildResult() {
 	d.status.Hide()
 }
 
-func (d *TagsDialog) buildExisting() {
-	header := widget.NewLabel("Existing tags")
-	header.TextStyle = fyne.TextStyle{Bold: true}
-
-	d.existing = widget.NewLabel("")
-	d.existing.Wrapping = fyne.TextWrapWord
-
-	d.existingBox = container.NewVBox(header, d.existing)
-	d.existingBox.Hide()
-}
-
 func labeledRow(text string, content fyne.CanvasObject) *fyne.Container {
 	label := widget.NewLabel(text)
 	sized := container.New(layout.NewGridWrapLayout(fyne.NewSize(tagsLabelWidth, label.MinSize().Height)), label)
@@ -205,15 +187,6 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 	})
 	d.copyKeywordsBtn.Disable()
 
-	if opts.HasRAW {
-		d.saveSidecarBtn = widget.NewButton("Save XMP", func() {
-			if d.callbacks.OnSaveSidecar != nil {
-				d.callbacks.OnSaveSidecar()
-			}
-		})
-		d.saveSidecarBtn.Disable()
-	}
-
 	if opts.IsJPEG {
 		d.saveJPEGBtn = widget.NewButton("Save JPEG", func() {
 			if d.callbacks.OnSaveJPEG != nil {
@@ -227,25 +200,13 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 }
 
 func (d *TagsDialog) buttonRow() *fyne.Container {
-	saves := d.saveButtons()
-	buttons := make([]fyne.CanvasObject, 0, len(saves)+4)
+	buttons := make([]fyne.CanvasObject, 0, 5)
 	buttons = append(buttons, d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn)
-	for _, button := range saves {
-		buttons = append(buttons, button)
-	}
-	buttons = append(buttons, d.generateBtn)
-	return container.NewGridWithColumns(len(buttons), buttons...)
-}
-
-func (d *TagsDialog) saveButtons() []*widget.Button {
-	var buttons []*widget.Button
-	if d.saveSidecarBtn != nil {
-		buttons = append(buttons, d.saveSidecarBtn)
-	}
 	if d.saveJPEGBtn != nil {
 		buttons = append(buttons, d.saveJPEGBtn)
 	}
-	return buttons
+	buttons = append(buttons, d.generateBtn)
+	return container.NewGridWithColumns(len(buttons), buttons...)
 }
 
 func (d *TagsDialog) requestClose() {
@@ -298,25 +259,22 @@ func (d *TagsDialog) Tags() model.Tags {
 }
 
 // SetPhotoInfo fills in what the file itself already knows: the tags written to
-// it earlier and the shooting date, which is only kept while the user has not
-// typed a date of their own.
+// it earlier go into the very fields a run would fill, so editing and saving
+// them works the same either way, and the shooting date is only kept while the
+// user has not typed a date of their own.
 func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if !taken.IsZero() && d.dateUntouched() {
 		d.defaultDate = taken
 		d.date.SetDate(&taken)
 	}
-	lines := make([]string, 0, 2)
-	if title := strings.TrimSpace(existing.Title); len(title) != 0 {
-		lines = append(lines, title)
-	}
-	if len(existing.Keywords) != 0 {
-		lines = append(lines, existing.KeywordLine())
-	}
-	if len(lines) == 0 {
+	if existing.IsEmpty() || !d.resultUntouched() {
 		return
 	}
-	d.existing.SetText(strings.Join(lines, "\n"))
-	d.existingBox.Show()
+	d.showTags(existing)
+}
+
+func (d *TagsDialog) resultUntouched() bool {
+	return len(d.title.Text) == 0 && len(d.keywords.Text) == 0
 }
 
 func (d *TagsDialog) dateUntouched() bool {
@@ -328,8 +286,12 @@ func (d *TagsDialog) dateUntouched() bool {
 
 func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.finishRun()
-	d.title.SetText(generated.Title)
-	d.keywords.SetText(generated.KeywordLine())
+	d.showTags(generated)
+}
+
+func (d *TagsDialog) showTags(shown model.Tags) {
+	d.title.SetText(shown.Title)
+	d.keywords.SetText(shown.KeywordLine())
 	d.resultBox.Show()
 	d.refreshStatus()
 }
@@ -353,8 +315,8 @@ func (d *TagsDialog) refreshStatus() {
 	current := d.Tags()
 	setEnabled(d.copyTitleBtn, len(current.Title) != 0)
 	setEnabled(d.copyKeywordsBtn, len(current.Keywords) != 0)
-	for _, button := range d.saveButtons() {
-		setEnabled(button, len(current.Title) != 0 || len(current.Keywords) != 0)
+	if d.saveJPEGBtn != nil {
+		setEnabled(d.saveJPEGBtn, !current.IsEmpty())
 	}
 	if len(current.Title) == 0 && len(current.Keywords) == 0 {
 		d.setStatus("")

@@ -51,6 +51,9 @@ func WriteSidecar(path string, tags model.Tags) error {
 	if err != nil {
 		return fmt.Errorf("updating sidecar %s: %w", path, err)
 	}
+	if bytes.Equal(updated, existing) {
+		return nil
+	}
 	return replaceFile(path, updated)
 }
 

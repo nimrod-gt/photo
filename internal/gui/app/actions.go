@@ -466,54 +466,109 @@ func (a *Application) handleTags() {
 
 	prefs := a.fyneApp.Preferences()
 	ctx, cancel := context.WithCancel(context.Background())
+	session := &tagsSession{app: a, photo: photo, prefs: prefs}
 
-	opts := ui.TagsDialogOptions{
+	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{
 		Filename:   photo.Name,
 		ClaudePath: prefs.String("claudePath"),
 		Date:       photo.ModTime,
-		HasRAW:     photo.HasRAW(),
 		IsJPEG:     photo.IsJPEG(),
-	}
-
-	var tagsDialog *ui.TagsDialog
-	tagsDialog = ui.NewTagsDialog(opts, a.mainWindow.Window(), ui.TagsDialogCallbacks{
-		OnGenerate: func() {
-			req := tags.Request{Photo: photo, Notes: tagsDialog.Notes(), ClaudePath: tagsDialog.ClaudePath()}
-			if len(req.ClaudePath) != 0 {
-				prefs.SetString("claudePath", req.ClaudePath)
-			}
-			a.generateTags(ctx, req, tagsDialog)
-		},
+	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
+		OnGenerate: func() { session.generate(ctx) },
 		OnCopyTitle: func() {
-			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().Title)
+			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)
 			a.mainWindow.ShowNotification("Title copied to clipboard")
 		},
 		OnCopyKeywords: func() {
-			a.fyneApp.Clipboard().SetContent(tagsDialog.Tags().KeywordLine())
+			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().KeywordLine())
 			a.mainWindow.ShowNotification("Keywords copied to clipboard")
 		},
-		OnSaveSidecar: func() {
-			sidecarPath := imaging.SidecarPath(photo.RAWPath)
-			a.saveTags(tagsDialog.Tags(), filepath.Base(sidecarPath), func(saved model.Tags) error {
-				return imaging.WriteSidecar(sidecarPath, saved)
-			})
-		},
-		OnSaveJPEG: func() {
-			a.saveTags(tagsDialog.Tags(), photo.Name, func(saved model.Tags) error {
-				return a.exifService.WriteStockTags(photo.ImagePath, saved)
-			})
-		},
-		OnClose: func() {
-			cancel()
-			if a.dialogs.isCurrent(tagsDialog) {
-				a.dialogs.closed()
-			}
-			tagsDialog.Hide()
-		},
+		OnSaveJPEG: session.saveJPEG,
+		OnClose:    func() { session.close(cancel) },
 	})
-	a.dialogs.open(dialogTags, tagsDialog, cancel)
-	tagsDialog.Show()
-	a.prefillTags(photo, tagsDialog)
+
+	a.dialogs.open(dialogTags, session.dialog, cancel)
+	session.dialog.Show()
+	session.prefill()
+}
+
+type tagsSession struct {
+	app    *Application
+	photo  model.Photo
+	prefs  fyne.Preferences
+	dialog *ui.TagsDialog
+	saved  model.Tags
+}
+
+func (s *tagsSession) generate(ctx context.Context) {
+	req := tags.Request{Photo: s.photo, Notes: s.dialog.Notes(), ClaudePath: s.dialog.ClaudePath()}
+	if len(req.ClaudePath) != 0 {
+		s.prefs.SetString("claudePath", req.ClaudePath)
+	}
+
+	go func() {
+		generated, err := s.app.tagger.Generate(ctx, req)
+		fyne.Do(func() {
+			if !s.app.dialogs.isCurrent(s.dialog) {
+				return
+			}
+			if err != nil {
+				log.Println("Failed to generate tags:", err)
+				s.dialog.Fail(err)
+				return
+			}
+			s.dialog.SetTags(generated)
+			s.saveSidecar(generated)
+		})
+	}()
+}
+
+// The sidecar belongs to us alone, so it is written without asking - right
+// after a run and again on close, once the user has edited the tags. Writing
+// into the JPEG stays behind its button, because that file is the photo itself.
+func (s *tagsSession) saveSidecar(generated model.Tags) {
+	if !s.photo.HasRAW() || generated.IsEmpty() || generated.Equal(s.saved) {
+		return
+	}
+	s.saved = generated
+	path := imaging.SidecarPath(s.photo.RAWPath)
+	s.app.saveTags(generated, filepath.Base(path), func(saved model.Tags) error {
+		return imaging.WriteSidecar(path, saved)
+	})
+}
+
+func (s *tagsSession) saveJPEG() {
+	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) error {
+		return s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
+	})
+}
+
+func (s *tagsSession) close(cancel context.CancelFunc) {
+	cancel()
+	s.saveSidecar(s.dialog.Tags())
+	if s.app.dialogs.isCurrent(s.dialog) {
+		s.app.dialogs.closed()
+	}
+	s.dialog.Hide()
+}
+
+// The tags already in the sidecar count as saved, so closing the dialog without
+// touching them writes nothing.
+func (s *tagsSession) prefill() {
+	go func() {
+		info, err := s.app.exifService.GetStockInfo(s.photo)
+		if err != nil {
+			log.Printf("Failed to read tags of %s: %v", s.photo.Name, err)
+			return
+		}
+		fyne.Do(func() {
+			if !s.app.dialogs.isCurrent(s.dialog) {
+				return
+			}
+			s.saved = info.Sidecar
+			s.dialog.SetPhotoInfo(info.Tags, info.Taken)
+		})
+	}()
 }
 
 func (a *Application) saveTags(tags model.Tags, target string, save func(model.Tags) error) {
@@ -525,38 +580,6 @@ func (a *Application) saveTags(tags model.Tags, target string, save func(model.T
 				return
 			}
 			a.mainWindow.ShowNotification("Tags saved to " + target)
-		})
-	}()
-}
-
-func (a *Application) generateTags(ctx context.Context, req tags.Request, tagsDialog *ui.TagsDialog) {
-	go func() {
-		generated, err := a.tagger.Generate(ctx, req)
-		fyne.Do(func() {
-			if !a.dialogs.isCurrent(tagsDialog) {
-				return
-			}
-			if err != nil {
-				log.Println("Failed to generate tags:", err)
-				tagsDialog.Fail(err)
-				return
-			}
-			tagsDialog.SetTags(generated)
-		})
-	}()
-}
-
-func (a *Application) prefillTags(photo model.Photo, tagsDialog *ui.TagsDialog) {
-	go func() {
-		info, err := a.exifService.GetStockInfo(photo)
-		if err != nil {
-			log.Printf("Failed to read tags of %s: %v", photo.Name, err)
-			return
-		}
-		fyne.Do(func() {
-			if a.dialogs.isCurrent(tagsDialog) {
-				tagsDialog.SetPhotoInfo(info.Tags, info.Taken)
-			}
 		})
 	}()
 }

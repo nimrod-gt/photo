@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -19,6 +20,14 @@ type Tags struct {
 
 func (t Tags) KeywordLine() string {
 	return strings.Join(t.Keywords, ", ")
+}
+
+func (t Tags) IsEmpty() bool {
+	return len(strings.TrimSpace(t.Title)) == 0 && len(t.Keywords) == 0
+}
+
+func (t Tags) Equal(other Tags) bool {
+	return t.Title == other.Title && slices.Equal(t.Keywords, other.Keywords)
 }
 
 // Problems reports every stock requirement the tags violate, so the user can fix
