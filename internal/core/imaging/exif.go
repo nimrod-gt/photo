@@ -22,12 +22,6 @@ func segmentsFromFile(jpegPath string) (*jpegstructure.SegmentList, error) {
 	return segmentsOf(intfc, err, jpegPath)
 }
 
-func segmentsFromBytes(data []byte) (*jpegstructure.SegmentList, error) {
-	jmp := jpegstructure.NewJpegMediaParser()
-	intfc, err := jmp.ParseBytes(data)
-	return segmentsOf(intfc, err, "buffer")
-}
-
 func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.SegmentList, error) {
 	if parseErr != nil {
 		return nil, fmt.Errorf("parsing JPEG %s: %w", source, parseErr)
@@ -42,14 +36,6 @@ func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.Segmen
 // returns (nil, nil) when the JPEG parses but carries no EXIF data
 func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
 	sl, err := segmentsFromFile(jpegPath)
-	if err != nil {
-		return nil, err
-	}
-	return exifRootOf(sl)
-}
-
-func exifRootFromBytes(data []byte) (*exif.Ifd, error) {
-	sl, err := segmentsFromBytes(data)
 	if err != nil {
 		return nil, err
 	}

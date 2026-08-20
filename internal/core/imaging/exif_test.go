@@ -24,8 +24,13 @@ func writePlainJPEG(t *testing.T, dir, name string) string {
 
 func writeJPEGWithTags(t *testing.T, dir, name string, tags map[string]any) string {
 	t.Helper()
+	return writeJPEGSizedWithTags(t, dir, name, 8, 6, tags)
+}
+
+func writeJPEGSizedWithTags(t *testing.T, dir, name string, w, h int, tags map[string]any) string {
+	t.Helper()
 	var buf bytes.Buffer
-	require.NoError(t, jpeg.Encode(&buf, makeTestImage(8, 6), nil))
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
 
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseBytes(buf.Bytes())
@@ -88,32 +93,6 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 
 		_, _, _, err := svc.GetPhotoInfo(path)
 		assert.Error(t, err)
-	})
-}
-
-func TestOrientationFromBytes(t *testing.T) {
-	t.Parallel()
-
-	t.Run("JPEG with orientation tag", func(t *testing.T) {
-		dir := t.TempDir()
-		path := writeJPEGWithTags(t, dir, "oriented.jpg", map[string]any{
-			"Orientation": []uint16{8},
-		})
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		assert.Equal(t, uint16(8), orientationFromBytes(data))
-	})
-
-	t.Run("plain JPEG defaults to 1", func(t *testing.T) {
-		var buf bytes.Buffer
-		require.NoError(t, jpeg.Encode(&buf, makeTestImage(8, 6), nil))
-
-		assert.Equal(t, uint16(1), orientationFromBytes(buf.Bytes()))
-	})
-
-	t.Run("garbage defaults to 1", func(t *testing.T) {
-		assert.Equal(t, uint16(1), orientationFromBytes([]byte("garbage")))
 	})
 }
 

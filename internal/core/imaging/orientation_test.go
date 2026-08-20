@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -300,21 +301,25 @@ func writeTestJPEG(t *testing.T, w, h int) string {
 func TestLoadImageOriented(t *testing.T) {
 	t.Parallel()
 
+	dir := t.TempDir()
+	plain := writeTestJPEG(t, 4, 2)
+	rotated := writeJPEGSizedWithTags(t, dir, "rotated.jpg", 4, 2, map[string]any{
+		"Orientation": []uint16{6},
+	})
+
 	tests := []struct {
-		name        string
-		orientation uint16
-		wantW       int
-		wantH       int
+		name  string
+		path  string
+		wantW int
+		wantH int
 	}{
-		{"known orientation 6 rotates without sniffing", 6, 2, 4},
-		{"known orientation 1 keeps dimensions", 1, 4, 2},
-		{"unknown orientation sniffs and finds none", 0, 4, 2},
+		{"EXIF orientation 6 rotates", rotated, 2, 4},
+		{"no EXIF keeps dimensions", plain, 4, 2},
 	}
 
-	path := writeTestJPEG(t, 4, 2)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(path, tt.orientation, image.Point{})
+			img, err := LoadImageOriented(tt.path, image.Point{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())
@@ -322,8 +327,22 @@ func TestLoadImageOriented(t *testing.T) {
 	}
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadImageOriented("/nonexistent/x.jpg", 1, image.Point{})
+		_, err := LoadImageOriented("/nonexistent/x.jpg", image.Point{})
 		assert.Error(t, err)
+	})
+
+	// routing on the magic bytes rather than the extension keeps a mislabelled
+	// file loading the way image.Decode used to load it
+	t.Run("PNG behind a .jpg extension", func(t *testing.T) {
+		path := filepath.Join(dir, "actually-png.jpg")
+		var buf bytes.Buffer
+		require.NoError(t, png.Encode(&buf, makeTestImage(4, 2)))
+		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
+
+		img, err := LoadImageOriented(path, image.Point{})
+		require.NoError(t, err)
+		assert.Equal(t, 4, img.Bounds().Dx())
+		assert.Equal(t, 2, img.Bounds().Dy())
 	})
 }
 
@@ -368,10 +387,18 @@ func TestLoadImageOrientedDownscales(t *testing.T) {
 		{"budget larger than source", 6, 400, 400, 20, 40},
 	}
 
-	path := writeTestJPEG(t, 40, 20)
+	dir := t.TempDir()
+	paths := map[uint16]string{}
+	for _, orientation := range []uint16{1, 6, 8} {
+		paths[orientation] = writeJPEGSizedWithTags(t, dir,
+			fmt.Sprintf("orientation-%d.jpg", orientation), 40, 20, map[string]any{
+				"Orientation": []uint16{orientation},
+			})
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(path, tt.orientation, image.Point{X: tt.maxW, Y: tt.maxH})
+			img, err := LoadImageOriented(paths[tt.orientation], image.Point{X: tt.maxW, Y: tt.maxH})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())

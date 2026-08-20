@@ -45,18 +45,29 @@ func BenchmarkDecodeJPEG(b *testing.B) {
 	}
 
 	b.ReportAllocs()
-	for b.Loop() {
-		if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
-			b.Fatal(err)
+	// jpegn registers the same magic bytes as image/jpeg, so image.Decode no
+	// longer reaches the standard library; both decoders are named explicitly
+	b.Run("stdlib", func(b *testing.B) {
+		for b.Loop() {
+			if _, err := jpeg.Decode(bytes.NewReader(data)); err != nil {
+				b.Fatal(err)
+			}
 		}
-	}
+	})
+	b.Run("jpegn", func(b *testing.B) {
+		for b.Loop() {
+			if _, err := decodeJPEG(data, image.Point{X: benchFit, Y: benchFit}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 func BenchmarkLoadImageOriented(b *testing.B) {
 	path := benchJPEGPath(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := LoadImageOriented(path, 6, image.Point{X: benchFit, Y: benchFit}); err != nil {
+		if _, err := LoadImageOriented(path, image.Point{X: benchFit, Y: benchFit}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -67,30 +78,18 @@ func BenchmarkDownscaleToFit(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	src, err := jpeg.Decode(bytes.NewReader(data))
+	src, err := decodeJPEG(data, image.Point{})
 	if err != nil {
 		b.Fatal(err)
 	}
-	// the whole point of the benchmark is the YCbCr fast path in x/image/draw;
+	// the whole point of the benchmark is the RGBA fast path in x/image/draw;
 	// a different pixel type would silently measure something else
-	if _, ok := src.(*image.YCbCr); !ok {
-		b.Fatalf("expected *image.YCbCr source, got %T", src)
+	if _, ok := src.(*image.RGBA); !ok {
+		b.Fatalf("expected *image.RGBA source, got %T", src)
 	}
 
 	b.ReportAllocs()
 	for b.Loop() {
 		_ = DownscaleToFit(src, image.Point{X: benchFit, Y: benchFit})
-	}
-}
-
-// orientation 1 is the common case and the only one where the decoded
-// *image.YCbCr reaches DownscaleToFit unconverted
-func BenchmarkLoadImageOrientedUpright(b *testing.B) {
-	path := benchJPEGPath(b)
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := LoadImageOriented(path, 1, image.Point{X: benchFit, Y: benchFit}); err != nil {
-			b.Fatal(err)
-		}
 	}
 }

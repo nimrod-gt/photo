@@ -18,28 +18,17 @@ type thumbEntry struct {
 }
 
 type Provider struct {
-	loader       *Loader
-	exif         *ExifService
-	thumbnails   sync.Map
-	orientations sync.Map
-	thumbGen     atomic.Uint64
+	loader     *Loader
+	exif       *ExifService
+	thumbnails sync.Map
+	thumbGen   atomic.Uint64
 }
 
 func NewProvider(exif *ExifService) *Provider {
-	p := &Provider{
+	return &Provider{
 		loader: NewLoader(),
 		exif:   exif,
 	}
-	p.loader.loadImage = p.loadWithKnownOrientation
-	return p
-}
-
-func (p *Provider) loadWithKnownOrientation(path string, size int) (image.Image, error) {
-	var orientation uint16
-	if v, ok := p.orientations.Load(path); ok {
-		orientation = v.(uint16)
-	}
-	return LoadImageOriented(path, orientation, image.Point{X: size, Y: size})
 }
 
 func (p *Provider) Get(path string, size int) (image.Image, error) {
@@ -105,7 +94,6 @@ func (p *Provider) LoadFolder(
 	gen := p.thumbGen.Add(1)
 	p.loader.Clear()
 	p.thumbnails.Clear()
-	p.orientations.Clear()
 
 	go func() {
 		workers := max(runtime.NumCPU()-2, 1)
@@ -127,7 +115,7 @@ func (p *Provider) LoadFolder(
 					onLoaded(i, nil, false)
 					return
 				}
-				thumbnail, rating, orientation, err := p.exif.GetPhotoInfo(photo.ImagePath)
+				thumbnail, rating, _, err := p.exif.GetPhotoInfo(photo.ImagePath)
 				if err != nil {
 					log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
 					onLoaded(i, nil, false)
@@ -135,9 +123,6 @@ func (p *Provider) LoadFolder(
 				}
 				if p.thumbGen.Load() != gen {
 					return
-				}
-				if orientation != 0 {
-					p.orientations.Store(photo.ImagePath, orientation)
 				}
 				if thumbnail != nil {
 					p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: thumbnail})
@@ -156,7 +141,6 @@ func (p *Provider) Clear() {
 	p.thumbGen.Add(1)
 	p.loader.Clear()
 	p.thumbnails.Clear()
-	p.orientations.Clear()
 }
 
 func (p *Provider) BumpGen() {

@@ -342,28 +342,21 @@ func TestImageProvider_StoreThumbnail(t *testing.T) {
 	})
 }
 
-func TestImageProvider_SeededOrientation(t *testing.T) {
+func TestImageProvider_Orientation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("applies cached orientation on Get", func(t *testing.T) {
-		path := writeTestJPEG(t, 4, 2)
+	// nothing seeds an orientation any more: the JPEG decoder reads it out of
+	// the file on every load
+	t.Run("rotates a JPEG from its own EXIF on Get", func(t *testing.T) {
+		path := writeJPEGSizedWithTags(t, t.TempDir(), "rotated.jpg", 4, 2, map[string]any{
+			"Orientation": []uint16{6},
+		})
 		p := NewProvider(NewExifService())
-		p.orientations.Store(path, uint16(6))
 
 		img, err := p.Get(path, 2000)
 		require.NoError(t, err)
 		assert.Equal(t, 2, img.Bounds().Dx())
 		assert.Equal(t, 4, img.Bounds().Dy())
-	})
-
-	t.Run("Clear drops cached orientations", func(t *testing.T) {
-		p := NewProvider(NewExifService())
-		p.orientations.Store("/photo.jpg", uint16(6))
-
-		p.Clear()
-
-		_, ok := p.orientations.Load("/photo.jpg")
-		assert.False(t, ok)
 	})
 }
 

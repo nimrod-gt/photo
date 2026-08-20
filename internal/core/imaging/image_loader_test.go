@@ -426,10 +426,25 @@ func TestImageBytes(t *testing.T) {
 func TestImageLoader_ClampsNonPositiveSize(t *testing.T) {
 	t.Parallel()
 
-	l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+	t.Run("downscales to a single pixel", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
 
-	img, err := l.Get("/a.jpg", 0)
-	require.NoError(t, err)
-	assert.Equal(t, 1, img.Bounds().Dx())
-	assert.Equal(t, 1, img.Bounds().Dy())
+		img, err := l.Get("/a.jpg", 0)
+		require.NoError(t, err)
+		assert.Equal(t, 1, img.Bounds().Dx())
+		assert.Equal(t, 1, img.Bounds().Dy())
+	})
+
+	// caching the 1x1 result under the unclamped size would make it satisfy
+	// every later lookup for a non-positive size
+	t.Run("caches under the clamped size", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+
+		_, err := l.Get("/a.jpg", 0)
+		require.NoError(t, err)
+
+		entry, ok := l.cache.Peek("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, 1, entry.size)
+	})
 }

@@ -5,57 +5,40 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
-	_ "image/jpeg"
 	_ "image/png"
-	"log"
 	"os"
-	"path/filepath"
-	"strings"
 
 	xdraw "golang.org/x/image/draw"
 )
 
-// orientation 0 means unknown: sniff it from the JPEG's EXIF data. maxSize is a
-// budget on the returned image, so for the orientations that transpose it the
-// budget has to be swapped back into the decoded image's axes before scaling.
-func LoadImageOriented(path string, orientation uint16, maxSize image.Point) (image.Image, error) {
+var jpegMagic = []byte{0xff, 0xd8}
+
+// JPEG is routed by its magic bytes rather than by extension, and its EXIF
+// orientation is read and applied by the decoder itself. The other formats the
+// viewer opens carry no orientation at all, so nothing rotates them.
+// maxSize is a budget on the returned image.
+func LoadImageOriented(path string, maxSize image.Point) (image.Image, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading image %s: %w", path, err)
 	}
 
-	if orientation == 0 {
-		orientation = 1
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext == ".jpg" || ext == ".jpeg" {
-			orientation = orientationFromBytes(data)
+	if bytes.HasPrefix(data, jpegMagic) {
+		img, err := decodeJPEG(data, maxSize)
+		if err != nil {
+			return nil, fmt.Errorf("decoding image %s: %w", path, err)
 		}
+		return DownscaleToFit(img, maxSize), nil
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decoding image %s: %w", path, err)
 	}
-
-	if swapsDimensions(orientation) {
-		maxSize.X, maxSize.Y = maxSize.Y, maxSize.X
-	}
-	return applyOrientation(DownscaleToFit(img, maxSize), orientation), nil
+	return DownscaleToFit(img, maxSize), nil
 }
 
-func orientationFromBytes(data []byte) uint16 {
-	rootIfd, err := exifRootFromBytes(data)
-	if err != nil {
-		log.Printf("Failed to parse JPEG structure for orientation: %v", err)
-		return 1
-	}
-	if rootIfd == nil {
-		return 1
-	}
-	return ifdUint16(rootIfd, "Orientation", 1)
-}
-
-func swapsDimensions(orientation uint16) bool {
+func swapsDimensions(orientation int) bool {
 	return orientation >= 5 && orientation <= 8
 }
 
@@ -122,21 +105,10 @@ func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
 
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	if w <= maxSize.X && h <= maxSize.Y {
+	newW, newH := fitSize(w, h, maxSize)
+	if newW == w && newH == h {
 		return img
 	}
-
-	scaleX := float64(maxSize.X) / float64(w)
-	scaleY := float64(maxSize.Y) / float64(h)
-	scale := scaleX
-	if scaleY < scale {
-		scale = scaleY
-	}
-
-	// an extreme aspect ratio truncates the short side to zero, which would
-	// cache an empty image
-	newW := max(int(float64(w)*scale), 1)
-	newH := max(int(float64(h)*scale), 1)
 
 	// the *image.RGBA destination is what buys the speed: any other destination
 	// type falls back to a per-pixel generic path. The op is not what matters —
@@ -144,4 +116,16 @@ func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
 	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
 	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
 	return dst
+}
+
+func fitSize(w, h int, maxSize image.Point) (int, int) {
+	if w <= maxSize.X && h <= maxSize.Y {
+		return w, h
+	}
+
+	scale := min(float64(maxSize.X)/float64(w), float64(maxSize.Y)/float64(h))
+
+	// an extreme aspect ratio truncates the short side to zero, which would
+	// cache an empty image
+	return max(int(float64(w)*scale), 1), max(int(float64(h)*scale), 1)
 }

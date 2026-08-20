@@ -47,7 +47,7 @@ func NewLoader() *Loader {
 		inflight:   make(map[string]*loadWaiter),
 		sem:        make(chan struct{}, workers),
 		loadImage: func(path string, size int) (image.Image, error) {
-			return LoadImageOriented(path, 0, image.Point{X: size, Y: size})
+			return LoadImageOriented(path, image.Point{X: size, Y: size})
 		},
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
@@ -88,6 +88,8 @@ func imageBytes(img image.Image) int {
 }
 
 func (l *Loader) Get(path string, size int) (image.Image, error) {
+	size = clampLoadSize(size)
+
 	for {
 		loadSize := size
 		if entry, ok := l.cache.Get(path); ok {
@@ -143,6 +145,7 @@ func (l *Loader) Peek(path string, size int) image.Image {
 }
 
 func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
+	size = clampLoadSize(size)
 	gen := l.gen.Load()
 
 	for _, p := range paths {
@@ -221,11 +224,15 @@ func (l *Loader) Clear() {
 	l.mu.Unlock()
 }
 
-func (l *Loader) doLoad(path string, size int) (image.Image, error) {
-	// DownscaleToFit reads a non-positive budget as "no downscaling", which
-	// would cache every photo at full resolution and blow the byte budget
-	size = max(size, 1)
+// DownscaleToFit reads a non-positive budget as "no downscaling", which would
+// cache every photo at full resolution and blow the byte budget. Clamping at
+// the entry points rather than inside doLoad keeps the cached image and the
+// size it is cached under from disagreeing.
+func clampLoadSize(size int) int {
+	return max(size, 1)
+}
 
+func (l *Loader) doLoad(path string, size int) (image.Image, error) {
 	img, err := l.loadImage(path, size)
 	if err != nil {
 		return nil, err
