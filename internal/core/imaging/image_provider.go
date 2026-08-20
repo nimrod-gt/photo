@@ -34,12 +34,12 @@ func NewProvider(exif *ExifService) *Provider {
 	return p
 }
 
-func (p *Provider) loadWithKnownOrientation(path string) (image.Image, error) {
+func (p *Provider) loadWithKnownOrientation(path string, size int) (image.Image, error) {
 	var orientation uint16
 	if v, ok := p.orientations.Load(path); ok {
 		orientation = v.(uint16)
 	}
-	return LoadImageOriented(path, orientation)
+	return LoadImageOriented(path, orientation, image.Point{X: size, Y: size})
 }
 
 func (p *Provider) Get(path string, size int) (image.Image, error) {

@@ -180,7 +180,7 @@ func monitorSize() (size image.Point) {
 		return
 	}
 	mode := mon.GetVideoMode()
-	if mode == nil {
+	if mode == nil || mode.Width <= 0 || mode.Height <= 0 {
 		return
 	}
 	return image.Point{X: mode.Width, Y: mode.Height}

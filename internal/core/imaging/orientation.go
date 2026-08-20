@@ -15,12 +15,10 @@ import (
 	xdraw "golang.org/x/image/draw"
 )
 
-func LoadOrientedImage(path string) (image.Image, error) {
-	return LoadImageOriented(path, 0)
-}
-
-// orientation 0 means unknown: sniff it from the JPEG's EXIF data
-func LoadImageOriented(path string, orientation uint16) (image.Image, error) {
+// orientation 0 means unknown: sniff it from the JPEG's EXIF data. maxSize is a
+// budget on the returned image, so for the orientations that transpose it the
+// budget has to be swapped back into the decoded image's axes before scaling.
+func LoadImageOriented(path string, orientation uint16, maxSize image.Point) (image.Image, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading image %s: %w", path, err)
@@ -39,7 +37,10 @@ func LoadImageOriented(path string, orientation uint16) (image.Image, error) {
 		return nil, fmt.Errorf("decoding image %s: %w", path, err)
 	}
 
-	return applyOrientation(img, orientation), nil
+	if swapsDimensions(orientation) {
+		maxSize.X, maxSize.Y = maxSize.Y, maxSize.X
+	}
+	return applyOrientation(DownscaleToFit(img, maxSize), orientation), nil
 }
 
 func orientationFromBytes(data []byte) uint16 {
@@ -52,6 +53,10 @@ func orientationFromBytes(data []byte) uint16 {
 		return 1
 	}
 	return ifdUint16(rootIfd, "Orientation", 1)
+}
+
+func swapsDimensions(orientation uint16) bool {
+	return orientation >= 5 && orientation <= 8
 }
 
 func applyOrientation(img image.Image, orientation uint16) image.Image {
@@ -133,8 +138,9 @@ func DownscaleToFit(img image.Image, maxSize image.Point) image.Image {
 	newW := max(int(float64(w)*scale), 1)
 	newH := max(int(float64(h)*scale), 1)
 
-	// x/image only has type-specialized scalers for an *image.RGBA destination
-	// with op Src; anything else falls back to a per-pixel generic path
+	// the *image.RGBA destination is what buys the speed: any other destination
+	// type falls back to a per-pixel generic path. The op is not what matters —
+	// Src is used because a fresh buffer has nothing to composite against
 	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
 	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
 	return dst

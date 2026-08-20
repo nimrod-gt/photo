@@ -280,7 +280,7 @@ func TestToRGBA_ConvertsOtherTypes(t *testing.T) {
 	t.Parallel()
 
 	src := image.NewNRGBA(image.Rect(0, 0, 4, 3))
-	src.Set(1, 2, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
+	src.SetNRGBA(1, 2, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
 
 	dst := toRGBA(src)
 	assert.Equal(t, 4, dst.Bounds().Dx())
@@ -314,7 +314,7 @@ func TestLoadImageOriented(t *testing.T) {
 	path := writeTestJPEG(t, 4, 2)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(path, tt.orientation)
+			img, err := LoadImageOriented(path, tt.orientation, image.Point{})
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())
@@ -322,7 +322,7 @@ func TestLoadImageOriented(t *testing.T) {
 	}
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadImageOriented("/nonexistent/x.jpg", 1)
+		_, err := LoadImageOriented("/nonexistent/x.jpg", 1, image.Point{})
 		assert.Error(t, err)
 	})
 }
@@ -346,6 +346,66 @@ func TestApplyOrientationSubImage(t *testing.T) {
 		for x := range 3 {
 			expected := pixelAt(src, 2+y, 1+2-x)
 			assert.Equal(t, expected, pixelAt(dst, x, y), "pixel (%d,%d)", x, y)
+		}
+	}
+}
+
+func TestLoadImageOrientedDownscales(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		orientation uint16
+		maxW, maxH  int
+		wantW       int
+		wantH       int
+	}{
+		{"upright square budget", 1, 20, 20, 20, 10},
+		{"rotated square budget", 6, 20, 20, 10, 20},
+		// without swapping maxSize for the rotation this yields 5x10
+		{"rotated non-square budget", 6, 10, 40, 10, 20},
+		{"rotated non-square budget ccw", 8, 10, 40, 10, 20},
+		{"budget larger than source", 6, 400, 400, 20, 40},
+	}
+
+	path := writeTestJPEG(t, 40, 20)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img, err := LoadImageOriented(path, tt.orientation, image.Point{X: tt.maxW, Y: tt.maxH})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantW, img.Bounds().Dx())
+			assert.Equal(t, tt.wantH, img.Bounds().Dy())
+		})
+	}
+}
+
+// the whole point of the RGBA destination is the type-specialized scaler in
+// x/image; falling back to NRGBA would stay correct and quietly lose it
+func TestDownscaleToFitReturnsRGBA(t *testing.T) {
+	t.Parallel()
+
+	dst := DownscaleToFit(makeTestImage(400, 200), image.Point{X: 200, Y: 200})
+	assert.IsType(t, &image.RGBA{}, dst)
+}
+
+// *image.YCbCr is what jpeg.Decode actually hands the rotation in production
+func TestApplyOrientationYCbCrSource(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(writeTestJPEG(t, 8, 6))
+	require.NoError(t, err)
+	src, err := jpeg.Decode(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.IsType(t, &image.YCbCr{}, src)
+
+	dst := applyOrientation(src, 6)
+	require.IsType(t, &image.RGBA{}, dst)
+	require.Equal(t, 6, dst.Bounds().Dx())
+	require.Equal(t, 8, dst.Bounds().Dy())
+
+	for y := range 8 {
+		for x := range 6 {
+			assert.Equal(t, pixelAt(src, y, 5-x), pixelAt(dst, x, y), "pixel (%d,%d)", x, y)
 		}
 	}
 }

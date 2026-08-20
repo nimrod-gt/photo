@@ -36,7 +36,7 @@ type Loader struct {
 	gen        atomic.Uint64
 	sem        chan struct{}
 
-	loadImage func(string) (image.Image, error)
+	loadImage func(path string, size int) (image.Image, error)
 }
 
 func NewLoader() *Loader {
@@ -46,7 +46,9 @@ func NewLoader() *Loader {
 		byteBudget: cacheByteBudget,
 		inflight:   make(map[string]*loadWaiter),
 		sem:        make(chan struct{}, workers),
-		loadImage:  LoadOrientedImage,
+		loadImage: func(path string, size int) (image.Image, error) {
+			return LoadImageOriented(path, 0, image.Point{X: size, Y: size})
+		},
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
 		l.cacheBytes.Add(-int64(imageBytes(entry.img)))
@@ -220,10 +222,16 @@ func (l *Loader) Clear() {
 }
 
 func (l *Loader) doLoad(path string, size int) (image.Image, error) {
-	img, err := l.loadImage(path)
+	// DownscaleToFit reads a non-positive budget as "no downscaling", which
+	// would cache every photo at full resolution and blow the byte budget
+	size = max(size, 1)
+
+	img, err := l.loadImage(path, size)
 	if err != nil {
 		return nil, err
 	}
+	// a no-op once loadImage honours size itself; it keeps the Loader contract
+	// for alternative loadImage implementations that ignore it
 	return DownscaleToFit(img, image.Point{X: size, Y: size}), nil
 }
 

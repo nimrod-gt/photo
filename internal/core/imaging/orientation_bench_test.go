@@ -32,11 +32,9 @@ func BenchmarkLoadImageOriented(b *testing.B) {
 	path := benchJPEGPath(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		img, err := LoadImageOriented(path, 6)
-		if err != nil {
+		if _, err := LoadImageOriented(path, 6, image.Point{X: benchFit, Y: benchFit}); err != nil {
 			b.Fatal(err)
 		}
-		_ = DownscaleToFit(img, image.Point{X: benchFit, Y: benchFit})
 	}
 }
 
@@ -67,10 +65,8 @@ func BenchmarkLoadImageOrientedUpright(b *testing.B) {
 	path := benchJPEGPath(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		img, err := LoadImageOriented(path, 1)
-		if err != nil {
+		if _, err := LoadImageOriented(path, 1, image.Point{X: benchFit, Y: benchFit}); err != nil {
 			b.Fatal(err)
 		}
-		_ = DownscaleToFit(img, image.Point{X: benchFit, Y: benchFit})
 	}
 }

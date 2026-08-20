@@ -19,7 +19,7 @@ func fakeImage(w, h int) image.Image {
 func stubLoader(load func(string) (image.Image, error)) *Loader {
 	l := NewLoader()
 	if load != nil {
-		l.loadImage = load
+		l.loadImage = func(path string, _ int) (image.Image, error) { return load(path) }
 	}
 	return l
 }
@@ -335,7 +335,7 @@ func TestImageLoader_LRU(t *testing.T) {
 	t.Parallel()
 
 	l := NewLoader()
-	l.loadImage = func(string) (image.Image, error) {
+	l.loadImage = func(string, int) (image.Image, error) {
 		return fakeImage(10, 10), nil
 	}
 
@@ -381,7 +381,7 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 	t.Run("replacing entry accounts bytes correctly", func(t *testing.T) {
 		sizes := map[int]image.Image{100: fakeImage(10, 10), 2000: fakeImage(50, 50)}
 		l := stubLoader(nil)
-		l.loadImage = func(string) (image.Image, error) { return fakeImage(10, 10), nil }
+		l.loadImage = func(string, int) (image.Image, error) { return fakeImage(10, 10), nil }
 
 		l.addToCache("/a.jpg", cachedImage{img: sizes[100], size: 100})
 		l.addToCache("/a.jpg", cachedImage{img: sizes[2000], size: 2000})
@@ -421,4 +421,15 @@ func TestImageBytes(t *testing.T) {
 			assert.Equal(t, tt.expected, imageBytes(tt.img))
 		})
 	}
+}
+
+func TestImageLoader_ClampsNonPositiveSize(t *testing.T) {
+	t.Parallel()
+
+	l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+
+	img, err := l.Get("/a.jpg", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, img.Bounds().Dx())
+	assert.Equal(t, 1, img.Bounds().Dy())
 }
