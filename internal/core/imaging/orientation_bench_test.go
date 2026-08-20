@@ -15,8 +15,18 @@ const (
 	benchFit  = 1600
 )
 
+// a synthetic gradient compresses far better than a photograph, so decoding it
+// under-reports the entropy work that dominates a real load; point
+// PHOTO_BENCH_JPEG at a camera JPEG to measure the case the app actually runs
 func benchJPEGPath(b *testing.B) string {
 	b.Helper()
+	if path := os.Getenv("PHOTO_BENCH_JPEG"); len(path) != 0 {
+		if _, err := os.Stat(path); err != nil {
+			b.Fatal(err)
+		}
+		return path
+	}
+
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, makeTestImage(benchSrcW, benchSrcH), nil); err != nil {
 		b.Fatal(err)
@@ -26,6 +36,20 @@ func benchJPEGPath(b *testing.B) string {
 		b.Fatal(err)
 	}
 	return path
+}
+
+func BenchmarkDecodeJPEG(b *testing.B) {
+	data, err := os.ReadFile(benchJPEGPath(b))
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func BenchmarkLoadImageOriented(b *testing.B) {
