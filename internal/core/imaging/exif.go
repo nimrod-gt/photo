@@ -1,10 +1,8 @@
 package imaging
 
 import (
-	"bytes"
 	"fmt"
 	"image"
-	"image/jpeg"
 
 	exif "github.com/dsoprea/go-exif/v3"
 	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
@@ -64,7 +62,7 @@ func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rati
 
 	thumbnail = extractThumbnail(rootIfd)
 	if thumbnail != nil {
-		thumbnail = applyOrientation(thumbnail, orientation)
+		thumbnail = applyOrientation(thumbnail, int(orientation))
 	}
 
 	rating = ifdUint16(rootIfd, "Rating", 0)
@@ -73,18 +71,23 @@ func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rati
 
 func extractThumbnail(rootIfd *exif.Ifd) image.Image {
 	if nextIfd := rootIfd.NextIfd(); nextIfd != nil {
-		if thumbData, err := nextIfd.Thumbnail(); err == nil && len(thumbData) > 0 {
-			if img, err := jpeg.Decode(bytes.NewReader(thumbData)); err == nil {
-				return img
-			}
-		}
-	}
-	if thumbData, err := rootIfd.Thumbnail(); err == nil && len(thumbData) > 0 {
-		if img, err := jpeg.Decode(bytes.NewReader(thumbData)); err == nil {
+		if img := decodeThumbnailOf(nextIfd); img != nil {
 			return img
 		}
 	}
-	return nil
+	return decodeThumbnailOf(rootIfd)
+}
+
+func decodeThumbnailOf(ifd *exif.Ifd) image.Image {
+	thumbData, err := ifd.Thumbnail()
+	if err != nil || len(thumbData) == 0 {
+		return nil
+	}
+	img, err := decodeJPEGThumbnail(thumbData)
+	if err != nil {
+		return nil
+	}
+	return img
 }
 
 func ifdUint16(ifd *exif.Ifd, tagName string, defaultVal uint16) uint16 {

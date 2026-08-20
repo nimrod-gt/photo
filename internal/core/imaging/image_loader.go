@@ -79,8 +79,6 @@ func imageBytes(img image.Image) int {
 		return len(v.Pix)
 	case *image.RGBA:
 		return len(v.Pix)
-	case *image.YCbCr:
-		return len(v.Y) + len(v.Cb) + len(v.Cr)
 	default:
 		b := img.Bounds()
 		return b.Dx() * b.Dy() * 4

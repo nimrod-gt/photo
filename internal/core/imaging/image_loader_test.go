@@ -412,8 +412,10 @@ func TestImageBytes(t *testing.T) {
 	}{
 		{"NRGBA", image.NewNRGBA(image.Rect(0, 0, 10, 10)), 400},
 		{"RGBA", image.NewRGBA(image.Rect(0, 0, 10, 10)), 400},
-		{"YCbCr 4:2:0", image.NewYCbCr(image.Rect(0, 0, 10, 10), image.YCbCrSubsampleRatio420), 100 + 2*25},
 		{"Gray falls back to 4 bytes per pixel", image.NewGray(image.Rect(0, 0, 10, 10)), 400},
+		// the decoder returns RGBA now, so a subsampled image only ever reaches
+		// the fallback, where overestimating keeps the byte budget conservative
+		{"YCbCr 4:2:0 falls back to 4 bytes per pixel", image.NewYCbCr(image.Rect(0, 0, 10, 10), image.YCbCrSubsampleRatio420), 400},
 	}
 
 	for _, tt := range tests {

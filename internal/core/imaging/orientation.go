@@ -42,7 +42,7 @@ func swapsDimensions(orientation int) bool {
 	return orientation >= 5 && orientation <= 8
 }
 
-func applyOrientation(img image.Image, orientation uint16) image.Image {
+func applyOrientation(img image.Image, orientation int) image.Image {
 	switch orientation {
 	case 2:
 		return transformPixels(img, false, func(x, y, w, _ int) (int, int) { return w - 1 - x, y })
@@ -63,8 +63,8 @@ func applyOrientation(img image.Image, orientation uint16) image.Image {
 	}
 }
 
-// image/draw only has a specialized YCbCr converter for an *image.RGBA
-// destination; an *image.NRGBA one falls back to a per-pixel interface path
+// transformPixels indexes Pix directly, and the CMYK path in decodeCMYK has a
+// source it cannot index, so that one gets converted first
 func toRGBA(img image.Image) *image.RGBA {
 	if rgba, ok := img.(*image.RGBA); ok {
 		return rgba

@@ -167,7 +167,7 @@ func TestApplyOrientation(t *testing.T) {
 	src := makeTestImage(4, 3)
 
 	tests := []struct {
-		orientation uint16
+		orientation int
 		wantW       int
 		wantH       int
 	}{
@@ -415,8 +415,9 @@ func TestDownscaleToFitReturnsRGBA(t *testing.T) {
 	assert.IsType(t, &image.RGBA{}, dst)
 }
 
-// *image.YCbCr is what jpeg.Decode actually hands the rotation in production
-func TestApplyOrientationYCbCrSource(t *testing.T) {
+// nothing decodes to *image.YCbCr any more, but the rotation still has to cope
+// with a source it cannot index directly
+func TestApplyOrientationNonRGBASource(t *testing.T) {
 	t.Parallel()
 
 	data, err := os.ReadFile(writeTestJPEG(t, 8, 6))
