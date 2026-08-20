@@ -17,11 +17,13 @@ var errCMYKUnsupported = errors.New("unsupported CMYK jpeg")
 // the caller keeps using the unswapped maxSize.
 func decodeJPEG(data []byte, maxSize image.Point) (image.Image, error) {
 	return decodeRecovered(func() (image.Image, error) {
-		// the orientation has to come from the very parser that decides whether
-		// to rotate, so that a disagreement over a malformed tag cannot leave the
-		// pixels unrotated while the budget below is transposed
+		// DecodeExif reports 0 for an absent tag and passes any out-of-range
+		// value through, while the parser that actually rotates keeps only 1..8
+		// and defaults to 1. Narrowing to the same range here stops a malformed
+		// tag from transposing the budget below while the pixels stay upright.
 		orientation := 1
-		if exif, err := jpegn.DecodeExif(bytes.NewReader(data)); err == nil {
+		if exif, err := jpegn.DecodeExif(bytes.NewReader(data)); err == nil &&
+			exif.Orientation >= 1 && exif.Orientation <= 8 {
 			orientation = exif.Orientation
 		}
 

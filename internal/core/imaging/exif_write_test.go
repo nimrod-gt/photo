@@ -48,10 +48,15 @@ func TestExifService_WriteStockTags(t *testing.T) {
 
 		require.NoError(t, svc.WriteStockTags(path, written))
 
-		_, rating, orientation, err := svc.GetPhotoInfo(path)
+		_, rating, err := svc.GetPhotoInfo(path)
 		require.NoError(t, err)
 		assert.Equal(t, uint16(5), rating)
-		assert.Equal(t, uint16(6), orientation)
+
+		// the rating is rewritten in place, so the tags around it have to survive
+		rootIfd, err := exifRootFromFile(path)
+		require.NoError(t, err)
+		require.NotNil(t, rootIfd)
+		assert.Equal(t, uint16(6), ifdUint16(rootIfd, "Orientation", 1))
 
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)

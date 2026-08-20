@@ -62,28 +62,29 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 	t.Run("plain JPEG without EXIF", func(t *testing.T) {
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 
-		thumbnail, rating, orientation, err := svc.GetPhotoInfo(path)
+		thumbnail, rating, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
 		assert.Nil(t, thumbnail)
 		assert.Equal(t, uint16(0), rating)
-		assert.Equal(t, uint16(1), orientation)
 	})
 
-	t.Run("JPEG with orientation", func(t *testing.T) {
+	// EXIF without a Rating tag has to read as unrated, not as an error: it
+	// takes the opposite branch from the plain JPEG above, which never reaches
+	// the tag lookups at all
+	t.Run("EXIF without a rating", func(t *testing.T) {
 		path := writeJPEGWithTags(t, t.TempDir(), "oriented.jpg", map[string]any{
 			"Orientation": []uint16{6},
 		})
 
-		_, rating, orientation, err := svc.GetPhotoInfo(path)
+		_, rating, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
 		assert.Equal(t, uint16(0), rating)
-		assert.Equal(t, uint16(6), orientation)
 	})
 
 	t.Run("missing file", func(t *testing.T) {
-		_, _, _, err := svc.GetPhotoInfo(filepath.Join(t.TempDir(), "missing.jpg"))
+		_, _, err := svc.GetPhotoInfo(filepath.Join(t.TempDir(), "missing.jpg"))
 		assert.Error(t, err)
 	})
 
@@ -91,7 +92,7 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "broken.jpg")
 		require.NoError(t, os.WriteFile(path, []byte("not a jpeg"), 0600))
 
-		_, _, _, err := svc.GetPhotoInfo(path)
+		_, _, err := svc.GetPhotoInfo(path)
 		assert.Error(t, err)
 	})
 }

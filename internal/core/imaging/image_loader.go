@@ -136,6 +136,8 @@ func (l *Loader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Im
 }
 
 func (l *Loader) Peek(path string, size int) image.Image {
+	size = clampLoadSize(size)
+
 	if entry, ok := l.cache.Peek(path); ok && entry.size >= size {
 		return entry.img
 	}

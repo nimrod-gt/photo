@@ -49,24 +49,25 @@ func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
 	return rootIfd, nil
 }
 
-func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating, orientation uint16, err error) {
+// the orientation belongs to the parent IFD0 rather than to the thumbnail, so
+// it is applied here and never leaves: the main image is rotated by the decoder
+// off the file's own tag
+func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating uint16, err error) {
 	rootIfd, err := exifRootFromFile(jpegPath)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, 0, err
 	}
 	if rootIfd == nil {
-		return nil, 0, 1, nil
+		return nil, 0, nil
 	}
-
-	orientation = ifdUint16(rootIfd, "Orientation", 1)
 
 	thumbnail = extractThumbnail(rootIfd)
 	if thumbnail != nil {
-		thumbnail = applyOrientation(thumbnail, int(orientation))
+		thumbnail = applyOrientation(thumbnail, int(ifdUint16(rootIfd, "Orientation", 1)))
 	}
 
 	rating = ifdUint16(rootIfd, "Rating", 0)
-	return thumbnail, rating, orientation, nil
+	return thumbnail, rating, nil
 }
 
 func extractThumbnail(rootIfd *exif.Ifd) image.Image {

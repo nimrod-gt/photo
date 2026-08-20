@@ -115,7 +115,7 @@ func (p *Provider) LoadFolder(
 					onLoaded(i, nil, false)
 					return
 				}
-				thumbnail, rating, _, err := p.exif.GetPhotoInfo(photo.ImagePath)
+				thumbnail, rating, err := p.exif.GetPhotoInfo(photo.ImagePath)
 				if err != nil {
 					log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
 					onLoaded(i, nil, false)
