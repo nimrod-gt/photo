@@ -94,3 +94,149 @@ func countNonZero(pix []byte) int {
 	}
 	return n
 }
+
+func TestScaleDenom(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		w, h    int
+		maxSize image.Point
+		want    int
+	}{
+		{"24MP frame at a viewer-sized budget", 6000, 4000, image.Point{X: 1728, Y: 1728}, 2},
+		{"the same frame where halving would undershoot", 6000, 4000, image.Point{X: 3456, Y: 3456}, 1},
+		{"61MP frame reaches a quarter", 9504, 6336, image.Point{X: 1728, Y: 1728}, 4},
+		// the short side of a panorama is already inside the budget, so a
+		// denominator judged against the budget rather than against the final
+		// size would be rejected for no reason
+		{"panorama", 6000, 1000, image.Point{X: 1728, Y: 1728}, 2},
+		{"zero budget means no downscaling", 6000, 4000, image.Point{}, 1},
+		{"negative budget means no downscaling", 6000, 4000, image.Point{X: -1, Y: -1}, 1},
+		{"budget larger than the frame", 100, 100, image.Point{X: 1728, Y: 1728}, 1},
+		{"degenerate frame", 0, 0, image.Point{X: 1728, Y: 1728}, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, scaleDenom(tt.w, tt.h, tt.maxSize))
+		})
+	}
+}
+
+// the denominator is only safe while the decoded frame stays at or above its
+// final size: anything smaller would be stretched back up by Fyne
+func TestScaleDenomNeverUndershoots(t *testing.T) {
+	t.Parallel()
+
+	for _, size := range []image.Point{{X: 160, Y: 160}, {X: 1728, Y: 1117}, {X: 3456, Y: 3456}} {
+		for _, frame := range []image.Point{{X: 6000, Y: 4000}, {X: 4000, Y: 6000}, {X: 9504, Y: 6336}, {X: 6000, Y: 1000}, {X: 1919, Y: 1081}} {
+			d := scaleDenom(frame.X, frame.Y, size)
+			outW, outH := fitSize(frame.X, frame.Y, size)
+			assert.GreaterOrEqual(t, (frame.X+d-1)/d, outW, "frame %v budget %v denom %d", frame, size, d)
+			assert.GreaterOrEqual(t, (frame.Y+d-1)/d, outH, "frame %v budget %v denom %d", frame, size, d)
+		}
+	}
+}
+
+func TestDecodeJPEGAppliesScaleDenom(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(400, 300), nil))
+	data := buf.Bytes()
+
+	tests := []struct {
+		name    string
+		maxSize image.Point
+		wantW   int
+		wantH   int
+	}{
+		{"eighth", image.Point{X: 50, Y: 50}, 50, 38},
+		{"half", image.Point{X: 110, Y: 110}, 200, 150},
+		{"no budget", image.Point{}, 400, 300},
+		{"budget larger than the frame", image.Point{X: 800, Y: 800}, 400, 300},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img, err := decodeJPEG(data, tt.maxSize)
+			require.NoError(t, err)
+			// a YCbCr result would put the generic scaler back in the pipeline
+			assert.IsType(t, &image.RGBA{}, img)
+			assert.Equal(t, tt.wantW, img.Bounds().Dx())
+			assert.Equal(t, tt.wantH, img.Bounds().Dy())
+		})
+	}
+}
+
+// the decoders differ in how they upsample chroma, so this pins that they agree
+// on the picture, not on the bits. On a camera JPEG single pixels along sharp
+// edges drift by around 27 while the mean stays under 1
+func TestDecodeJPEGMatchesStdlib(t *testing.T) {
+	t.Parallel()
+
+	const w, h = 64, 48
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
+	data := buf.Bytes()
+
+	got, err := decodeJPEG(data, image.Point{})
+	require.NoError(t, err)
+	want, err := jpeg.Decode(bytes.NewReader(data))
+	require.NoError(t, err)
+
+	require.Equal(t, want.Bounds().Dx(), got.Bounds().Dx())
+	require.Equal(t, want.Bounds().Dy(), got.Bounds().Dy())
+
+	total := 0
+	for y := range h {
+		for x := range w {
+			gr, gg, gb, _ := got.At(x, y).RGBA()
+			wr, wg, wb, _ := want.At(x, y).RGBA()
+			for _, d := range []int{
+				channelDelta(gr, wr), channelDelta(gg, wg), channelDelta(gb, wb),
+			} {
+				assert.LessOrEqual(t, d, 12, "pixel (%d,%d)", x, y)
+				total += d
+			}
+		}
+	}
+	assert.Less(t, float64(total)/float64(w*h*3), 1.0, "mean channel delta")
+}
+
+func channelDelta(a, b uint32) int {
+	d := int(a>>8) - int(b>>8)
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+// a corrupt file must surface as a load error rather than take down the worker
+// goroutine it decodes on
+func TestDecodeJPEGCorrupt(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(64, 48), nil))
+	full := buf.Bytes()
+
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{"empty", nil},
+		{"magic bytes only", []byte{0xff, 0xd8}},
+		{"header cut in half", full[:len(full)/8]},
+		{"not a JPEG at all", []byte("certainly not a jpeg")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			img, err := decodeJPEG(tt.data, image.Point{X: 1600, Y: 1600})
+			require.Error(t, err)
+			assert.Nil(t, img)
+		})
+	}
+}
