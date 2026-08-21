@@ -9,6 +9,7 @@ import (
 	"unicode/utf16"
 
 	exif "github.com/dsoprea/go-exif/v3"
+	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 
 	"photo/internal/core/model"
 )
@@ -22,29 +23,55 @@ type StockInfo struct {
 	Taken time.Time
 }
 
-// GetStockInfo reads what the files already carry: the EXIF of the JPEG and,
-// when the photo has a RAW pair, the sidecar written next to it.
+// GetStockInfo reads what the files already carry: the XMP packet and the EXIF
+// of the JPEG and, when the photo has a RAW pair, the sidecar written next to
+// it.
 func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	var info StockInfo
 	if photo.IsJPEG() {
-		flat, err := flatExifFromFile(photo.ImagePath)
-		if err != nil {
-			return StockInfo{}, err
+		var err error
+		if info, err = jpegStockInfo(photo.ImagePath); err != nil {
+			return info, err
 		}
-		info = stockInfoFromTags(flat)
 	}
 	if !photo.HasRAW() {
 		return info, nil
 	}
-	// The EXIF is already read at this point, so an unreadable sidecar is
+	// The JPEG is already read at this point, so an unreadable sidecar is
 	// reported without throwing away what the JPEG itself carries.
 	sidecar, err := ReadSidecar(model.SidecarPath(photo.RAWPath))
 	if err != nil {
 		return info, err
 	}
 	// The sidecar is the store the dialog writes on its own, so it holds the
-	// newer tags whenever the two disagree; the EXIF only fills what it lacks.
+	// newer tags whenever the two disagree; the JPEG only fills what it lacks.
 	info.Tags = fillMissing(sidecar, info.Tags)
+	return info, nil
+}
+
+// The packet is where the tags are written now, so it wins over the EXIF,
+// which only fills what the packet lacks: the tags an earlier version of the
+// app wrote there, or what another tool left. The date comes from the EXIF
+// alone. A packet that cannot be parsed is reported with the EXIF tags kept.
+func jpegStockInfo(jpegPath string) (StockInfo, error) {
+	sl, err := segmentsFromFile(jpegPath)
+	if err != nil {
+		return StockInfo{}, err
+	}
+	flat, err := flatExifOf(sl, jpegPath)
+	if err != nil {
+		return StockInfo{}, err
+	}
+	info := stockInfoFromTags(flat)
+	packet := xmpPacketOf(sl)
+	if packet == nil {
+		return info, nil
+	}
+	parsed, err := parseSidecar(packet)
+	if err != nil {
+		return info, fmt.Errorf("parsing the XMP of %s: %w", jpegPath, err)
+	}
+	info.Tags = fillMissing(parsed.tags(), info.Tags)
 	return info, nil
 }
 
@@ -58,11 +85,23 @@ func fillMissing(tags, fallback model.Tags) model.Tags {
 	return tags
 }
 
+func xmpPacketOf(sl *jpegstructure.SegmentList) []byte {
+	_, segment, err := sl.FindXmp()
+	if err != nil {
+		return nil
+	}
+	return segment.Data[len(xmpSegmentPrefix):]
+}
+
 func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
 	sl, err := segmentsFromFile(jpegPath)
 	if err != nil {
 		return nil, err
 	}
+	return flatExifOf(sl, jpegPath)
+}
+
+func flatExifOf(sl *jpegstructure.SegmentList, jpegPath string) ([]exif.ExifTag, error) {
 	_, rawExif, err := sl.Exif()
 	if err != nil {
 		//nolint:nilerr // no EXIF data means nothing to read

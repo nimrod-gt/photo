@@ -541,14 +541,24 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	previous := s.saved
 	s.saved = written
 	path := model.SidecarPath(s.photo.RAWPath)
-	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) error {
-		return imaging.WriteSidecar(path, saved)
+	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
+		return "", imaging.WriteSidecar(path, saved)
 	}, func() { s.saved = previous })
 }
 
+// The JPEG is only replaced when its XMP packet has no room for the tags. A
+// camera keeps a database of the files it wrote and refuses to display a photo
+// whose file changed under it until the user rebuilds that database, so that
+// case is spelled out instead of passing as a plain success.
+const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
+
 func (s *tagsSession) saveJPEG() {
-	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) error {
-		return s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
+	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) (string, error) {
+		rewritten, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
+		if err != nil || !rewritten {
+			return "", err
+		}
+		return rewrittenNote, nil
 	}, nil)
 }
 
@@ -584,15 +594,21 @@ func (s *tagsSession) prefill() {
 	}()
 }
 
-func (a *Application) saveTags(written model.Tags, target string, save func(model.Tags) error, failed func()) {
+// A save may come back with a note about how it had to be done; it is shown as
+// a warning in place of the plain confirmation.
+func (a *Application) saveTags(written model.Tags, target string, save func(model.Tags) (string, error), failed func()) {
 	go func() {
-		err := save(written)
+		note, err := save(written)
 		fyne.Do(func() {
 			if err != nil {
 				if failed != nil {
 					failed()
 				}
 				a.showError("Failed to save tags to "+target, err)
+				return
+			}
+			if len(note) != 0 {
+				a.mainWindow.ShowWarning("Tags saved to " + target + " - " + note)
 				return
 			}
 			a.mainWindow.ShowNotification("Tags saved to " + target)

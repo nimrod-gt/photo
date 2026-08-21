@@ -218,3 +218,66 @@ func TestExifString(t *testing.T) {
 	assert.Empty(t, exifString(42))
 	assert.Empty(t, exifString([]byte{0x41}), "an odd byte count carries no complete code unit")
 }
+
+func TestExifService_GetStockInfo_XMP(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	fromPacket := model.Tags{Title: "From the packet.", Keywords: []string{"packet"}}
+	exifTags := map[string]any{
+		"ImageDescription": "From the EXIF.",
+		"XPKeywords":       encodeUTF16LE("exif"),
+		"DateTime":         "2026:06:14 08:00:00",
+	}
+	packetWith := func(t *testing.T, tags model.Tags) []byte {
+		t.Helper()
+		packet, ok := packetWithTags(sonyPacket(2000), tags)
+		require.True(t, ok)
+		return packet
+	}
+
+	t.Run("prefers the packet over the EXIF", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "both.jpg", exifTags, packetWith(t, fromPacket))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, fromPacket, info.Tags)
+		assert.Equal(t, time.Date(2026, time.June, 14, 8, 0, 0, 0, time.UTC), info.Taken, "the date still comes from the EXIF")
+	})
+
+	t.Run("fills from the EXIF what the packet lacks", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "partial.jpg", exifTags, packetWith(t, model.Tags{Keywords: []string{"packet"}}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{Title: "From the EXIF.", Keywords: []string{"packet"}}, info.Tags)
+	})
+
+	t.Run("prefers the sidecar over the packet", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := writeJPEGWithPacket(t, dir, "DSC010.jpg", exifTags, packetWith(t, fromPacket))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC010.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC010.xmp"), model.Tags{Title: "From the sidecar."}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{Title: "From the sidecar.", Keywords: []string{"packet"}}, info.Tags)
+	})
+
+	t.Run("reports a packet it cannot parse and keeps the EXIF tags", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", exifTags, xmpPacket("<x:xmpmeta><unclosed>", 40))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "XMP")
+		assert.Equal(t, "From the EXIF.", info.Tags.Title)
+	})
+}

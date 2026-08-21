@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		assert.True(t, mustWriteStockTags(t, svc, path, written), "a JPEG without a packet has to be rewritten")
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -46,7 +47,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 			"Make":        "SONY",
 		})
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		_, rating, err := svc.GetPhotoInfo(path)
 		require.NoError(t, err)
@@ -68,9 +69,9 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "twice.jpg")
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 		second := model.Tags{Title: "A quiet morning.", Keywords: []string{"lake", "fog"}}
-		require.NoError(t, svc.WriteStockTags(path, second))
+		mustWriteStockTags(t, svc, path, second)
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -81,7 +82,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "keywords-only.jpg")
 
-		require.NoError(t, svc.WriteStockTags(path, model.Tags{Keywords: []string{"lake"}}))
+		mustWriteStockTags(t, svc, path, model.Tags{Keywords: []string{"lake"}})
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -94,7 +95,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		path := writePlainJPEG(t, t.TempDir(), "perms.jpg")
 		require.NoError(t, os.Chmod(path, 0640))
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		info, err := os.Stat(path)
 		require.NoError(t, err)
@@ -107,7 +108,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		taken := time.Date(2024, time.June, 13, 10, 30, 0, 0, time.UTC)
 		require.NoError(t, os.Chtimes(path, taken, taken))
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		info, err := os.Stat(path)
 		require.NoError(t, err)
@@ -124,7 +125,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		tail := []byte("\xff\xd8 second image appended behind the first one")
 		require.NoError(t, os.WriteFile(path, append(plain, tail...), 0600))
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		updated, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		t.Parallel()
 		path := writeBigEndianJPEG(t, t.TempDir(), "motorola.jpg")
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -151,13 +152,13 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		path := writeJPEGWithTags(t, t.TempDir(), "camera.jpg", map[string]any{"Make": "SONY"})
 		original := exifBlockOf(t, path)
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 		firstSize := sizeOf(t, path)
 		assert.True(t, bytes.HasPrefix(exifBlockOf(t, path)[tiffHeaderSize:], original[tiffHeaderSize:]),
 			"the camera block must be kept verbatim")
 
-		require.NoError(t, svc.WriteStockTags(path, written))
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
+		mustWriteStockTags(t, svc, path, written)
 
 		assert.Equal(t, firstSize, sizeOf(t, path), "saving again must reuse the appended IFD")
 	})
@@ -167,7 +168,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		path := writePlainJPEG(t, t.TempDir(), "accented.jpg")
 		accented := model.Tags{Title: "Un cafe\u0301 sur la place, Montre\u0301al.", Keywords: []string{"cafe"}}
 
-		require.NoError(t, svc.WriteStockTags(path, accented))
+		mustWriteStockTags(t, svc, path, accented)
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -183,7 +184,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "ascii.jpg")
 
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
 		names := tagNamesOf(t, path)
 		assert.Contains(t, names, "ImageDescription")
@@ -193,9 +194,9 @@ func TestExifService_WriteStockTags(t *testing.T) {
 	t.Run("clears both title tags when the title is emptied", func(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "cleared.jpg")
-		require.NoError(t, svc.WriteStockTags(path, written))
+		mustWriteStockTags(t, svc, path, written)
 
-		require.NoError(t, svc.WriteStockTags(path, model.Tags{Keywords: written.Keywords}))
+		mustWriteStockTags(t, svc, path, model.Tags{Keywords: written.Keywords})
 
 		names := tagNamesOf(t, path)
 		assert.NotContains(t, names, "ImageDescription")
@@ -207,7 +208,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "notes.txt")
 		require.NoError(t, os.WriteFile(path, []byte("not a JPEG at all"), 0600))
 
-		err := svc.WriteStockTags(path, written)
+		_, err := svc.WriteStockTags(path, written)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not a JPEG")
@@ -216,7 +217,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 	t.Run("reports a missing file", func(t *testing.T) {
 		t.Parallel()
 
-		err := svc.WriteStockTags(filepath.Join(t.TempDir(), "absent.jpg"), written)
+		_, err := svc.WriteStockTags(filepath.Join(t.TempDir(), "absent.jpg"), written)
 
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
@@ -284,13 +285,13 @@ func TestExifService_WriteStockTags_Clears(t *testing.T) {
 
 	svc := NewExifService()
 	path := writeJPEGWithTags(t, t.TempDir(), "camera.jpg", map[string]any{"Make": "SONY"})
-	require.NoError(t, svc.WriteStockTags(path, model.Tags{
+	mustWriteStockTags(t, svc, path, model.Tags{
 		Title:    "The title written first.",
 		Keywords: []string{"lake", "fog"},
-	}))
+	})
 
 	t.Run("drops the title the user emptied", func(t *testing.T) {
-		require.NoError(t, svc.WriteStockTags(path, model.Tags{Keywords: []string{"lake"}}))
+		mustWriteStockTags(t, svc, path, model.Tags{Keywords: []string{"lake"}})
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -299,7 +300,7 @@ func TestExifService_WriteStockTags_Clears(t *testing.T) {
 	})
 
 	t.Run("drops the keywords the user emptied", func(t *testing.T) {
-		require.NoError(t, svc.WriteStockTags(path, model.Tags{Title: "A second title."}))
+		mustWriteStockTags(t, svc, path, model.Tags{Title: "A second title."})
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 		require.NoError(t, err)
@@ -322,7 +323,7 @@ func TestExifService_WriteStockTags_LeavesTheFileAloneWithNothingToWrite(t *test
 	before, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	require.NoError(t, svc.WriteStockTags(path, model.Tags{}))
+	mustWriteStockTags(t, svc, path, model.Tags{})
 
 	after, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -342,7 +343,7 @@ func TestExifService_WriteStockTags_KeepsTheJFIFHeaderFirst(t *testing.T) {
 	withJFIF := slices.Concat(plain[:2], jfif, plain[2:])
 	require.NoError(t, os.WriteFile(path, withJFIF, 0600))
 
-	require.NoError(t, NewExifService().WriteStockTags(path, model.Tags{Title: "A title."}))
+	mustWriteStockTags(t, NewExifService(), path, model.Tags{Title: "A title."})
 
 	updated, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -433,4 +434,142 @@ func entryByTag(entries []exifEntry, tagID uint16) (exifEntry, bool) {
 		}
 	}
 	return exifEntry{}, false
+}
+
+func mustWriteStockTags(t *testing.T, svc *ExifService, path string, tags model.Tags) bool {
+	t.Helper()
+	rewritten, err := svc.WriteStockTags(path, tags)
+	require.NoError(t, err)
+	return rewritten
+}
+
+func readBytes(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return data
+}
+
+func packetOf(t *testing.T, data []byte) []byte {
+	t.Helper()
+	start, end, err := xmpPacketSpan(data)
+	require.NoError(t, err)
+	require.NotEqual(t, start, end, "the file carries no XMP packet")
+	return data[start:end]
+}
+
+func TestExifService_WriteStockTags_XMP(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	written := model.Tags{
+		Title:    "A tram climbs the hill in Lisbon.",
+		Keywords: []string{"lisbon", "tram", "portugal"},
+	}
+	sonyExif := map[string]any{"Make": "SONY"}
+
+	t.Run("writes into the packet in place", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", sonyExif, sonyPacket(2000))
+		taken := time.Date(2024, time.June, 13, 10, 30, 0, 0, time.UTC)
+		require.NoError(t, os.Chtimes(path, taken, taken))
+		before := readBytes(t, path)
+		statBefore, err := os.Stat(path)
+		require.NoError(t, err)
+		start, end, err := xmpPacketSpan(before)
+		require.NoError(t, err)
+
+		assert.False(t, mustWriteStockTags(t, svc, path, written), "a packet with room must not rewrite the file")
+
+		after := readBytes(t, path)
+		require.Len(t, after, len(before))
+		assert.Equal(t, before[:start], after[:start], "the bytes in front of the packet must not move")
+		assert.Equal(t, before[end:], after[end:], "the bytes behind the packet must not move")
+		assert.Equal(t, bytes.Index(before, []byte(ratingElement)), bytes.Index(after, []byte(ratingElement)),
+			"the rating the camera wrote must keep its offset")
+		requireWellFormed(t, after[start:end])
+		statAfter, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.True(t, os.SameFile(statBefore, statAfter), "the directory entry must be kept")
+		assert.True(t, statAfter.ModTime().Equal(taken), "got %s", statAfter.ModTime())
+		assert.NotContains(t, tagNamesOf(t, path), "XPTitle", "the EXIF must be left alone")
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+		_, err = jpeg.Decode(bytes.NewReader(after))
+		require.NoError(t, err)
+	})
+
+	t.Run("saving again replaces the tags without growing", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "twice.jpg", sonyExif, sonyPacket(2000))
+		assert.False(t, mustWriteStockTags(t, svc, path, written))
+		size := sizeOf(t, path)
+		second := model.Tags{Title: "A quiet morning.", Keywords: []string{"lake", "fog"}}
+
+		assert.False(t, mustWriteStockTags(t, svc, path, second))
+
+		assert.Equal(t, size, sizeOf(t, path))
+		packet := string(packetOf(t, readBytes(t, path)))
+		assert.Equal(t, 2, strings.Count(packet, "<rdf:Description"), "the earlier description must be reused")
+		assert.NotContains(t, packet, "lisbon")
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, second, info.Tags)
+	})
+
+	t.Run("clearing hands the camera its own bytes back", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "cleared.jpg", sonyExif, sonyPacket(2000))
+		before := readBytes(t, path)
+		assert.False(t, mustWriteStockTags(t, svc, path, written))
+
+		assert.False(t, mustWriteStockTags(t, svc, path, model.Tags{}))
+
+		assert.Equal(t, before, readBytes(t, path))
+	})
+
+	t.Run("falls back to the EXIF when the packet has no room", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+		before := readBytes(t, path)
+
+		assert.True(t, mustWriteStockTags(t, svc, path, written))
+
+		after := readBytes(t, path)
+		assert.Greater(t, len(after), len(before))
+		assert.Equal(t, sonyPacket(16), packetOf(t, after), "a packet without room is left as it is")
+		assert.Contains(t, tagNamesOf(t, path), "XPTitle")
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
+
+	t.Run("clears what another tool left in a packet it cannot extend", func(t *testing.T) {
+		t.Parallel()
+		tight := strings.Replace(lightroomSidecar, `<?xpacket end="w"?>`, string(xmpPadding(16))+`<?xpacket end="w"?>`, 1)
+		path := writeJPEGWithPacket(t, t.TempDir(), "lightroom.jpg", sonyExif, []byte(tight))
+
+		assert.True(t, mustWriteStockTags(t, svc, path, written))
+
+		packet := string(packetOf(t, readBytes(t, path)))
+		assert.NotContains(t, packet, "Old title", "a title left in the packet would hide the one in the EXIF")
+		assert.Contains(t, packet, `crs:Exposure2012="+0.35"`)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
+
+	t.Run("leaves a read-only packet alone", func(t *testing.T) {
+		t.Parallel()
+		readOnly := slices.Concat([]byte(sonyXMPContent), xmpPadding(2000), []byte("<?xpacket end='r'?>"))
+		path := writeJPEGWithPacket(t, t.TempDir(), "readonly.jpg", sonyExif, readOnly)
+
+		assert.True(t, mustWriteStockTags(t, svc, path, written))
+
+		assert.Equal(t, readOnly, packetOf(t, readBytes(t, path)))
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
 }

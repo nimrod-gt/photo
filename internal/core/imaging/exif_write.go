@@ -33,19 +33,46 @@ const (
 	inlineSize     = 4
 )
 
-func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) error {
+// WriteStockTags puts the tags into the XMP packet of the JPEG in place when it
+// has room for them, which leaves the size, the layout and the directory entry
+// of the file as the camera made them. Without such a packet the EXIF carries
+// them and the file is replaced, which is reported so the user can be told the
+// camera has to re-index it.
+func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritten bool, err error) {
 	original, err := os.ReadFile(jpegPath)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", jpegPath, err)
+		return false, fmt.Errorf("reading %s: %w", jpegPath, err)
 	}
-	updated, err := withStockTags(original, tags)
+	start, end, err := xmpPacketSpan(original)
 	if err != nil {
-		return fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
+		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
+	}
+	if packet, ok := packetWithTags(original[start:end], tags); ok {
+		if bytes.Equal(packet, original[start:end]) {
+			return false, nil
+		}
+		return false, patchFileKeepingModTime(jpegPath, int64(start), packet)
+	}
+	updated, err := withStockTags(withoutPacketTags(original, start, end), tags)
+	if err != nil {
+		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
 	if bytes.Equal(updated, original) {
-		return nil
+		return false, nil
 	}
-	return replaceFileKeepingModTime(jpegPath, updated)
+	return true, replaceFileKeepingModTime(jpegPath, updated)
+}
+
+// The EXIF is read behind the packet, so properties the packet still carries -
+// ours from an earlier save, or another tool's - would hide what is written
+// into the EXIF. They are cleared first where the packet allows it; a packet
+// closed to updates is left as it is.
+func withoutPacketTags(data []byte, start, end int) []byte {
+	cleared, ok := packetWithTags(data[start:end], model.Tags{})
+	if !ok || bytes.Equal(cleared, data[start:end]) {
+		return data
+	}
+	return slices.Concat(data[:start], cleared, data[end:])
 }
 
 // The EXIF block is never rebuilt: the tags are appended as a new IFD0 behind

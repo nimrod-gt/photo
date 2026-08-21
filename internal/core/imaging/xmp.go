@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	dcNamespace    = "http://purl.org/dc/elements/1.1/"
-	sidecarIndent  = "  "
-	descriptionEnd = "</rdf:Description>"
-	propertyDepth  = 2
+	dcNamespace     = "http://purl.org/dc/elements/1.1/"
+	sidecarIndent   = "  "
+	descriptionOpen = `<rdf:Description rdf:about="" xmlns:dc="` + dcNamespace + `">`
+	descriptionEnd  = "</rdf:Description>"
+	propertyDepth   = 2
 )
 
 func ReadSidecar(path string) (model.Tags, error) {
@@ -304,10 +305,12 @@ func insertDescription(text string, tags model.Tags) ([]byte, error) {
 	if at == nil {
 		return nil, errors.New("no rdf:RDF element to update")
 	}
-	indent := lineIndent(text, at[0]) + sidecarIndent
-	block := "\n" + indent + `<rdf:Description rdf:about="" xmlns:dc="` + dcNamespace + `">` + "\n" +
-		properties + indent + descriptionEnd
+	block := "\n" + dcDescription(lineIndent(text, at[0])+sidecarIndent, properties)
 	return []byte(text[:at[1]] + block + text[at[1]:]), nil
+}
+
+func dcDescription(indent, properties string) string {
+	return indent + descriptionOpen + "\n" + properties + indent + descriptionEnd
 }
 
 func withProperties(opened description, cut int, properties string) string {
