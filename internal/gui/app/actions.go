@@ -19,16 +19,14 @@ import (
 	"photo/internal/gui/ui"
 )
 
-func (a *Application) updateIndicators(photo model.Photo) {
+func (a *Application) updateActionStates(photo model.Photo) {
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
 		a.showError("Failed to get colors", err)
 		return
 	}
-	favorite := a.favoriteOf(photo)
-	a.viewer.SetIndicators(favorite, colors)
 	a.updateColorButtonStates(colors)
-	a.updateFavoriteButtonStates(photo, favorite)
+	a.updateFavoriteButtonStates(photo, a.favoriteOf(photo))
 }
 
 // The rating is read once per folder, with the thumbnails, and kept in the
@@ -74,7 +72,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 			return
 		}
 		fyne.Do(func() {
-			a.updateIndicators(photo)
+			a.updateActionStates(photo)
 			a.refreshFileBrowserItem(photo)
 			if a.fileBrowser.HasFilter() {
 				a.fileBrowser.SetPinnedPath(photo.ImagePath)
@@ -104,7 +102,7 @@ func (a *Application) handleFavorite() {
 			if idx := a.navigator.FindIndex(photo.ImagePath); idx >= 0 {
 				a.fileBrowser.RefreshItemMeta(idx, a.fileBrowser.GetMeta(idx).Colors, favorite)
 			}
-			a.updateIndicators(photo)
+			a.updateActionStates(photo)
 			if a.fileBrowser.HasFilter() {
 				a.fileBrowser.SetPinnedPath(photo.ImagePath)
 				a.reapplyFilter()
@@ -123,7 +121,7 @@ func (a *Application) handleMetaLoaded(displayIndex int) {
 	if !ok || a.navigator.FindIndex(photo.ImagePath) != displayIndex {
 		return
 	}
-	a.updateIndicators(photo)
+	a.updateActionStates(photo)
 }
 
 func (a *Application) refreshFileBrowserItem(photo model.Photo) {

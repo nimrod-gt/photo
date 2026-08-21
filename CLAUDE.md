@@ -13,7 +13,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 ### UI Layout
 
 - **Left panel**: File browser with directory tree (GoLand-style). Shows only non-RAW files. Sorting by name/time. "Today" button. Color indicators displayed before filenames.
-- **Center**: Photo viewer. Color indicators shown as colored circles in top-left corner of the photo.
+- **Center**: Photo viewer. Favorite and color state is shown only by the top bar buttons and the file list, nothing is drawn over the photo.
 - **Top bar**: Action buttons — Favorite, Red, Green, Blue, Tags, Delete.
 - **Right-click context menu** on photo: same actions as top bar.
 

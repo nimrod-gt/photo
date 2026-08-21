@@ -2,22 +2,18 @@ package ui
 
 import (
 	"image"
-	"image/color"
 	"math"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-
-	"photo/internal/core/model"
 )
 
 const (
-	indicatorTextSize = 18
-	minZoom           = 1.0
-	maxZoom           = 10.0
-	keyboardZoomStep  = 1.3
+	minZoom          = 1.0
+	maxZoom          = 10.0
+	keyboardZoomStep = 1.3
 )
 
 type ViewerCallbacks struct {
@@ -27,10 +23,9 @@ type ViewerCallbacks struct {
 }
 
 type Viewer struct {
-	container  *fyne.Container
-	zoomW      *zoomWidget
-	indicators *fyne.Container
-	callbacks  ViewerCallbacks
+	container *fyne.Container
+	zoomW     *zoomWidget
+	callbacks ViewerCallbacks
 }
 
 func NewViewer(callbacks ViewerCallbacks) *Viewer {
@@ -53,31 +48,8 @@ func (v *Viewer) UpdateImage(img image.Image) {
 	v.zoomW.Refresh()
 }
 
-// The marks are text rather than canvas circles: the box layout sizes every
-// child to its minimum, which for a circle is a single pixel.
-func (v *Viewer) SetIndicators(favorite bool, colors []model.ColorLabel) {
-	v.indicators.RemoveAll()
-	if favorite {
-		v.indicators.Add(indicatorText(favoriteMark, favoriteColor))
-	}
-	has := ColorSet(colors)
-	for _, c := range colorOrder {
-		if has[c] {
-			v.indicators.Add(indicatorText(colorMark, colorLabelToColor(c)))
-		}
-	}
-	v.indicators.Refresh()
-}
-
-func indicatorText(mark string, fill color.Color) *canvas.Text {
-	text := canvas.NewText(mark, fill)
-	text.TextSize = indicatorTextSize
-	return text
-}
-
 func (v *Viewer) Clear() {
 	v.zoomW.image.Hide()
-	v.indicators.RemoveAll()
 	v.resetZoom()
 }
 
@@ -98,37 +70,33 @@ func (v *Viewer) resetZoom() {
 }
 
 func (v *Viewer) build() {
-	v.indicators = container.NewHBox()
-	v.zoomW = newZoomWidget(v.callbacks, v.indicators)
+	v.zoomW = newZoomWidget(v.callbacks)
 	v.container = container.NewStack(v.zoomW)
 }
 
 type zoomWidget struct {
 	widget.BaseWidget
-	image      *canvas.Image
-	indicators *fyne.Container
-	zoom       float32
-	panX       float32
-	panY       float32
-	callbacks  ViewerCallbacks
+	image     *canvas.Image
+	zoom      float32
+	panX      float32
+	panY      float32
+	callbacks ViewerCallbacks
 }
 
-func newZoomWidget(callbacks ViewerCallbacks, indicators *fyne.Container) *zoomWidget {
+func newZoomWidget(callbacks ViewerCallbacks) *zoomWidget {
 	img := &canvas.Image{}
 	img.FillMode = canvas.ImageFillStretch
 	z := &zoomWidget{
-		image:      img,
-		indicators: indicators,
-		zoom:       minZoom,
-		callbacks:  callbacks,
+		image:     img,
+		zoom:      minZoom,
+		callbacks: callbacks,
 	}
 	z.ExtendBaseWidget(z)
 	return z
 }
 
 func (z *zoomWidget) CreateRenderer() fyne.WidgetRenderer {
-	indicatorWrap := container.NewVBox(z.indicators)
-	return &zoomRenderer{z: z, objects: []fyne.CanvasObject{z.image, indicatorWrap}}
+	return &zoomRenderer{z: z, objects: []fyne.CanvasObject{z.image}}
 }
 
 func (z *zoomWidget) setImage(img image.Image) {
@@ -253,12 +221,6 @@ func (r *zoomRenderer) Layout(size fyne.Size) {
 
 	r.z.image.Resize(fyne.NewSize(dispW, dispH))
 	r.z.image.Move(fyne.NewPos(x, y))
-
-	if len(r.objects) > 1 {
-		indicators := r.objects[1]
-		indicators.Move(fyne.NewPos(0, 0))
-		indicators.Resize(indicators.MinSize())
-	}
 }
 
 func (r *zoomRenderer) MinSize() fyne.Size {

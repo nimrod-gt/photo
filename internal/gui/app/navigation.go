@@ -17,7 +17,7 @@ func (a *Application) showPhoto(photo model.Photo) {
 		return
 	}
 	a.viewer.ShowPhoto(img)
-	a.updateIndicators(photo)
+	a.updateActionStates(photo)
 	a.prefetchAdjacent()
 	a.mainWindow.Window().Canvas().Unfocus()
 }
