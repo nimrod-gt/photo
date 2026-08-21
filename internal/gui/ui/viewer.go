@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"math"
 
 	"fyne.io/fyne/v2"
@@ -13,10 +14,10 @@ import (
 )
 
 const (
-	colorIndicatorSize = 12
-	minZoom            = 1.0
-	maxZoom            = 10.0
-	keyboardZoomStep   = 1.3
+	indicatorTextSize = 18
+	minZoom           = 1.0
+	maxZoom           = 10.0
+	keyboardZoomStep  = 1.3
 )
 
 type ViewerCallbacks struct {
@@ -52,18 +53,26 @@ func (v *Viewer) UpdateImage(img image.Image) {
 	v.zoomW.Refresh()
 }
 
-func (v *Viewer) SetColorIndicators(colors []model.ColorLabel) {
+// The marks are text rather than canvas circles: the box layout sizes every
+// child to its minimum, which for a circle is a single pixel.
+func (v *Viewer) SetIndicators(favorite bool, colors []model.ColorLabel) {
 	v.indicators.RemoveAll()
+	if favorite {
+		v.indicators.Add(indicatorText(favoriteMark, favoriteColor))
+	}
 	has := ColorSet(colors)
 	for _, c := range colorOrder {
-		if !has[c] {
-			continue
+		if has[c] {
+			v.indicators.Add(indicatorText(colorMark, colorLabelToColor(c)))
 		}
-		circle := canvas.NewCircle(colorLabelToColor(c))
-		circle.Resize(fyne.NewSize(colorIndicatorSize, colorIndicatorSize))
-		v.indicators.Add(circle)
 	}
 	v.indicators.Refresh()
+}
+
+func indicatorText(mark string, fill color.Color) *canvas.Text {
+	text := canvas.NewText(mark, fill)
+	text.TextSize = indicatorTextSize
+	return text
 }
 
 func (v *Viewer) Clear() {

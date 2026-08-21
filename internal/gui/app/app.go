@@ -85,11 +85,12 @@ func (a *Application) Run() {
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
-		OnRed:    func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:  func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:   func() { a.handleColorToggle(model.ColorBlue) },
-		OnTags:   a.handleTags,
-		OnDelete: a.handleDelete,
+		OnFavorite: a.handleFavorite,
+		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
+		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
+		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
+		OnTags:     a.handleTags,
+		OnDelete:   a.handleDelete,
 	})
 
 	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.imageProvider, a.colorService, ui.FileBrowserCallbacks{
@@ -102,6 +103,7 @@ func (a *Application) Run() {
 		OnFilterBlue:        func() { a.handleFilterColor(model.ColorBlue) },
 		OnFilterFavorite:    a.handleFilterFavorite,
 		OnFilteredChanged:   a.handleFilteredChanged,
+		OnMetaLoaded:        a.handleMetaLoaded,
 		OnDeleteAll:         a.handleDeleteAll,
 		OnCopyAll:           a.handleCopyAll,
 		OnUnselectAll:       a.handleUnselectAll,
@@ -124,6 +126,7 @@ func (a *Application) Run() {
 	})
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
+		OnFavorite:      a.handleFavorite,
 		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:         func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:          func() { a.handleColorToggle(model.ColorBlue) },
@@ -136,6 +139,7 @@ func (a *Application) Run() {
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
+		OnFavorite:       a.handleFavorite,
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },

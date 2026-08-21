@@ -39,6 +39,9 @@ const (
 // them and the file is replaced, which is reported so the user can be told the
 // camera has to re-index it.
 func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritten bool, err error) {
+	s.writes.Lock()
+	defer s.writes.Unlock()
+
 	original, err := os.ReadFile(jpegPath)
 	if err != nil {
 		return false, fmt.Errorf("reading %s: %w", jpegPath, err)

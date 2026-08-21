@@ -542,3 +542,80 @@ func TestStripProperties(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSidecar_Rating(t *testing.T) {
+	t.Parallel()
+
+	const xmpBinding = `xmlns:xmp="http://ns.adobe.com/xap/1.0/"`
+	tests := []struct {
+		name        string
+		description string
+		rating      int
+		rated       bool
+	}{
+		{
+			name:        "the element the camera writes",
+			description: `<rdf:Description rdf:about="" ` + xmpBinding + `><xmp:Rating>3</xmp:Rating></rdf:Description>`,
+			rating:      3,
+			rated:       true,
+		},
+		{
+			name:        "the attribute Lightroom writes",
+			description: `<rdf:Description rdf:about="" ` + xmpBinding + ` xmp:Rating="5"/>`,
+			rating:      5,
+			rated:       true,
+		},
+		{
+			name:        "a fraction is rounded",
+			description: `<rdf:Description rdf:about="" ` + xmpBinding + `><xmp:Rating> 3.0 </xmp:Rating></rdf:Description>`,
+			rating:      3,
+			rated:       true,
+		},
+		{
+			name:        "a rejected photo",
+			description: `<rdf:Description rdf:about="" ` + xmpBinding + `><xmp:Rating>-1</xmp:Rating></rdf:Description>`,
+			rating:      -1,
+			rated:       true,
+		},
+		{
+			name:        "the namespace under another prefix",
+			description: `<rdf:Description rdf:about="" xmlns:xap="http://ns.adobe.com/xap/1.0/"><xap:Rating>4</xap:Rating></rdf:Description>`,
+			rating:      4,
+			rated:       true,
+		},
+		{
+			name:        "no rating",
+			description: `<rdf:Description rdf:about=""/>`,
+		},
+		{
+			name:        "a value that is no number",
+			description: `<rdf:Description rdf:about="" ` + xmpBinding + `><xmp:Rating>many</xmp:Rating></rdf:Description>`,
+		},
+		{
+			name:        "a prefix bound to nothing",
+			description: `<rdf:Description rdf:about="" xmp:Rating="5"/>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			document := `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+				tt.description + `</rdf:RDF></x:xmpmeta>`
+
+			parsed, err := parseSidecar([]byte(document))
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.rated, parsed.rated)
+			assert.Equal(t, tt.rating, parsed.rating)
+		})
+	}
+
+	t.Run("the rating does not leak into the tags", func(t *testing.T) {
+		t.Parallel()
+		parsed, err := parseSidecar(sonyPacket(200))
+
+		require.NoError(t, err)
+		assert.True(t, parsed.rated)
+		assert.Equal(t, model.Tags{}, parsed.tags())
+	})
+}

@@ -10,16 +10,18 @@ import (
 )
 
 type ActionPanelCallbacks struct {
-	OnRed    func()
-	OnGreen  func()
-	OnBlue   func()
-	OnTags   func()
-	OnDelete func()
+	OnFavorite func()
+	OnRed      func()
+	OnGreen    func()
+	OnBlue     func()
+	OnTags     func()
+	OnDelete   func()
 }
 
 type ActionPanel struct {
 	container *fyne.Container
 	callbacks ActionPanelCallbacks
+	favBtn    *widget.Button
 	redBtn    *widget.Button
 	greenBtn  *widget.Button
 	blueBtn   *widget.Button
@@ -33,6 +35,25 @@ func NewActionPanel(callbacks ActionPanelCallbacks) *ActionPanel {
 
 func (p *ActionPanel) Container() *fyne.Container {
 	return p.container
+}
+
+func (p *ActionPanel) SetFavoriteEnabled(enabled bool) {
+	if enabled {
+		p.favBtn.Enable()
+	} else {
+		p.favBtn.Disable()
+	}
+}
+
+func (p *ActionPanel) SetFavoriteActive(active bool) {
+	if active {
+		p.favBtn.SetIcon(iconHeart)
+		p.favBtn.Importance = widget.HighImportance
+	} else {
+		p.favBtn.SetIcon(iconHeartOutline)
+		p.favBtn.Importance = widget.MediumImportance
+	}
+	p.favBtn.Refresh()
 }
 
 func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
@@ -56,6 +77,11 @@ func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
 }
 
 func (p *ActionPanel) build() {
+	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeartOutline, func() {
+		if p.callbacks.OnFavorite != nil {
+			p.callbacks.OnFavorite()
+		}
+	})
 	p.redBtn = widget.NewButtonWithIcon("Red", iconRedCircle, func() {
 		if p.callbacks.OnRed != nil {
 			p.callbacks.OnRed()
@@ -82,5 +108,5 @@ func (p *ActionPanel) build() {
 		}
 	})
 
-	p.container = container.NewGridWithColumns(5, p.redBtn, p.greenBtn, p.blueBtn, tagsBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(6, p.favBtn, p.redBtn, p.greenBtn, p.blueBtn, tagsBtn, deleteBtn)
 }

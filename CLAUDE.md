@@ -14,12 +14,12 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 
 - **Left panel**: File browser with directory tree (GoLand-style). Shows only non-RAW files. Sorting by name/time. "Today" button. Color indicators displayed before filenames.
 - **Center**: Photo viewer. Color indicators shown as colored circles in top-left corner of the photo.
-- **Top bar**: Action buttons — Favorite, Red, Green, Blue, Delete.
+- **Top bar**: Action buttons — Favorite, Red, Green, Blue, Tags, Delete.
 - **Right-click context menu** on photo: same actions as top bar.
 
 ### Features
 
-- **Favorites**: Modifies EXIF Rating field in the JPEG file (visible in OS file explorer and on camera).
+- **Favorites**: Toggles `xmp:Rating` (5 / 0) in place inside the XMP packet the camera embeds in the JPEG (visible in OS file explorer, Lightroom and on camera). JPEG only; a JPEG without a writable XMP packet is reported and left untouched. Read back as XMP first, EXIF Rating second.
 - **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
 - **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
 - **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
@@ -27,6 +27,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 
 ### Keyboard Shortcuts (layout-independent)
 
+- `F` — toggle Favorite
 - `R` — toggle Red
 - `G` — toggle Green
 - `B` — toggle Blue

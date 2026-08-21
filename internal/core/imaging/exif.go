@@ -3,12 +3,17 @@ package imaging
 import (
 	"fmt"
 	"image"
+	"sync"
 
 	exif "github.com/dsoprea/go-exif/v3"
 	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 )
 
-type ExifService struct{}
+type ExifService struct {
+	// Every writer reads the whole file and patches what it read back, so two
+	// of them at once would each undo the other's change.
+	writes sync.Mutex
+}
 
 func NewExifService() *ExifService {
 	return &ExifService{}
@@ -18,6 +23,12 @@ func segmentsFromFile(jpegPath string) (*jpegstructure.SegmentList, error) {
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseFile(jpegPath)
 	return segmentsOf(intfc, err, jpegPath)
+}
+
+func segmentsFromBytes(data []byte, source string) (*jpegstructure.SegmentList, error) {
+	jmp := jpegstructure.NewJpegMediaParser()
+	intfc, err := jmp.ParseBytes(data)
+	return segmentsOf(intfc, err, source)
 }
 
 func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.SegmentList, error) {
@@ -52,22 +63,54 @@ func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
 // the orientation belongs to the parent IFD0 rather than to the thumbnail, so
 // it is applied here and never leaves: the main image is rotated by the decoder
 // off the file's own tag
-func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating uint16, err error) {
-	rootIfd, err := exifRootFromFile(jpegPath)
+func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating int, err error) {
+	sl, err := segmentsFromFile(jpegPath)
 	if err != nil {
 		return nil, 0, err
 	}
-	if rootIfd == nil {
-		return nil, 0, nil
+	rootIfd, err := exifRootOf(sl)
+	if err != nil {
+		return nil, 0, err
 	}
-
-	thumbnail = extractThumbnail(rootIfd)
-	if thumbnail != nil {
-		thumbnail = applyOrientation(thumbnail, int(ifdUint16(rootIfd, "Orientation", 1)))
+	if rootIfd != nil {
+		thumbnail = extractThumbnail(rootIfd)
+		if thumbnail != nil {
+			thumbnail = applyOrientation(thumbnail, int(ifdUint16(rootIfd, "Orientation", 1)))
+		}
 	}
-
-	rating = ifdUint16(rootIfd, "Rating", 0)
+	// A packet the parser rejects still leaves the EXIF rating to show.
+	rating, _ = ratingOf(sl, rootIfd)
 	return thumbnail, rating, nil
+}
+
+// The camera and Lightroom keep the rating in the XMP packet and only older
+// tools in the EXIF, so the packet wins whenever it says anything, zero
+// included: that is what the camera shows.
+func ratingOf(sl *jpegstructure.SegmentList, rootIfd *exif.Ifd) (int, error) {
+	rating, found, err := xmpRating(sl)
+	if found {
+		return rating, nil
+	}
+	return exifRating(rootIfd), err
+}
+
+func xmpRating(sl *jpegstructure.SegmentList) (rating int, found bool, err error) {
+	packet := xmpPacketOf(sl)
+	if packet == nil {
+		return 0, false, nil
+	}
+	parsed, err := parseSidecar(packet)
+	if err != nil {
+		return 0, false, err
+	}
+	return parsed.rating, parsed.rated, nil
+}
+
+func exifRating(rootIfd *exif.Ifd) int {
+	if rootIfd == nil {
+		return 0
+	}
+	return int(ifdUint16(rootIfd, "Rating", 0))
 }
 
 func extractThumbnail(rootIfd *exif.Ifd) image.Image {

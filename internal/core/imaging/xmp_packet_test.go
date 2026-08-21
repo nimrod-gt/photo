@@ -29,9 +29,8 @@ const (
 		" </rdf:Description>\n" +
 		"</rdf:RDF>\n" +
 		"</x:xmpmeta>"
-	xpacketEnd    = "<?xpacket end='w'?>"
-	ratingElement = "<xmp:Rating>"
-	sonyPadding   = 56981
+	xpacketEnd  = "<?xpacket end='w'?>"
+	sonyPadding = 56981
 )
 
 func xmpPacket(content string, padding int) []byte {
@@ -107,7 +106,7 @@ func TestPacketWithTags(t *testing.T) {
 		text := string(second)
 		assert.Equal(t, 2, strings.Count(text, "<rdf:Description"), "the earlier description must not pile up")
 		assert.NotContains(t, text, "lisbon")
-		assert.Equal(t, bytes.Index(first, []byte(ratingElement)), bytes.Index(second, []byte(ratingElement)))
+		assert.Equal(t, bytes.Index(first, []byte(ratingOpen)), bytes.Index(second, []byte(ratingOpen)))
 		parsed, err := parseSidecar(second)
 		require.NoError(t, err)
 		assert.Equal(t, other, parsed.tags())
@@ -301,4 +300,235 @@ func TestPatchFileKeepingModTime(t *testing.T) {
 		err := patchFileKeepingModTime(filepath.Join(t.TempDir(), "absent.bin"), 0, []byte("x"))
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
+}
+
+// A description Lightroom writes: every property an attribute, the element
+// self-closing, the rating in single quotes.
+const lightroomRatedDocument = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+    xmp:Rating='3'
+    crs:Exposure2012="+0.35"/>
+ </rdf:RDF>
+</x:xmpmeta>`
+
+func unratedSonyContent() string {
+	return strings.Replace(sonyXMPContent, "  <xmp:Rating>0</xmp:Rating>\n", "", 1)
+}
+
+func differingBytes(a, b []byte) int {
+	count := 0
+	for i := range min(len(a), len(b)) {
+		if a[i] != b[i] {
+			count++
+		}
+	}
+	return count + max(len(a), len(b)) - min(len(a), len(b))
+}
+
+func packetRating(t *testing.T, packet []byte) (int, bool) {
+	t.Helper()
+	parsed, err := parseSidecar(packet)
+	require.NoError(t, err)
+	return parsed.rating, parsed.rated
+}
+
+func TestPacketWithRating(t *testing.T) {
+	t.Parallel()
+
+	t.Run("flips the digit the camera wrote and nothing else", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		require.Len(t, updated, len(packet))
+		at := bytes.Index(packet, []byte(ratingOpen)) + len(ratingOpen)
+		assert.Equal(t, byte('0'), packet[at])
+		assert.Equal(t, byte('5'), updated[at])
+		assert.Equal(t, 1, differingBytes(packet, updated))
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
+	})
+
+	t.Run("keeps foreign padding when the length does not change", func(t *testing.T) {
+		t.Parallel()
+		packet := slices.Concat([]byte(sonyXMPContent), bytes.Repeat([]byte{' '}, 300), []byte(xpacketEnd))
+
+		updated, ok := packetWithRating(packet, 3)
+
+		require.True(t, ok)
+		assert.Equal(t, 1, differingBytes(packet, updated))
+	})
+
+	t.Run("clearing hands back the camera's bytes", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+		rated, ok := packetWithRating(packet, favoriteRating)
+		require.True(t, ok)
+
+		cleared, ok := packetWithRating(rated, 0)
+
+		require.True(t, ok)
+		assert.Equal(t, packet, cleared)
+	})
+
+	t.Run("adds the rating to a packet without one", func(t *testing.T) {
+		t.Parallel()
+		packet := xmpPacket(unratedSonyContent(), 2000)
+		_, rated := packetRating(t, packet)
+		require.False(t, rated)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		requireWellFormed(t, updated)
+		text := string(updated)
+		assert.Contains(t, text, ratingDescriptionOpen)
+		assert.Equal(t, 2, strings.Count(text, "<rdf:Description"))
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
+	})
+
+	t.Run("writes zero out rather than leaving it absent", func(t *testing.T) {
+		t.Parallel()
+		packet := xmpPacket(unratedSonyContent(), 2000)
+
+		updated, ok := packetWithRating(packet, 0)
+
+		require.True(t, ok)
+		assert.Contains(t, string(updated), ratingOpen+"0"+ratingClose)
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 0, rating)
+	})
+
+	t.Run("expands the self-closing form", func(t *testing.T) {
+		t.Parallel()
+		content := strings.Replace(sonyXMPContent, "<xmp:Rating>0</xmp:Rating>", "<xmp:Rating/>", 1)
+		packet := xmpPacket(content, 2000)
+
+		updated, ok := packetWithRating(packet, 4)
+
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		assert.Equal(t, 1, strings.Count(string(updated), "<xmp:Rating"))
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 4, rating)
+	})
+
+	t.Run("rewrites the attribute Lightroom writes and keeps its quotes", func(t *testing.T) {
+		t.Parallel()
+		packet := xmpPacket(lightroomRatedDocument, 2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		text := string(updated)
+		assert.Contains(t, text, "xmp:Rating='5'")
+		assert.Contains(t, text, `crs:Exposure2012="+0.35"`)
+		assert.Equal(t, 1, differingBytes(packet, updated))
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
+	})
+
+	t.Run("a shorter rating grows the padding", func(t *testing.T) {
+		t.Parallel()
+		content := strings.Replace(sonyXMPContent, "<xmp:Rating>0</xmp:Rating>", "<xmp:Rating>-1</xmp:Rating>", 1)
+		packet := xmpPacket(content, 2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		require.Len(t, updated, len(packet))
+		document := strings.Replace(content, "-1", "5", 1)
+		assert.Equal(t, xmpPacket(document, 2001), updated)
+	})
+
+	t.Run("survives the tags being written and cleared", func(t *testing.T) {
+		t.Parallel()
+		packet := xmpPacket(unratedSonyContent(), 2000)
+		rated, ok := packetWithRating(packet, favoriteRating)
+		require.True(t, ok)
+		tags := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}}
+		tagged, ok := packetWithTags(rated, tags)
+		require.True(t, ok)
+		parsed, err := parseSidecar(tagged)
+		require.NoError(t, err)
+		assert.Equal(t, tags, parsed.tags())
+		assert.Equal(t, 5, parsed.rating)
+
+		cleared, ok := packetWithTags(tagged, model.Tags{})
+
+		require.True(t, ok)
+		assert.Equal(t, rated, cleared)
+	})
+
+	t.Run("keeps the tags written before it", func(t *testing.T) {
+		t.Parallel()
+		tags := model.Tags{Title: "A quiet morning.", Keywords: []string{"lake", "fog"}}
+		tagged, ok := packetWithTags(sonyPacket(2000), tags)
+		require.True(t, ok)
+
+		rated, ok := packetWithRating(tagged, favoriteRating)
+
+		require.True(t, ok)
+		assert.Len(t, rated, len(tagged))
+		assert.Equal(t, 1, differingBytes(tagged, rated))
+		parsed, err := parseSidecar(rated)
+		require.NoError(t, err)
+		assert.Equal(t, tags, parsed.tags())
+		assert.Equal(t, 5, parsed.rating)
+	})
+
+	refused := []struct {
+		name   string
+		packet []byte
+	}{
+		{"a read-only packet", slices.Concat([]byte(sonyXMPContent), xmpPadding(2000), []byte("<?xpacket end='r'?>"))},
+		{"a packet without the trailer", slices.Concat([]byte(sonyXMPContent), xmpPadding(2000))},
+		{"a packet without rdf:RDF", xmpPacket("<x:xmpmeta xmlns:x='adobe:ns:meta/'/>", 2000)},
+		{"a packet without room", xmpPacket(unratedSonyContent(), 16)},
+		{"no packet at all", nil},
+	}
+	for _, tt := range refused {
+		t.Run("leaves alone "+tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, ok := packetWithRating(tt.packet, favoriteRating)
+			assert.False(t, ok)
+		})
+	}
+}
+
+func TestHasRatingSlot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		packet []byte
+		want   bool
+	}{
+		{"the camera's element", sonyPacket(200), true},
+		{"the self-closing element", []byte("<xmp:Rating/>"), true},
+		{"the attribute Lightroom writes", xmpPacket(lightroomRatedDocument, 200), true},
+		{"no rating", xmpPacket(unratedSonyContent(), 200), false},
+		{"another prefix", []byte("<xap:Rating>3</xap:Rating> xap:Rating='3'"), false},
+		{"a different property", []byte(`<xmp:RatingPercent>50</xmp:RatingPercent> xmp:RatingPercent="50"`), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, hasRatingSlot(tt.packet))
+		})
+	}
 }

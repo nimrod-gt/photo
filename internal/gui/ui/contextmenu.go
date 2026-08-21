@@ -7,6 +7,7 @@ import (
 )
 
 type ContextMenuCallbacks struct {
+	OnFavorite      func()
 	OnRed           func()
 	OnGreen         func()
 	OnBlue          func()
@@ -16,13 +17,19 @@ type ContextMenuCallbacks struct {
 }
 
 type ContextMenuItems struct {
-	Menu  *fyne.Menu
-	Red   *fyne.MenuItem
-	Green *fyne.MenuItem
-	Blue  *fyne.MenuItem
+	Menu     *fyne.Menu
+	Favorite *fyne.MenuItem
+	Red      *fyne.MenuItem
+	Green    *fyne.MenuItem
+	Blue     *fyne.MenuItem
 }
 
 func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
+	favoriteItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() {
+		if callbacks.OnFavorite != nil {
+			callbacks.OnFavorite()
+		}
+	})
 	redItem := fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() {
 		if callbacks.OnRed != nil {
 			callbacks.OnRed()
@@ -39,6 +46,8 @@ func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 		}
 	})
 	menu := fyne.NewMenu("",
+		favoriteItem,
+		fyne.NewMenuItemSeparator(),
 		redItem, greenItem, blueItem,
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Copy to Clipboard", func() {
@@ -59,10 +68,11 @@ func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 		}),
 	)
 	return ContextMenuItems{
-		Menu:  menu,
-		Red:   redItem,
-		Green: greenItem,
-		Blue:  blueItem,
+		Menu:     menu,
+		Favorite: favoriteItem,
+		Red:      redItem,
+		Green:    greenItem,
+		Blue:     blueItem,
 	}
 }
 

@@ -51,7 +51,7 @@ func TestExifService_WriteStockTags(t *testing.T) {
 
 		_, rating, err := svc.GetPhotoInfo(path)
 		require.NoError(t, err)
-		assert.Equal(t, uint16(5), rating)
+		assert.Equal(t, 5, rating)
 
 		// the rating is rewritten in place, so the tags around it have to survive
 		rootIfd, err := exifRootFromFile(path)
@@ -485,7 +485,7 @@ func TestExifService_WriteStockTags_XMP(t *testing.T) {
 		require.Len(t, after, len(before))
 		assert.Equal(t, before[:start], after[:start], "the bytes in front of the packet must not move")
 		assert.Equal(t, before[end:], after[end:], "the bytes behind the packet must not move")
-		assert.Equal(t, bytes.Index(before, []byte(ratingElement)), bytes.Index(after, []byte(ratingElement)),
+		assert.Equal(t, bytes.Index(before, []byte(ratingOpen)), bytes.Index(after, []byte(ratingOpen)),
 			"the rating the camera wrote must keep its offset")
 		requireWellFormed(t, after[start:end])
 		statAfter, err := os.Stat(path)

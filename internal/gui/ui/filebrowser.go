@@ -35,6 +35,7 @@ type FileBrowserCallbacks struct {
 	OnFilterBlue        func()
 	OnFilterFavorite    func()
 	OnFilteredChanged   func(photos []model.Photo)
+	OnMetaLoaded        func(displayIndex int)
 	OnDeleteAll         func()
 	OnCopyAll           func()
 	OnUnselectAll       func()
@@ -120,6 +121,9 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 		if ok && displayIdx >= 0 {
 			fyne.Do(func() {
 				fb.list.RefreshItem(displayIdx)
+				if fb.callbacks.OnMetaLoaded != nil {
+					fb.callbacks.OnMetaLoaded(displayIdx)
+				}
 			})
 		}
 	}, func() {
@@ -405,17 +409,17 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 	nameLabel := widget.NewLabel("placeholder")
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
 
-	star := canvas.NewText("★", color.NRGBA{R: 255, G: 215, B: 0, A: 255})
+	star := canvas.NewText(favoriteMark, favoriteColor)
 	star.TextSize = 14
 	star.Hide()
 
-	dot1 := canvas.NewText("●", color.Transparent)
+	dot1 := canvas.NewText(colorMark, color.Transparent)
 	dot1.TextSize = 12
 	dot1.Hide()
-	dot2 := canvas.NewText("●", color.Transparent)
+	dot2 := canvas.NewText(colorMark, color.Transparent)
 	dot2.TextSize = 12
 	dot2.Hide()
-	dot3 := canvas.NewText("●", color.Transparent)
+	dot3 := canvas.NewText(colorMark, color.Transparent)
 	dot3.TextSize = 12
 	dot3.Hide()
 

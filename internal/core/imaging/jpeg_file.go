@@ -23,7 +23,7 @@ const (
 
 var (
 	exifSegmentPrefix = []byte("Exif\x00\x00")
-	xmpSegmentPrefix  = []byte("http://ns.adobe.com/xap/1.0/\x00")
+	xmpSegmentPrefix  = []byte(xmpNamespace + "\x00")
 )
 
 // Only the EXIF segment is replaced and the rest of the file is copied byte for

@@ -6,6 +6,7 @@ import (
 )
 
 type ShortcutCallbacks struct {
+	OnFavorite       func()
 	OnRed            func()
 	OnGreen          func()
 	OnBlue           func()
@@ -30,6 +31,7 @@ type ShortcutCallbacks struct {
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 	scanActions := map[int]func(){
+		glfw.GetKeyScancode(glfw.KeyF): callbacks.OnFavorite,
 		glfw.GetKeyScancode(glfw.KeyR): callbacks.OnRed,
 		glfw.GetKeyScancode(glfw.KeyG): callbacks.OnGreen,
 		glfw.GetKeyScancode(glfw.KeyB): callbacks.OnBlue,

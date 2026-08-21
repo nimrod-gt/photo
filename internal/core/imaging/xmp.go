@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"photo/internal/core/model"
@@ -15,6 +17,8 @@ import (
 
 const (
 	dcNamespace     = "http://purl.org/dc/elements/1.1/"
+	xmpNamespace    = "http://ns.adobe.com/xap/1.0/"
+	ratingProperty  = "Rating"
 	sidecarIndent   = "  "
 	descriptionOpen = `<rdf:Description rdf:about="" xmlns:dc="` + dcNamespace + `">`
 	descriptionEnd  = "</rdf:Description>"
@@ -55,6 +59,8 @@ type sidecarTags struct {
 	title       string
 	description string
 	keywords    []string
+	rating      int
+	rated       bool
 }
 
 func (s sidecarTags) tags() model.Tags {
@@ -80,18 +86,42 @@ func (s *sidecarTags) readElement(name string, prop xmpProperty) {
 // child elements.
 func (s *sidecarTags) readAttributes(attrs []xml.Attr) {
 	for _, attr := range attrs {
-		if attr.Name.Space != dcNamespace {
-			continue
-		}
-		switch attr.Name.Local {
-		case "title":
-			s.title = strings.TrimSpace(attr.Value)
-		case "description":
-			s.description = strings.TrimSpace(attr.Value)
-		case "subject":
-			s.keywords = model.ParseKeywordLine(attr.Value)
+		switch attr.Name.Space {
+		case dcNamespace:
+			s.readDCAttribute(attr.Name.Local, attr.Value)
+		case xmpNamespace:
+			if attr.Name.Local == ratingProperty {
+				s.setRating(attr.Value)
+			}
 		}
 	}
+}
+
+func (s *sidecarTags) readDCAttribute(name, value string) {
+	switch name {
+	case "title":
+		s.title = strings.TrimSpace(value)
+	case "description":
+		s.description = strings.TrimSpace(value)
+	case "subject":
+		s.keywords = model.ParseKeywordLine(value)
+	}
+}
+
+func (s *sidecarTags) setRating(text string) {
+	if rating, ok := parseRating(text); ok {
+		s.rating, s.rated = rating, true
+	}
+}
+
+// Lightroom writes whole numbers, the camera a single digit; a fraction is
+// accepted all the same and rounded, which is how Bridge shows it.
+func parseRating(text string) (int, bool) {
+	value, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	return int(math.Round(value)), true
 }
 
 type xmpProperty struct {
@@ -145,7 +175,7 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 		if !ok {
 			continue
 		}
-		if start.Name.Space != dcNamespace {
+		if start.Name.Space != dcNamespace && !isRatingElement(start.Name) {
 			parsed.readAttributes(start.Attr)
 			continue
 		}
@@ -153,8 +183,16 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 		if err := decoder.DecodeElement(&prop, &start); err != nil {
 			return sidecarTags{}, err
 		}
+		if isRatingElement(start.Name) {
+			parsed.setRating(prop.Text)
+			continue
+		}
 		parsed.readElement(start.Name.Local, prop)
 	}
+}
+
+func isRatingElement(name xml.Name) bool {
+	return name.Space == xmpNamespace && name.Local == ratingProperty
 }
 
 var dcProperties = []string{"title", "description", "subject"}

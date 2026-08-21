@@ -66,7 +66,7 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Nil(t, thumbnail)
-		assert.Equal(t, uint16(0), rating)
+		assert.Equal(t, 0, rating)
 	})
 
 	// EXIF without a Rating tag has to read as unrated, not as an error: it
@@ -80,7 +80,7 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 		_, rating, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, uint16(0), rating)
+		assert.Equal(t, 0, rating)
 	})
 
 	t.Run("missing file", func(t *testing.T) {
@@ -120,5 +120,79 @@ func TestExifRootFromFile(t *testing.T) {
 		require.NotNil(t, rootIfd)
 		assert.Equal(t, uint16(3), ifdUint16(rootIfd, "Orientation", 1))
 		assert.Equal(t, uint16(7), ifdUint16(rootIfd, "Rating", 7))
+	})
+}
+
+func TestExifService_GetPhotoInfo_XMP(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	ratedExif := map[string]any{"Make": "SONY", "Rating": []uint16{5}}
+	ratedPacket := func(t *testing.T, rating int) []byte {
+		t.Helper()
+		packet, ok := packetWithRating(sonyPacket(200), rating)
+		require.True(t, ok)
+		return packet
+	}
+
+	t.Run("reads the rating of the packet", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "rated.jpg", map[string]any{"Make": "SONY"}, ratedPacket(t, 3))
+
+		_, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, rating)
+	})
+
+	t.Run("reads the attribute Lightroom writes", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "lightroom.jpg", map[string]any{"Make": "SONY"}, xmpPacket(lightroomRatedDocument, 200))
+
+		_, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, rating)
+	})
+
+	t.Run("the packet wins over the EXIF even at zero", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "both.jpg", ratedExif, sonyPacket(200))
+
+		_, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, 0, rating)
+	})
+
+	t.Run("falls back to the EXIF when the packet has no rating", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "unrated-packet.jpg", ratedExif, xmpPacket(unratedSonyContent(), 200))
+
+		_, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, 5, rating)
+	})
+
+	t.Run("keeps the EXIF rating when the packet does not parse", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", ratedExif, xmpPacket("<x:xmpmeta><unclosed>", 40))
+
+		_, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, 5, rating)
+	})
+
+	t.Run("reads the packet of a JPEG without EXIF", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacketOnly(t, t.TempDir(), "packet-only.jpg", ratedPacket(t, 2))
+
+		thumbnail, rating, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.Nil(t, thumbnail)
+		assert.Equal(t, 2, rating)
 	})
 }

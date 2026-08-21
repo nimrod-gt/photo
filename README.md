@@ -7,7 +7,7 @@ Cameras save photos as JPEG + RAW (`.ARW`) pairs. The app displays JPEGs, but fi
 ## Features
 
 - **File browser** with directory tree, sorting by name/time, color indicators
-- **Favorites** read from the EXIF Rating field
+- **Favorites** toggled in place in the JPEG's embedded XMP (`xmp:Rating`), the way the camera does it — the file keeps its size and layout, so a Sony body keeps showing it; read from XMP, then from the EXIF Rating field
 - **Color labels** (Red/Green/Blue) per photo, stored in a `.photo-colors.json` file per folder; a photo can carry several colors at once
 - **Color filters** — show only photos with selected labels, with bulk delete/copy of the filtered set
 - **Delete** removes both JPEG and RAW pair (with confirmation)
@@ -18,6 +18,7 @@ Cameras save photos as JPEG + RAW (`.ARW`) pairs. The app displays JPEGs, but fi
 
 | Key | Action |
 | --- | --- |
+| `F` | Toggle favorite |
 | `R` / `G` / `B` | Toggle Red / Green / Blue label |
 | `D` | Delete (confirm with `D`, cancel with `N`/`Esc`) |
 | `C` | Copy photo |

@@ -19,14 +19,33 @@ import (
 	"photo/internal/gui/ui"
 )
 
-func (a *Application) updateColorIndicators(photo model.Photo) {
+func (a *Application) updateIndicators(photo model.Photo) {
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
 		a.showError("Failed to get colors", err)
 		return
 	}
-	a.viewer.SetColorIndicators(colors)
+	favorite := a.favoriteOf(photo)
+	a.viewer.SetIndicators(favorite, colors)
 	a.updateColorButtonStates(colors)
+	a.updateFavoriteButtonStates(photo, favorite)
+}
+
+// The rating is read once per folder, with the thumbnails, and kept in the
+// browser's meta; the file is not opened again for the viewer.
+func (a *Application) favoriteOf(photo model.Photo) bool {
+	idx := a.navigator.FindIndex(photo.ImagePath)
+	if idx < 0 {
+		return false
+	}
+	return a.fileBrowser.GetMeta(idx).Favorite
+}
+
+func (a *Application) updateFavoriteButtonStates(photo model.Photo, favorite bool) {
+	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
+	a.actionPanel.SetFavoriteActive(favorite)
+	a.contextMenuItems.Favorite.Disabled = !photo.IsJPEG()
+	a.contextMenuItems.Favorite.Checked = favorite
 }
 
 func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
@@ -55,7 +74,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 			return
 		}
 		fyne.Do(func() {
-			a.updateColorIndicators(photo)
+			a.updateIndicators(photo)
 			a.refreshFileBrowserItem(photo)
 			if a.fileBrowser.HasFilter() {
 				a.fileBrowser.SetPinnedPath(photo.ImagePath)
@@ -63,6 +82,48 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 			}
 		})
 	}()
+}
+
+func (a *Application) handleFavorite() {
+	if a.shortcutsBlocked() {
+		return
+	}
+	photo, ok := a.navigator.Current()
+	if !ok || !photo.IsJPEG() {
+		return
+	}
+	go func() {
+		favorite, err := a.exifService.ToggleFavorite(photo.ImagePath)
+		if err != nil {
+			fyne.Do(func() {
+				a.showError("Failed to toggle favorite", err)
+			})
+			return
+		}
+		fyne.Do(func() {
+			if idx := a.navigator.FindIndex(photo.ImagePath); idx >= 0 {
+				a.fileBrowser.RefreshItemMeta(idx, a.fileBrowser.GetMeta(idx).Colors, favorite)
+			}
+			a.updateIndicators(photo)
+			if a.fileBrowser.HasFilter() {
+				a.fileBrowser.SetPinnedPath(photo.ImagePath)
+				a.reapplyFilter()
+			}
+		})
+	}()
+}
+
+// The ratings arrive with the thumbnails, after the folder is shown, and the
+// photo on screen may be one of them.
+func (a *Application) handleMetaLoaded(displayIndex int) {
+	if a.gridMode {
+		return
+	}
+	photo, ok := a.navigator.Current()
+	if !ok || a.navigator.FindIndex(photo.ImagePath) != displayIndex {
+		return
+	}
+	a.updateIndicators(photo)
 }
 
 func (a *Application) refreshFileBrowserItem(photo model.Photo) {
