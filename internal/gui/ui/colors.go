@@ -6,15 +6,7 @@ import (
 	"photo/internal/core/model"
 )
 
-const (
-	favoriteMark = "★"
-	colorMark    = "●"
-)
-
-var (
-	colorOrder    = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
-	favoriteColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
-)
+var colorOrder = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
 
 func ColorSet(colors []model.ColorLabel) map[model.ColorLabel]bool {
 	set := make(map[model.ColorLabel]bool, len(colors))

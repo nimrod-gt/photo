@@ -25,8 +25,12 @@ func (a *Application) updateActionStates(photo model.Photo) {
 		a.showError("Failed to get colors", err)
 		return
 	}
+	a.updateButtonStates(photo, colors, a.favoriteOf(photo))
+}
+
+func (a *Application) updateButtonStates(photo model.Photo, colors []model.ColorLabel, favorite bool) {
 	a.updateColorButtonStates(colors)
-	a.updateFavoriteButtonStates(photo, a.favoriteOf(photo))
+	a.updateFavoriteButtonStates(photo, favorite)
 }
 
 // The rating is read once per folder, with the thumbnails, and kept in the
@@ -72,12 +76,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 			return
 		}
 		fyne.Do(func() {
-			a.updateActionStates(photo)
-			a.refreshFileBrowserItem(photo)
-			if a.fileBrowser.HasFilter() {
-				a.fileBrowser.SetPinnedPath(photo.ImagePath)
-				a.reapplyFilter()
-			}
+			a.photoStateChanged(photo, a.favoriteOf(photo))
 		})
 	}()
 }
@@ -99,14 +98,7 @@ func (a *Application) handleFavorite() {
 			return
 		}
 		fyne.Do(func() {
-			if idx := a.navigator.FindIndex(photo.ImagePath); idx >= 0 {
-				a.fileBrowser.RefreshItemMeta(idx, a.fileBrowser.GetMeta(idx).Colors, favorite)
-			}
-			a.updateActionStates(photo)
-			if a.fileBrowser.HasFilter() {
-				a.fileBrowser.SetPinnedPath(photo.ImagePath)
-				a.reapplyFilter()
-			}
+			a.photoStateChanged(photo, favorite)
 		})
 	}()
 }
@@ -118,24 +110,31 @@ func (a *Application) handleMetaLoaded(displayIndex int) {
 		return
 	}
 	photo, ok := a.navigator.Current()
-	if !ok || a.navigator.FindIndex(photo.ImagePath) != displayIndex {
+	if !ok || a.navigator.CurrentIndex() != displayIndex {
 		return
 	}
 	a.updateActionStates(photo)
 }
 
-func (a *Application) refreshFileBrowserItem(photo model.Photo) {
-	idx := a.navigator.FindIndex(photo.ImagePath)
-	if idx < 0 {
-		return
-	}
+// The toggle runs off the main goroutine, and the photo it changed may no
+// longer be the one on screen by the time it lands: the file list is refreshed
+// wherever the photo sits, the buttons only while they still describe it.
+func (a *Application) photoStateChanged(photo model.Photo, favorite bool) {
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
-		log.Printf("Failed to get colors for %s: %v", photo.Name, err)
+		a.showError("Failed to get colors", err)
 		return
 	}
-	meta := a.fileBrowser.GetMeta(idx)
-	a.fileBrowser.RefreshItemMeta(idx, colors, meta.Favorite)
+	if idx := a.navigator.FindIndex(photo.ImagePath); idx >= 0 {
+		a.fileBrowser.RefreshItemMeta(idx, colors, favorite)
+	}
+	if current, ok := a.navigator.Current(); ok && current.ImagePath == photo.ImagePath {
+		a.updateButtonStates(photo, colors, favorite)
+	}
+	if a.fileBrowser.HasFilter() {
+		a.fileBrowser.SetPinnedPath(photo.ImagePath)
+		a.reapplyFilter()
+	}
 }
 
 func (a *Application) handleCopyToClipboard() {

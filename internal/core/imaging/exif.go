@@ -42,15 +42,6 @@ func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.Segmen
 	return sl, nil
 }
 
-// returns (nil, nil) when the JPEG parses but carries no EXIF data
-func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
-	sl, err := segmentsFromFile(jpegPath)
-	if err != nil {
-		return nil, err
-	}
-	return exifRootOf(sl)
-}
-
 func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
 	rootIfd, _, err := sl.Exif()
 	if err != nil {

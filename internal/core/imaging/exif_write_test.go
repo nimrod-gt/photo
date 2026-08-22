@@ -19,6 +19,14 @@ import (
 	"photo/internal/core/model"
 )
 
+func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
+	sl, err := segmentsFromFile(jpegPath)
+	if err != nil {
+		return nil, err
+	}
+	return flatExifOf(sl, jpegPath)
+}
+
 func TestExifService_WriteStockTags(t *testing.T) {
 	t.Parallel()
 

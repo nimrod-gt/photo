@@ -16,7 +16,7 @@ import (
 func stubProvider(load func(string) (image.Image, error)) *Provider {
 	p := NewProvider(NewExifService())
 	if load != nil {
-		p.loader.loadImage = func(path string, _ int) (image.Image, error) { return load(path) }
+		p.loader.loadImage = stubLoadImage(load)
 	}
 	return p
 }

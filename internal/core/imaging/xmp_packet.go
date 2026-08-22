@@ -33,8 +33,8 @@ var (
 
 	// The element the camera writes, its self-closing form, and the attribute
 	// form Lightroom writes. Only the xmp prefix is rewritten - the one every
-	// writer spells - and a rating under another prefix is left to the caller
-	// to refuse, so that no second rating is ever added beside it.
+	// writer spells - and a rating under another prefix makes the whole write
+	// fail, so that no second rating is ever added beside it.
 	ratingElementPattern = regexp.MustCompile(`<xmp:Rating\b(?:[^>]*[^/>])?>[^<]*</xmp:Rating>|<xmp:Rating\s*/>`)
 	ratingAttrPattern    = regexp.MustCompile(`\sxmp:Rating\s*=\s*(?:"[^"]*"|'[^']*')`)
 )
@@ -56,10 +56,6 @@ func packetWithRating(packet []byte, rating int) ([]byte, bool) {
 	return rewritePacket(packet, func(document string) (string, bool) {
 		return documentWithRating(document, rating)
 	})
-}
-
-func hasRatingSlot(packet []byte) bool {
-	return ratingElementPattern.Match(packet) || ratingAttrPattern.Match(packet)
 }
 
 // rewritePacket hands the document in front of the padding to update and fits
@@ -125,6 +121,12 @@ func documentWithRating(document string, rating int) (string, bool) {
 			quote := attr[quoteAt : quoteAt+1]
 			return attr[:quoteAt] + quote + value + quote
 		}), true
+	}
+	// A rating these patterns do not describe - one under another prefix, say -
+	// would still be read, and a second one appended here would race it, so the
+	// packet is left alone instead.
+	if parsed, err := parseSidecar([]byte(document)); err != nil || parsed.rated {
+		return "", false
 	}
 	return appendElement(document, func(indent string) string {
 		return indent + ratingDescriptionOpen + "\n" +

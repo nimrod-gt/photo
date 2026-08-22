@@ -134,6 +134,17 @@ func replaceFileKeepingModTime(path string, data []byte) error {
 	return keepingModTime(path, func() error { return replaceFile(path, data) })
 }
 
+// patchPacket writes a rewritten XMP packet back over the bytes it was read
+// from. Its length is checked rather than trusted: a packet of another size
+// would silently run over the segments behind it.
+func patchPacket(path string, start, end int, packet []byte) error {
+	if len(packet) != end-start {
+		return fmt.Errorf("the XMP packet of %s would change size from %d to %d bytes",
+			path, end-start, len(packet))
+	}
+	return patchFileKeepingModTime(path, int64(start), packet)
+}
+
 // The bytes are written over their own place in the file, which keeps its size,
 // its blocks and its directory entry: a camera keeps a database of the files it
 // wrote and refuses to display a photo whose file no longer matches it until

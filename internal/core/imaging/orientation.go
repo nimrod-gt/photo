@@ -13,33 +13,30 @@ import (
 
 var jpegMagic = []byte{0xff, 0xd8}
 
-// JPEG is routed by its magic bytes rather than by extension, and its EXIF
-// orientation is read and applied by the decoder itself. The other formats the
-// viewer opens carry no orientation at all, so nothing rotates them.
-// maxSize is a budget on the returned image.
-func LoadImageOriented(path string, maxSize image.Point) (image.Image, error) {
+// fit is a budget on both sides of the returned image.
+func LoadImageOriented(path string, fit int) (image.Image, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading image %s: %w", path, err)
 	}
 
-	if bytes.HasPrefix(data, jpegMagic) {
-		img, err := decodeJPEG(data, maxSize)
-		if err != nil {
-			return nil, fmt.Errorf("decoding image %s: %w", path, err)
-		}
-		return DownscaleToFit(img, maxSize), nil
-	}
-
-	img, _, err := image.Decode(bytes.NewReader(data))
+	img, err := decodeImage(data, fit)
 	if err != nil {
 		return nil, fmt.Errorf("decoding image %s: %w", path, err)
 	}
-	return DownscaleToFit(img, maxSize), nil
+	return DownscaleToFit(img, image.Point{X: fit, Y: fit}), nil
 }
 
-func swapsDimensions(orientation int) bool {
-	return orientation >= 5 && orientation <= 8
+// JPEG is routed by its magic bytes rather than by extension, and its EXIF
+// orientation is read and applied by the decoder itself. The other formats the
+// viewer opens carry no orientation at all, so nothing rotates them.
+func decodeImage(data []byte, fit int) (image.Image, error) {
+	if bytes.HasPrefix(data, jpegMagic) {
+		return decodeJPEG(data, fit)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	return img, err
 }
 
 func applyOrientation(img image.Image, orientation int) image.Image {

@@ -13,6 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
+	sl, err := segmentsFromFile(jpegPath)
+	if err != nil {
+		return nil, err
+	}
+	return exifRootOf(sl)
+}
+
 func writePlainJPEG(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

@@ -47,13 +47,12 @@ func (p *ActionPanel) SetFavoriteEnabled(enabled bool) {
 
 func (p *ActionPanel) SetFavoriteActive(active bool) {
 	if active {
-		p.favBtn.SetIcon(iconHeart)
 		p.favBtn.Importance = widget.HighImportance
+		p.favBtn.SetIcon(iconHeart)
 	} else {
-		p.favBtn.SetIcon(iconHeartOutline)
 		p.favBtn.Importance = widget.MediumImportance
+		p.favBtn.SetIcon(iconHeartOutline)
 	}
-	p.favBtn.Refresh()
 }
 
 func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {

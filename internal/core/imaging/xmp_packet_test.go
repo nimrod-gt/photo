@@ -302,6 +302,38 @@ func TestPatchFileKeepingModTime(t *testing.T) {
 	})
 }
 
+// The packet is written over its own bytes, so a rewrite that came back a
+// different length would run into the segment behind it.
+func TestPatchPacket(t *testing.T) {
+	t.Parallel()
+
+	t.Run("writes a packet of the same length", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "data.bin")
+		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
+
+		require.NoError(t, patchPacket(path, 3, 6, []byte("abc")))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "012abc6789", string(data))
+	})
+
+	t.Run("refuses another length and leaves the file alone", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "data.bin")
+		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
+
+		err := patchPacket(path, 3, 6, []byte("abcd"))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "would change size from 3 to 4 bytes")
+		data, readErr := os.ReadFile(path)
+		require.NoError(t, readErr)
+		assert.Equal(t, "0123456789", string(data))
+	})
+}
+
 // A description Lightroom writes: every property an attribute, the element
 // self-closing, the rating in single quotes.
 const lightroomRatedDocument = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -442,6 +474,35 @@ func TestPacketWithRating(t *testing.T) {
 		assert.Equal(t, 5, rating)
 	})
 
+	t.Run("refuses a rating under a prefix it does not rewrite", func(t *testing.T) {
+		t.Parallel()
+		content := strings.NewReplacer("xmlns:xmp=", "xmlns:xap=", "<xmp:Rating>", "<xap:Rating>", "</xmp:Rating>", "</xap:Rating>").
+			Replace(sonyXMPContent)
+		packet := xmpPacket(content, 2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		assert.False(t, ok)
+		assert.Nil(t, updated)
+	})
+
+	t.Run("a neighbouring property is not taken for a rating", func(t *testing.T) {
+		t.Parallel()
+		content := strings.Replace(sonyXMPContent,
+			"<xmp:Rating>0</xmp:Rating>", "<xmp:RatingPercent>50</xmp:RatingPercent>", 1)
+		packet := xmpPacket(content, 2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		require.Len(t, updated, len(packet))
+		requireWellFormed(t, updated)
+		assert.Contains(t, string(updated), "<xmp:RatingPercent>50</xmp:RatingPercent>")
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
+	})
+
 	t.Run("a shorter rating grows the padding", func(t *testing.T) {
 		t.Parallel()
 		content := strings.Replace(sonyXMPContent, "<xmp:Rating>0</xmp:Rating>", "<xmp:Rating>-1</xmp:Rating>", 1)
@@ -506,29 +567,6 @@ func TestPacketWithRating(t *testing.T) {
 			t.Parallel()
 			_, ok := packetWithRating(tt.packet, favoriteRating)
 			assert.False(t, ok)
-		})
-	}
-}
-
-func TestHasRatingSlot(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name   string
-		packet []byte
-		want   bool
-	}{
-		{"the camera's element", sonyPacket(200), true},
-		{"the self-closing element", []byte("<xmp:Rating/>"), true},
-		{"the attribute Lightroom writes", xmpPacket(lightroomRatedDocument, 200), true},
-		{"no rating", xmpPacket(unratedSonyContent(), 200), false},
-		{"another prefix", []byte("<xap:Rating>3</xap:Rating> xap:Rating='3'"), false},
-		{"a different property", []byte(`<xmp:RatingPercent>50</xmp:RatingPercent> xmp:RatingPercent="50"`), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assert.Equal(t, tt.want, hasRatingSlot(tt.packet))
 		})
 	}
 }

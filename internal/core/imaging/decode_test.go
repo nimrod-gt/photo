@@ -64,7 +64,7 @@ const cmykJPEGBase64 = "" +
 	"EBAQEBAQEBAQEBD/3QAEAAH/2gAOBAEAAhEDEQQRAD8A4f8AYd/5KLc/9d/610fRm/5HVT/EfY/R" +
 	"u/5HVX/Ef6CfRE/5NvgfT9T/2Q=="
 
-func TestDecodeJPEGCMYKIsNeverBlank(t *testing.T) {
+func TestDecodeJPEGCMYK(t *testing.T) {
 	t.Parallel()
 
 	data, err := base64.StdEncoding.DecodeString(cmykJPEGBase64)
@@ -74,15 +74,21 @@ func TestDecodeJPEGCMYKIsNeverBlank(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, color.CMYKModel, cfg.ColorModel)
 
-	img, err := decodeJPEG(data, image.Point{X: 1600, Y: 1600})
-	if err != nil {
-		assert.Nil(t, img)
-		return
-	}
+	img, err := decodeJPEG(data, 1600)
+	require.NoError(t, err)
 
 	rgba, ok := img.(*image.RGBA)
 	require.True(t, ok, "got %T", img)
+	require.Equal(t, image.Rect(0, 0, 8, 8), rgba.Bounds())
 	assert.NotEqual(t, 0, countNonZero(rgba.Pix), "decoded to an all-zero buffer")
+
+	want, err := jpeg.Decode(bytes.NewReader(data))
+	require.NoError(t, err)
+	for y := range 8 {
+		for x := range 8 {
+			assert.Equal(t, color.RGBAModel.Convert(want.At(x, y)), rgba.At(x, y), "pixel (%d,%d)", x, y)
+		}
+	}
 }
 
 func countNonZero(pix []byte) int {
@@ -99,27 +105,27 @@ func TestScaleDenom(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		w, h    int
-		maxSize image.Point
-		want    int
+		name string
+		w, h int
+		fit  int
+		want int
 	}{
-		{"24MP frame at a viewer-sized budget", 6000, 4000, image.Point{X: 1728, Y: 1728}, 2},
-		{"the same frame where halving would undershoot", 6000, 4000, image.Point{X: 3456, Y: 3456}, 1},
-		{"61MP frame reaches a quarter", 9504, 6336, image.Point{X: 1728, Y: 1728}, 4},
+		{"24MP frame at a viewer-sized budget", 6000, 4000, 1728, 2},
+		{"the same frame where halving would undershoot", 6000, 4000, 3456, 1},
+		{"61MP frame reaches a quarter", 9504, 6336, 1728, 4},
 		// the short side of a panorama is already inside the budget, so a
 		// denominator judged against the budget rather than against the final
 		// size would be rejected for no reason
-		{"panorama", 6000, 1000, image.Point{X: 1728, Y: 1728}, 2},
-		{"zero budget means no downscaling", 6000, 4000, image.Point{}, 1},
-		{"negative budget means no downscaling", 6000, 4000, image.Point{X: -1, Y: -1}, 1},
-		{"budget larger than the frame", 100, 100, image.Point{X: 1728, Y: 1728}, 1},
-		{"degenerate frame", 0, 0, image.Point{X: 1728, Y: 1728}, 1},
+		{"panorama", 6000, 1000, 1728, 2},
+		{"zero budget means no downscaling", 6000, 4000, 0, 1},
+		{"negative budget means no downscaling", 6000, 4000, -1, 1},
+		{"budget larger than the frame", 100, 100, 1728, 1},
+		{"degenerate frame", 0, 0, 1728, 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, scaleDenom(tt.w, tt.h, tt.maxSize))
+			assert.Equal(t, tt.want, scaleDenom(tt.w, tt.h, tt.fit))
 		})
 	}
 }
@@ -129,12 +135,12 @@ func TestScaleDenom(t *testing.T) {
 func TestScaleDenomNeverUndershoots(t *testing.T) {
 	t.Parallel()
 
-	for _, size := range []image.Point{{X: 160, Y: 160}, {X: 1728, Y: 1117}, {X: 3456, Y: 3456}} {
+	for _, fit := range []int{160, 1117, 1728, 3456} {
 		for _, frame := range []image.Point{{X: 6000, Y: 4000}, {X: 4000, Y: 6000}, {X: 9504, Y: 6336}, {X: 6000, Y: 1000}, {X: 1919, Y: 1081}} {
-			d := scaleDenom(frame.X, frame.Y, size)
-			outW, outH := fitSize(frame.X, frame.Y, size)
-			assert.GreaterOrEqual(t, (frame.X+d-1)/d, outW, "frame %v budget %v denom %d", frame, size, d)
-			assert.GreaterOrEqual(t, (frame.Y+d-1)/d, outH, "frame %v budget %v denom %d", frame, size, d)
+			d := scaleDenom(frame.X, frame.Y, fit)
+			outW, outH := fitSize(frame.X, frame.Y, image.Point{X: fit, Y: fit})
+			assert.GreaterOrEqual(t, (frame.X+d-1)/d, outW, "frame %v budget %d denom %d", frame, fit, d)
+			assert.GreaterOrEqual(t, (frame.Y+d-1)/d, outH, "frame %v budget %d denom %d", frame, fit, d)
 		}
 	}
 }
@@ -147,20 +153,20 @@ func TestDecodeJPEGAppliesScaleDenom(t *testing.T) {
 	data := buf.Bytes()
 
 	tests := []struct {
-		name    string
-		maxSize image.Point
-		wantW   int
-		wantH   int
+		name  string
+		fit   int
+		wantW int
+		wantH int
 	}{
-		{"eighth", image.Point{X: 50, Y: 50}, 50, 38},
-		{"half", image.Point{X: 110, Y: 110}, 200, 150},
-		{"no budget", image.Point{}, 400, 300},
-		{"budget larger than the frame", image.Point{X: 800, Y: 800}, 400, 300},
+		{"eighth", 50, 50, 38},
+		{"half", 110, 200, 150},
+		{"no budget", 0, 400, 300},
+		{"budget larger than the frame", 800, 400, 300},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := decodeJPEG(data, tt.maxSize)
+			img, err := decodeJPEG(data, tt.fit)
 			require.NoError(t, err)
 			// a YCbCr result would put the generic scaler back in the pipeline
 			assert.IsType(t, &image.RGBA{}, img)
@@ -181,7 +187,7 @@ func TestDecodeJPEGMatchesStdlib(t *testing.T) {
 	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
 	data := buf.Bytes()
 
-	got, err := decodeJPEG(data, image.Point{})
+	got, err := decodeJPEG(data, 0)
 	require.NoError(t, err)
 	want, err := jpeg.Decode(bytes.NewReader(data))
 	require.NoError(t, err)
@@ -234,7 +240,7 @@ func TestDecodeJPEGCorrupt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := decodeJPEG(tt.data, image.Point{X: 1600, Y: 1600})
+			img, err := decodeJPEG(tt.data, 1600)
 			require.Error(t, err)
 			assert.Nil(t, img)
 		})

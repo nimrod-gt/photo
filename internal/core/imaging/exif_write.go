@@ -54,7 +54,7 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritte
 		if bytes.Equal(packet, original[start:end]) {
 			return false, nil
 		}
-		return false, patchFileKeepingModTime(jpegPath, int64(start), packet)
+		return false, patchPacket(jpegPath, start, end, packet)
 	}
 	updated, err := withStockTags(withoutPacketTags(original, start, end), tags)
 	if err != nil {

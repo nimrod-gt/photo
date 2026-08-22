@@ -166,7 +166,7 @@ func TestExifService_ToggleFavorite(t *testing.T) {
 					Replace(sonyXMPContent)
 				return writeJPEGWithPacket(t, dir, "xap.jpg", cameraExif, xmpPacket(content, 2000))
 			},
-			message: "cannot update",
+			message: "cannot take a rating",
 		},
 		{
 			name: "a packet that does not parse",

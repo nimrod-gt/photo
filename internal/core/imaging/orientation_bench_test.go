@@ -56,7 +56,7 @@ func BenchmarkDecodeJPEG(b *testing.B) {
 	})
 	b.Run("jpegn", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := decodeJPEG(data, image.Point{X: benchFit, Y: benchFit}); err != nil {
+			if _, err := decodeJPEG(data, benchFit); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -67,7 +67,7 @@ func BenchmarkLoadImageOriented(b *testing.B) {
 	path := benchJPEGPath(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := LoadImageOriented(path, image.Point{X: benchFit, Y: benchFit}); err != nil {
+		if _, err := LoadImageOriented(path, benchFit); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -78,7 +78,7 @@ func BenchmarkDownscaleToFit(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	src, err := decodeJPEG(data, image.Point{})
+	src, err := decodeJPEG(data, 0)
 	if err != nil {
 		b.Fatal(err)
 	}

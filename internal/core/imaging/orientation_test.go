@@ -319,7 +319,7 @@ func TestLoadImageOriented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(tt.path, image.Point{})
+			img, err := LoadImageOriented(tt.path, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())
@@ -327,7 +327,7 @@ func TestLoadImageOriented(t *testing.T) {
 	}
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadImageOriented("/nonexistent/x.jpg", image.Point{})
+		_, err := LoadImageOriented("/nonexistent/x.jpg", 0)
 		assert.Error(t, err)
 	})
 
@@ -339,7 +339,7 @@ func TestLoadImageOriented(t *testing.T) {
 		require.NoError(t, png.Encode(&buf, makeTestImage(4, 2)))
 		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
 
-		img, err := LoadImageOriented(path, image.Point{})
+		img, err := LoadImageOriented(path, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 4, img.Bounds().Dx())
 		assert.Equal(t, 2, img.Bounds().Dy())
@@ -375,16 +375,14 @@ func TestLoadImageOrientedDownscales(t *testing.T) {
 	tests := []struct {
 		name        string
 		orientation uint16
-		maxW, maxH  int
+		fit         int
 		wantW       int
 		wantH       int
 	}{
-		{"upright square budget", 1, 20, 20, 20, 10},
-		{"rotated square budget", 6, 20, 20, 10, 20},
-		// without swapping maxSize for the rotation this yields 5x10
-		{"rotated non-square budget", 6, 10, 40, 10, 20},
-		{"rotated non-square budget ccw", 8, 10, 40, 10, 20},
-		{"budget larger than source", 6, 400, 400, 20, 40},
+		{"upright", 1, 20, 20, 10},
+		{"rotated", 6, 20, 10, 20},
+		{"rotated the other way", 8, 20, 10, 20},
+		{"budget larger than source", 6, 400, 20, 40},
 	}
 
 	dir := t.TempDir()
@@ -398,7 +396,7 @@ func TestLoadImageOrientedDownscales(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(paths[tt.orientation], image.Point{X: tt.maxW, Y: tt.maxH})
+			img, err := LoadImageOriented(paths[tt.orientation], tt.fit)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())

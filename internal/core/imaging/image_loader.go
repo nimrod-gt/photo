@@ -46,9 +46,7 @@ func NewLoader() *Loader {
 		byteBudget: cacheByteBudget,
 		inflight:   make(map[string]*loadWaiter),
 		sem:        make(chan struct{}, workers),
-		loadImage: func(path string, size int) (image.Image, error) {
-			return LoadImageOriented(path, image.Point{X: size, Y: size})
-		},
+		loadImage:  LoadImageOriented,
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
 		l.cacheBytes.Add(-int64(imageBytes(entry.img)))
@@ -122,7 +120,7 @@ func (l *Loader) Get(path string, size int) (image.Image, error) {
 
 func (l *Loader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Image, error) {
 	defer l.removeInflight(path)
-	img, err := l.doLoad(path, loadSize)
+	img, err := l.loadImage(path, loadSize)
 	w.img = img
 	w.size = loadSize
 	w.err = err
@@ -178,7 +176,7 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 				return
 			}
 
-			img, err := l.doLoad(path, size)
+			img, err := l.loadImage(path, size)
 			w.img = img
 			w.size = size
 			w.err = err
@@ -224,22 +222,12 @@ func (l *Loader) Clear() {
 	l.mu.Unlock()
 }
 
-// DownscaleToFit reads a non-positive budget as "no downscaling", which would
-// cache every photo at full resolution and blow the byte budget. Clamping at
-// the entry points rather than inside doLoad keeps the cached image and the
-// size it is cached under from disagreeing.
+// LoadImageOriented reads a non-positive budget as "no downscaling", which
+// would cache every photo at full resolution and blow the byte budget. Clamping
+// at the entry points keeps the cached image and the size it is cached under
+// from disagreeing.
 func clampLoadSize(size int) int {
 	return max(size, 1)
-}
-
-func (l *Loader) doLoad(path string, size int) (image.Image, error) {
-	img, err := l.loadImage(path, size)
-	if err != nil {
-		return nil, err
-	}
-	// a no-op once loadImage honours size itself; it keeps the Loader contract
-	// for alternative loadImage implementations that ignore it
-	return DownscaleToFit(img, image.Point{X: size, Y: size}), nil
 }
 
 func must[T any](v T, err error) T {

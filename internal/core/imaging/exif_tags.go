@@ -93,14 +93,6 @@ func xmpPacketOf(sl *jpegstructure.SegmentList) []byte {
 	return segment.Data[len(xmpSegmentPrefix):]
 }
 
-func flatExifFromFile(jpegPath string) ([]exif.ExifTag, error) {
-	sl, err := segmentsFromFile(jpegPath)
-	if err != nil {
-		return nil, err
-	}
-	return flatExifOf(sl, jpegPath)
-}
-
 func flatExifOf(sl *jpegstructure.SegmentList, jpegPath string) ([]exif.ExifTag, error) {
 	_, rawExif, err := sl.Exif()
 	if err != nil {

@@ -19,9 +19,21 @@ func fakeImage(w, h int) image.Image {
 func stubLoader(load func(string) (image.Image, error)) *Loader {
 	l := NewLoader()
 	if load != nil {
-		l.loadImage = func(path string, _ int) (image.Image, error) { return load(path) }
+		l.loadImage = stubLoadImage(load)
 	}
 	return l
+}
+
+// the real loadImage decodes straight to the size it is asked for, so a stub
+// that ignored it would cache images the loader never caches
+func stubLoadImage(load func(string) (image.Image, error)) func(string, int) (image.Image, error) {
+	return func(path string, size int) (image.Image, error) {
+		img, err := load(path)
+		if err != nil {
+			return nil, err
+		}
+		return DownscaleToFit(img, image.Point{X: size, Y: size}), nil
+	}
 }
 
 func TestImageLoader_Get(t *testing.T) {

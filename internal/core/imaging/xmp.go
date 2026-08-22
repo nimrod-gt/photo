@@ -86,13 +86,11 @@ func (s *sidecarTags) readElement(name string, prop xmpProperty) {
 // child elements.
 func (s *sidecarTags) readAttributes(attrs []xml.Attr) {
 	for _, attr := range attrs {
-		switch attr.Name.Space {
-		case dcNamespace:
+		switch {
+		case attr.Name.Space == dcNamespace:
 			s.readDCAttribute(attr.Name.Local, attr.Value)
-		case xmpNamespace:
-			if attr.Name.Local == ratingProperty {
-				s.setRating(attr.Value)
-			}
+		case isRatingName(attr.Name):
+			s.setRating(attr.Value)
 		}
 	}
 }
@@ -175,7 +173,8 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 		if !ok {
 			continue
 		}
-		if start.Name.Space != dcNamespace && !isRatingElement(start.Name) {
+		rating := isRatingName(start.Name)
+		if start.Name.Space != dcNamespace && !rating {
 			parsed.readAttributes(start.Attr)
 			continue
 		}
@@ -183,7 +182,7 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 		if err := decoder.DecodeElement(&prop, &start); err != nil {
 			return sidecarTags{}, err
 		}
-		if isRatingElement(start.Name) {
+		if rating {
 			parsed.setRating(prop.Text)
 			continue
 		}
@@ -191,7 +190,7 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 	}
 }
 
-func isRatingElement(name xml.Name) bool {
+func isRatingName(name xml.Name) bool {
 	return name.Space == xmpNamespace && name.Local == ratingProperty
 }
 

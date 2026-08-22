@@ -401,6 +401,13 @@ func (fb *FileBrowser) build() {
 	fb.container = container.NewStack(split)
 }
 
+const (
+	favoriteMark = "★"
+	colorMark    = "●"
+)
+
+var favoriteColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
+
 func (fb *FileBrowser) createItem() fyne.CanvasObject {
 	thumb := canvas.NewImageFromImage(nil)
 	thumb.SetMinSize(fyne.NewSize(thumbnailWidth, thumbnailHeight))
