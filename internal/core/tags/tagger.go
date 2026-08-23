@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"photo/internal/core/model"
+	"photo/internal/core/proc"
 )
 
 //go:embed prompts/stock_photo.txt
@@ -198,6 +199,7 @@ func excerptText(text string) string {
 func runClaude(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // binary is resolved by LookupClaude
 	cmd.Dir = os.TempDir()
+	proc.Hide(cmd)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
