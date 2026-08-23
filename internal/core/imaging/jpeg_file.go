@@ -154,6 +154,10 @@ func patchFileKeepingModTime(path string, offset int64, data []byte) error {
 	return keepingModTime(path, func() error { return patchFile(path, offset, data) })
 }
 
+// The write is not atomic, unlike replaceFile: a fault in the middle of it
+// leaves the packet half old and half new, and the file has to be re-tagged.
+// That is the price of the directory entry the camera recognises, so the window
+// is kept as small as the packet itself.
 func patchFile(path string, offset int64, data []byte) error {
 	file, err := os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
@@ -177,7 +181,11 @@ func keepingModTime(path string, write func() error) error {
 	if err := write(); err != nil {
 		return err
 	}
-	return os.Chtimes(path, info.ModTime(), info.ModTime())
+	// The file is already written at this point, so a mount that refuses to move
+	// its timestamps is not worth failing over: the caller would report a change
+	// that is on disk as a failure and leave the UI showing the opposite of it.
+	_ = os.Chtimes(path, info.ModTime(), info.ModTime())
+	return nil
 }
 
 func writeTempFile(path string, data []byte) (string, error) {

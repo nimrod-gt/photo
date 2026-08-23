@@ -162,6 +162,13 @@ func (fb *FileBrowser) RefreshItemMeta(displayIndex int, colors []model.ColorLab
 	fb.list.RefreshItem(displayIndex)
 }
 
+// The colours of a photo change without its rating, which the folder scan may
+// still be on its way to read.
+func (fb *FileBrowser) RefreshItemColors(displayIndex int, colors []model.ColorLabel) {
+	fb.data.setItemColors(displayIndex, colors)
+	fb.list.RefreshItem(displayIndex)
+}
+
 func (fb *FileBrowser) SelectIndex(index int) {
 	if index >= 0 && index < fb.data.count() {
 		fb.list.Select(index)

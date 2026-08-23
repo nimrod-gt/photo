@@ -581,3 +581,65 @@ func TestExifService_WriteStockTags_XMP(t *testing.T) {
 		assert.Equal(t, written, info.Tags)
 	})
 }
+
+// A packet closed to updates keeps whatever it carries and every reader shows it
+// in front of the EXIF, so tags written behind it would be lost while the file
+// was rewritten and the camera's database invalidated for nothing.
+func TestExifService_WriteStockTags_RefusesAClosedPacketCarryingTags(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	tagged, ok := packetWithTags(sonyPacket(2000), model.Tags{Title: "The title in the packet.", Keywords: []string{"old"}})
+	require.True(t, ok)
+	closed := bytes.Replace(tagged, []byte(xpacketEnd), []byte("<?xpacket end='r'?>"), 1)
+	path := writeJPEGWithPacket(t, t.TempDir(), "closed.jpg", map[string]any{"Make": "SONY"}, closed)
+	before := readBytes(t, path)
+
+	rewritten, err := svc.WriteStockTags(path, model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}})
+
+	require.Error(t, err)
+	assert.False(t, rewritten)
+	assert.Contains(t, err.Error(), "closed to updates")
+	assert.Equal(t, before, readBytes(t, path))
+}
+
+func TestExifService_WriteStockTags_UsesTheExifBehindAnEmptyClosedPacket(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	closed := bytes.Replace(sonyPacket(2000), []byte(xpacketEnd), []byte("<?xpacket end='r'?>"), 1)
+	path := writeJPEGWithPacket(t, t.TempDir(), "closed.jpg", map[string]any{"Make": "SONY"}, closed)
+	written := model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}}
+
+	assert.True(t, mustWriteStockTags(t, svc, path, written), "the packet cannot hold them, so the file is rewritten")
+
+	info, err := svc.GetStockInfo(model.NewPhoto(path))
+	require.NoError(t, err)
+	assert.Equal(t, written, info.Tags)
+}
+
+// The EXIF is read behind the packet and fills what it lacks, so a title cleared
+// in the packet alone would be filled back in from there on the next read and
+// could never be deleted.
+func TestExifService_WriteStockTags_ClearsTheExifBehindThePacket(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", map[string]any{
+		"Make":             "SONY",
+		"ImageDescription": "The title in the EXIF.",
+	}, sonyPacket(4000))
+
+	assert.False(t, mustWriteStockTags(t, svc, path, model.Tags{
+		Title:    "A tram climbs the hill.",
+		Keywords: []string{"lisbon"},
+	}), "the packet has room, so the file keeps its bytes")
+
+	assert.True(t, mustWriteStockTags(t, svc, path, model.Tags{Keywords: []string{"lisbon"}}),
+		"clearing the title has to clear the EXIF one as well, which rewrites the file")
+
+	info, err := svc.GetStockInfo(model.NewPhoto(path))
+	require.NoError(t, err)
+	assert.Empty(t, info.Tags.Title)
+	assert.Equal(t, []string{"lisbon"}, info.Tags.Keywords)
+}

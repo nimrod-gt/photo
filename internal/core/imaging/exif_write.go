@@ -39,8 +39,8 @@ const (
 // them and the file is replaced, which is reported so the user can be told the
 // camera has to re-index it.
 func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritten bool, err error) {
-	s.writes.Lock()
-	defer s.writes.Unlock()
+	s.access.Lock()
+	defer s.access.Unlock()
 
 	original, err := os.ReadFile(jpegPath)
 	if err != nil {
@@ -51,12 +51,13 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritte
 		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
 	if packet, ok := packetWithTags(original[start:end], tags); ok {
-		if bytes.Equal(packet, original[start:end]) {
-			return false, nil
-		}
-		return false, patchPacket(jpegPath, start, end, packet)
+		return writePacketTags(jpegPath, original, start, end, packet, tags)
 	}
-	updated, err := withStockTags(withoutPacketTags(original, start, end), tags)
+	cleared, err := withoutPacketTags(original, start, end, jpegPath)
+	if err != nil {
+		return false, err
+	}
+	updated, err := withStockTags(cleared, tags)
 	if err != nil {
 		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
@@ -66,16 +67,79 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritte
 	return true, replaceFileKeepingModTime(jpegPath, updated)
 }
 
+// writePacketTags puts the tags where the packet already holds them. The EXIF an
+// earlier version of the app wrote is read behind the packet, so a field the
+// user cleared would be filled back in from there and could never be deleted:
+// that is the one case where the whole file is rewritten, to clear it as well.
+func writePacketTags(jpegPath string, original []byte, start, end int, packet []byte, tags model.Tags) (bool, error) {
+	shadowed, err := exifShadows(original, jpegPath, tags)
+	if err != nil {
+		return false, err
+	}
+	if !shadowed {
+		if bytes.Equal(packet, original[start:end]) {
+			return false, nil
+		}
+		return false, patchPacket(jpegPath, start, end, packet)
+	}
+
+	updated, err := withStockTags(slices.Concat(original[:start], packet, original[end:]), tags)
+	if err != nil {
+		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
+	}
+	if bytes.Equal(updated, original) {
+		return false, nil
+	}
+	return true, replaceFileKeepingModTime(jpegPath, updated)
+}
+
+// The packet wins on read and the EXIF only fills what it lacks, so the EXIF
+// hides nothing except a field the tags being written leave empty.
+func exifShadows(data []byte, source string, tags model.Tags) (bool, error) {
+	sl, err := segmentsFromBytes(data, source)
+	if err != nil {
+		return false, err
+	}
+	flat, err := flatExifOf(sl, source)
+	if err != nil {
+		return false, err
+	}
+	existing := stockInfoFromTags(flat).Tags
+	if len(strings.TrimSpace(tags.Title)) == 0 && len(strings.TrimSpace(existing.Title)) != 0 {
+		return true, nil
+	}
+	return len(tags.Keywords) == 0 && len(existing.Keywords) != 0, nil
+}
+
 // The EXIF is read behind the packet, so properties the packet still carries -
 // ours from an earlier save, or another tool's - would hide what is written
-// into the EXIF. They are cleared first where the packet allows it; a packet
-// closed to updates is left as it is.
-func withoutPacketTags(data []byte, start, end int) []byte {
-	cleared, ok := packetWithTags(data[start:end], model.Tags{})
-	if !ok || bytes.Equal(cleared, data[start:end]) {
-		return data
+// into the EXIF. They are cleared where the packet allows it; a packet closed to
+// updates that carries tags of its own would keep showing them instead, so the
+// write is refused rather than reported as a save no reader would show.
+func withoutPacketTags(data []byte, start, end int, source string) ([]byte, error) {
+	if start == end {
+		return data, nil
 	}
-	return slices.Concat(data[:start], cleared, data[end:])
+	cleared, ok := packetWithTags(data[start:end], model.Tags{})
+	if !ok {
+		return dataWithoutClearablePacket(data, start, end, source)
+	}
+	if bytes.Equal(cleared, data[start:end]) {
+		return data, nil
+	}
+	return slices.Concat(data[:start], cleared, data[end:]), nil
+}
+
+func dataWithoutClearablePacket(data []byte, start, end int, source string) ([]byte, error) {
+	parsed, err := parseSidecar(data[start:end])
+	if err != nil {
+		return nil, fmt.Errorf("parsing the XMP of %s: %w", source, err)
+	}
+	if !parsed.tags().IsEmpty() {
+		return nil, fmt.Errorf("the XMP packet of %s is closed to updates and carries a title or "+
+			"keywords of its own, which every reader shows in place of the tags", source)
+	}
+	return data, nil
 }
 
 // The EXIF block is never rebuilt: the tags are appended as a new IFD0 behind

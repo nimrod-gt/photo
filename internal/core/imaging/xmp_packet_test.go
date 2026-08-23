@@ -552,11 +552,37 @@ func TestPacketWithRating(t *testing.T) {
 		assert.Equal(t, 5, parsed.rating)
 	})
 
+	t.Run("keeps the attributes the rating element carries", func(t *testing.T) {
+		t.Parallel()
+		content := strings.Replace(sonyXMPContent,
+			"<xmp:Rating>0</xmp:Rating>", "<xmp:Rating xml:lang='x-default'>0</xmp:Rating>", 1)
+		packet := xmpPacket(content, 2000)
+
+		updated, ok := packetWithRating(packet, favoriteRating)
+
+		require.True(t, ok)
+		requireWellFormed(t, updated)
+		assert.Contains(t, string(updated), "<xmp:Rating xml:lang='x-default'>5</xmp:Rating>")
+		rating, rated := packetRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
+	})
+
 	refused := []struct {
 		name   string
 		packet []byte
 	}{
 		{"a read-only packet", slices.Concat([]byte(sonyXMPContent), xmpPadding(2000), []byte("<?xpacket end='r'?>"))},
+		// the patterns would rewrite the element and the reader would go on
+		// reading the attribute behind it, so the rating never changes
+		{"a rating the document carries twice", xmpPacket(strings.Replace(sonyXMPContent,
+			" </rdf:Description>\n</rdf:RDF>",
+			" </rdf:Description>\n <rdf:Description rdf:about='' "+
+				"xmlns:xmp='http://ns.adobe.com/xap/1.0/' xmp:Rating='0'/>\n</rdf:RDF>", 1), 2000)},
+		// the patterns match text, the reader skips comments: the packet would be
+		// patched where nothing reads it
+		{"a rating that only sits in a comment", xmpPacket(strings.Replace(sonyXMPContent,
+			"<xmp:Rating>0</xmp:Rating>", "<!-- <xmp:Rating>0</xmp:Rating> -->", 1), 2000)},
 		{"a packet without the trailer", slices.Concat([]byte(sonyXMPContent), xmpPadding(2000))},
 		{"a packet without rdf:RDF", xmpPacket("<x:xmpmeta xmlns:x='adobe:ns:meta/'/>", 2000)},
 		{"a packet without room", xmpPacket(unratedSonyContent(), 16)},

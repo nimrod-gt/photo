@@ -6,6 +6,8 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/gen2brain/jpegn"
@@ -17,15 +19,30 @@ import (
 func TestDecodeJPEGThumbnail(t *testing.T) {
 	t.Parallel()
 
-	t.Run("decodes to RGBA", func(t *testing.T) {
+	// a folder holds as many thumbnails as it holds photos and they are all kept
+	// at once, so they stay in the format the decoder gives them: RGBA would be
+	// almost three times the bytes of the YCbCr a colour JPEG decodes to
+	t.Run("keeps the decoded pixel format", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, jpeg.Encode(&buf, makeTestImage(16, 12), nil))
 
 		img, err := decodeJPEGThumbnail(buf.Bytes())
 		require.NoError(t, err)
-		assert.IsType(t, &image.RGBA{}, img)
+		assert.IsType(t, &image.YCbCr{}, img)
 		assert.Equal(t, 16, img.Bounds().Dx())
 		assert.Equal(t, 12, img.Bounds().Dy())
+	})
+
+	// jpegn fills its RGBA buffer for one- and three-component frames only, so a
+	// four-component thumbnail would arrive blank and be shown as a black tile
+	t.Run("decodes a four-component thumbnail", func(t *testing.T) {
+		data, err := base64.StdEncoding.DecodeString(cmykJPEGBase64)
+		require.NoError(t, err)
+
+		img, err := decodeJPEGThumbnail(data)
+		require.NoError(t, err)
+		require.Equal(t, image.Rect(0, 0, 8, 8), img.Bounds())
+		assert.NotEqual(t, 0, countNonZero(toRGBA(img).Pix), "decoded to an all-zero buffer")
 	})
 
 	// thumbnail bytes come from a third-party EXIF parser and are decoded on
@@ -245,4 +262,40 @@ func TestDecodeJPEGCorrupt(t *testing.T) {
 			assert.Nil(t, img)
 		})
 	}
+}
+
+// jpegn decodes a frame that stops early down to wherever it stops and reports
+// no error at all, so a photo still being copied off a card would be kept as a
+// half-grey image until the folder is reloaded
+func TestDecodeJPEGTruncated(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(64, 48), nil))
+	full := buf.Bytes()
+
+	for _, part := range []int{40, 60, 75, 90} {
+		t.Run(strconv.Itoa(part)+" percent copied", func(t *testing.T) {
+			t.Parallel()
+			img, err := decodeJPEG(full[:len(full)*part/100], 1600)
+			require.Error(t, err)
+			assert.Nil(t, img)
+		})
+	}
+
+	t.Run("padding behind the end marker is not truncation", func(t *testing.T) {
+		t.Parallel()
+		img, err := decodeJPEG(slices.Concat(full, make([]byte, 16)), 1600)
+		require.NoError(t, err)
+		assert.Equal(t, 64, img.Bounds().Dx())
+	})
+
+	// cameras append a second image behind the primary one, so the last bytes of
+	// the file are not the end marker of the photo being decoded
+	t.Run("an appended image is not truncation", func(t *testing.T) {
+		t.Parallel()
+		img, err := decodeJPEG(slices.Concat(full, full), 1600)
+		require.NoError(t, err)
+		assert.Equal(t, 64, img.Bounds().Dx())
+	})
 }

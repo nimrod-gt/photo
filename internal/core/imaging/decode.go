@@ -10,6 +10,8 @@ import (
 	"github.com/gen2brain/jpegn"
 )
 
+var eoiMarker = []byte{markerStart, markerEOI}
+
 // the decoder applies the EXIF orientation itself, so the file's own tag wins
 // over anything the caller believes; the returned image is already rotated and
 // the caller keeps using the same fit on both axes.
@@ -24,30 +26,58 @@ func decodeJPEG(data []byte, fit int) (image.Image, error) {
 		if cmyk {
 			return decodeCMYK(data, denom)
 		}
+		// jpegn decodes a frame that stops early down to wherever it stops and
+		// reports no error at all, so a photo still being copied off a card
+		// would be kept as a half-grey image until the folder is reloaded. It
+		// also refuses frames of its own - above its pixel cap, or with more
+		// pixels than it trusts the bytes to hold - that the standard library
+		// decodes, so its refusal is not final either.
+		if !endsWithEOI(data) {
+			return decodeStdlib(data)
+		}
 
-		return jpegn.Decode(bytes.NewReader(data), &jpegn.Options{
+		img, err := jpegn.Decode(bytes.NewReader(data), &jpegn.Options{
 			ToRGBA:         true,
 			UpsampleMethod: jpegn.CatmullRom,
 			AutoRotate:     true,
 			ScaleDenom:     denom,
 		})
+		if err != nil {
+			return decodeStdlib(data)
+		}
+		return img, nil
 	})
+}
+
+// A file whose copy stopped halfway ends wherever it stopped; writers that pad
+// their output pad behind the marker with zeros.
+func endsWithEOI(data []byte) bool {
+	return bytes.HasSuffix(bytes.TrimRight(data, "\x00"), eoiMarker)
 }
 
 // jpegn fills its RGBA buffer for one- and three-component frames only, so
 // asking a four-component one for RGBA - or for a rotation, which implies RGBA -
 // hands back a blank image and no error at all. Its native path covers the CMYK
 // and YCCK frames an Adobe marker describes; anything else, a colour transform
-// of 0 among them, still arrives as that blank buffer, and the standard library
-// decodes those. Neither path rotates, so the tag is applied here.
+// of 0 among them, still arrives as that blank buffer.
 func decodeCMYK(data []byte, denom int) (image.Image, error) {
 	img, err := jpegn.Decode(bytes.NewReader(data), &jpegn.Options{ScaleDenom: denom})
 	if _, blank := img.(*image.RGBA); err != nil || blank {
-		if img, err = jpeg.Decode(bytes.NewReader(data)); err != nil {
-			return nil, err
-		}
+		return decodeStdlib(data)
 	}
 
+	return toRGBA(applyOrientation(img, exifOrientation(data))), nil
+}
+
+// The standard library reads every frame jpegn declines and refuses the ones it
+// decodes silently, at the price of decoding at full size: it has no scaling of
+// its own, so the caller shrinks the result the whole way. It does not rotate
+// either, so the tag is applied here.
+func decodeStdlib(data []byte) (image.Image, error) {
+	img, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
 	return toRGBA(applyOrientation(img, exifOrientation(data))), nil
 }
 
@@ -63,14 +93,14 @@ func exifOrientation(data []byte) int {
 }
 
 // an embedded thumbnail carries no EXIF of its own — the orientation belongs to
-// the parent IFD0 — so AutoRotate would find nothing and the caller rotates it.
-// It is already at its final size, so there is nothing for ScaleDenom to save.
+// the parent IFD0 — so the caller rotates it. It is decoded by the standard
+// library: at a hundred and sixty pixels the speed is worth nothing, while
+// refusing a clipped one is what lets the caller fall back to the thumbnail in
+// the other IFD, and keeping the decoder's own pixel format is what keeps a
+// folder of ten thousand thumbnails at the size it used to be.
 func decodeJPEGThumbnail(data []byte) (image.Image, error) {
 	return decodeRecovered(func() (image.Image, error) {
-		return jpegn.Decode(bytes.NewReader(data), &jpegn.Options{
-			ToRGBA:         true,
-			UpsampleMethod: jpegn.CatmullRom,
-		})
+		return jpeg.Decode(bytes.NewReader(data))
 	})
 }
 

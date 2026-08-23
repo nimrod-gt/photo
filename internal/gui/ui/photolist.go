@@ -10,17 +10,19 @@ import (
 )
 
 type photoList struct {
-	mu             sync.Mutex
-	allPhotos      []model.Photo
-	allMeta        []model.PhotoMeta
-	photos         []model.Photo
-	meta           []model.PhotoMeta
-	indices        []int
-	displayByAll   map[int]int
-	filterColors   map[model.ColorLabel]bool
-	filterFavorite bool
-	pinnedPath     string
-	generation     uint64
+	mu           sync.Mutex
+	allPhotos    []model.Photo
+	allMeta      []model.PhotoMeta
+	indices      []int
+	displayByAll map[int]int
+	// The rating of a photo the user toggled is already on disk and in allMeta,
+	// while the folder scan is still carrying the one it read before the toggle
+	// and would put it back.
+	toggledFavorites map[string]bool
+	filterColors     map[model.ColorLabel]bool
+	filterFavorite   bool
+	pinnedPath       string
+	generation       uint64
 }
 
 func newPhotoList() *photoList {
@@ -34,6 +36,7 @@ func (pl *photoList) reset(photos []model.Photo) uint64 {
 	defer pl.mu.Unlock()
 	pl.allPhotos = photos
 	pl.allMeta = make([]model.PhotoMeta, len(photos))
+	pl.toggledFavorites = nil
 	pl.pinnedPath = ""
 	pl.generation++
 	return pl.generation
@@ -56,9 +59,11 @@ func (pl *photoList) setLoadedMeta(index int, thumbnail image.Image, favorite bo
 	if pl.generation != gen {
 		return -1, false
 	}
-	if index < len(pl.allMeta) {
+	if index >= 0 && index < len(pl.allMeta) {
 		pl.allMeta[index].Thumbnail = thumbnail
-		pl.allMeta[index].Favorite = favorite
+		if !pl.toggledFavorites[pl.allPhotos[index].ImagePath] {
+			pl.allMeta[index].Favorite = favorite
+		}
 	}
 	return pl.displayIndex(index), true
 }
@@ -121,7 +126,7 @@ func (pl *photoList) bulkState() (active bool, colorActive bool, count int) {
 	defer pl.mu.Unlock()
 	return HasActiveFilter(pl.filterColors, pl.filterFavorite),
 		HasActiveFilter(pl.filterColors, false),
-		len(pl.photos)
+		pl.displayed()
 }
 
 func (pl *photoList) activeFilterColors() []model.ColorLabel {
@@ -160,21 +165,15 @@ func (pl *photoList) applyFilter() {
 	if !HasActiveFilter(pl.filterColors, pl.filterFavorite) {
 		pl.indices = nil
 		pl.displayByAll = nil
-		pl.photos = pl.allPhotos
-		pl.meta = pl.allMeta
 		return
 	}
 
 	pl.indices = nil
 	pl.displayByAll = make(map[int]int)
-	pl.photos = nil
-	pl.meta = nil
 	for i, m := range pl.allMeta {
 		if pl.matchesFilter(m) || pl.allPhotos[i].ImagePath == pl.pinnedPath {
 			pl.displayByAll[i] = len(pl.indices)
 			pl.indices = append(pl.indices, i)
-			pl.photos = append(pl.photos, pl.allPhotos[i])
-			pl.meta = append(pl.meta, m)
 		}
 	}
 }
@@ -192,6 +191,26 @@ func (pl *photoList) matchesFilter(meta model.PhotoMeta) bool {
 	return false
 }
 
+// The rows on screen are the photos the filter kept, addressed through indices
+// rather than copied: a copy of the meta would go stale as soon as the folder
+// scan filled in a thumbnail or a rating behind the filter.
+func (pl *photoList) displayed() int {
+	if pl.indices == nil {
+		return len(pl.allPhotos)
+	}
+	return len(pl.indices)
+}
+
+func (pl *photoList) allIndex(displayIndex int) int {
+	if displayIndex < 0 || displayIndex >= pl.displayed() {
+		return -1
+	}
+	if pl.indices == nil {
+		return displayIndex
+	}
+	return pl.indices[displayIndex]
+}
+
 func (pl *photoList) displayIndex(allIdx int) int {
 	if pl.indices == nil {
 		return allIdx
@@ -205,70 +224,81 @@ func (pl *photoList) displayIndex(allIdx int) int {
 func (pl *photoList) count() int {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	return len(pl.photos)
+	return pl.displayed()
 }
 
 func (pl *photoList) photoAt(displayIndex int) (model.Photo, bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	if displayIndex >= 0 && displayIndex < len(pl.photos) {
-		return pl.photos[displayIndex], true
+	allIdx := pl.allIndex(displayIndex)
+	if allIdx < 0 {
+		return model.Photo{}, false
 	}
-	return model.Photo{}, false
+	return pl.allPhotos[allIdx], true
 }
 
 func (pl *photoList) itemAt(displayIndex int) (model.Photo, model.PhotoMeta, bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	if displayIndex >= 0 && displayIndex < len(pl.photos) {
-		return pl.photos[displayIndex], pl.meta[displayIndex], true
+	allIdx := pl.allIndex(displayIndex)
+	if allIdx < 0 {
+		return model.Photo{}, model.PhotoMeta{}, false
 	}
-	return model.Photo{}, model.PhotoMeta{}, false
+	return pl.allPhotos[allIdx], pl.allMeta[allIdx], true
 }
 
 func (pl *photoList) metaAt(displayIndex int) model.PhotoMeta {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	if displayIndex >= 0 && displayIndex < len(pl.meta) {
-		return pl.meta[displayIndex]
+	allIdx := pl.allIndex(displayIndex)
+	if allIdx < 0 {
+		return model.PhotoMeta{}
 	}
-	return model.PhotoMeta{}
+	return pl.allMeta[allIdx]
 }
 
+func (pl *photoList) setItemColors(displayIndex int, colors []model.ColorLabel) {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if allIdx := pl.allIndex(displayIndex); allIdx >= 0 {
+		pl.allMeta[allIdx].Colors = colors
+	}
+}
+
+// The rating written here is the one the app just put into the file, so the
+// scan is held off this photo from now on.
 func (pl *photoList) setItemMeta(displayIndex int, colors []model.ColorLabel, favorite bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	allIdx := displayIndex
-	if pl.indices != nil {
-		if displayIndex >= 0 && displayIndex < len(pl.indices) {
-			allIdx = pl.indices[displayIndex]
-		} else {
-			return
-		}
+	allIdx := pl.allIndex(displayIndex)
+	if allIdx < 0 {
+		return
 	}
-	if allIdx >= 0 && allIdx < len(pl.allMeta) {
-		pl.allMeta[allIdx].Colors = colors
-		pl.allMeta[allIdx].Favorite = favorite
+	pl.allMeta[allIdx].Colors = colors
+	pl.allMeta[allIdx].Favorite = favorite
+	if pl.toggledFavorites == nil {
+		pl.toggledFavorites = make(map[string]bool)
 	}
-	if displayIndex >= 0 && displayIndex < len(pl.meta) {
-		pl.meta[displayIndex].Colors = colors
-		pl.meta[displayIndex].Favorite = favorite
-	}
+	pl.toggledFavorites[pl.allPhotos[allIdx].ImagePath] = true
 }
 
 func (pl *photoList) filteredPhotos() []model.Photo {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	result := make([]model.Photo, len(pl.photos))
-	copy(result, pl.photos)
+	result := make([]model.Photo, 0, pl.displayed())
+	for i := range pl.displayed() {
+		result = append(result, pl.allPhotos[pl.allIndex(i)])
+	}
 	return result
 }
 
 func (pl *photoList) filteredMeta() []model.PhotoMeta {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	result := make([]model.PhotoMeta, len(pl.meta))
-	copy(result, pl.meta)
+	result := make([]model.PhotoMeta, 0, pl.displayed())
+	for i := range pl.displayed() {
+		result = append(result, pl.allMeta[pl.allIndex(i)])
+	}
 	return result
 }
 

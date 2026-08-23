@@ -110,16 +110,34 @@ func appendDescription(content string, tags model.Tags) (string, bool) {
 // camera's element or Lightroom's attribute - and only a document without one
 // gets a description of its own. Zero is written out as well, since a rating
 // that is merely absent would let an old EXIF rating speak instead.
+//
+// What comes back is read again the way the app itself reads it: the patterns
+// rewrite text while the reader parses XML, and where the two disagree - a
+// rating the document carries twice, or one sitting in a comment - the file
+// would be patched where nothing reads it and the toggle would never move
+// again. Such a packet is left alone instead.
 func documentWithRating(document string, rating int) (string, bool) {
+	updated, ok := documentWithRatingWritten(document, rating)
+	if !ok {
+		return "", false
+	}
+	parsed, err := parseSidecar([]byte(updated))
+	if err != nil || !parsed.rated || parsed.rating != rating {
+		return "", false
+	}
+	return updated, true
+}
+
+func documentWithRatingWritten(document string, rating int) (string, bool) {
 	value := strconv.Itoa(rating)
 	if ratingElementPattern.MatchString(document) {
-		return ratingElementPattern.ReplaceAllLiteralString(document, ratingOpen+value+ratingClose), true
+		return ratingElementPattern.ReplaceAllStringFunc(document, func(element string) string {
+			return withRatingElement(element, value)
+		}), true
 	}
 	if ratingAttrPattern.MatchString(document) {
-		return ratingAttrPattern.ReplaceAllStringFunc(document, func(attr string) string {
-			quoteAt := strings.IndexAny(attr, `"'`)
-			quote := attr[quoteAt : quoteAt+1]
-			return attr[:quoteAt] + quote + value + quote
+		return ratingAttrPattern.ReplaceAllStringFunc(document, func(attribute string) string {
+			return withRatingAttribute(attribute, value)
 		}), true
 	}
 	// A rating these patterns do not describe - one under another prefix, say -
@@ -133,6 +151,19 @@ func documentWithRating(document string, rating int) (string, bool) {
 			indent + sidecarIndent + ratingOpen + value + ratingClose + "\n" +
 			indent + descriptionEnd
 	})
+}
+
+// Only the text between the tags is replaced, so an xml:lang or any other
+// attribute the element carries survives the write.
+func withRatingElement(element, value string) string {
+	open, _, _ := strings.Cut(element, ">")
+	return strings.TrimRight(open, "/ \t") + ">" + value + ratingClose
+}
+
+func withRatingAttribute(attribute, value string) string {
+	quoteAt := strings.IndexAny(attribute, `"'`)
+	quote := attribute[quoteAt : quoteAt+1]
+	return attribute[:quoteAt] + quote + value + quote
 }
 
 // appendElement puts the element in front of the closing rdf:RDF tag, indented

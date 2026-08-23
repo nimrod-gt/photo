@@ -10,9 +10,12 @@ import (
 )
 
 type ExifService struct {
-	// Every writer reads the whole file and patches what it read back, so two
-	// of them at once would each undo the other's change.
-	writes sync.Mutex
+	// Every writer reads the whole file and patches what it read back, so two of
+	// them at once would each undo the other's change. Readers are held off as
+	// well: a folder scan runs on as many goroutines as the machine has cores,
+	// and one landing in the middle of a patch would read a packet that is half
+	// old and half new and report the photo as unrated.
+	access sync.RWMutex
 }
 
 func NewExifService() *ExifService {
@@ -55,6 +58,9 @@ func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
 // it is applied here and never leaves: the main image is rotated by the decoder
 // off the file's own tag
 func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating int, err error) {
+	s.access.RLock()
+	defer s.access.RUnlock()
+
 	sl, err := segmentsFromFile(jpegPath)
 	if err != nil {
 		return nil, 0, err

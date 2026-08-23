@@ -132,6 +132,47 @@ func TestExifService_ToggleFavorite(t *testing.T) {
 		assert.Equal(t, original, readBytes(t, path), "an even number of toggles must end where it started")
 	})
 
+	// the folder scan reads on as many goroutines as the machine has cores, and
+	// one landing in the middle of a patch would read a packet that is half old
+	// and half new and report the photo as unrated
+	t.Run("a reader never sees a half-written packet", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "scanned.jpg", cameraExif, sonyPacket(2000))
+
+		var wg sync.WaitGroup
+		for range 4 {
+			wg.Go(func() {
+				for range 8 {
+					_, err := svc.ToggleFavorite(path)
+					assert.NoError(t, err)
+				}
+			})
+			wg.Go(func() {
+				for range 8 {
+					_, rating, err := svc.GetPhotoInfo(path)
+					if assert.NoError(t, err) {
+						assert.Contains(t, []int{0, favoriteRating}, rating)
+					}
+				}
+			})
+		}
+		wg.Wait()
+	})
+
+	// the scan shows the EXIF rating of a photo whose packet does not parse, so
+	// the toggle must not refuse to read what the list is already showing
+	t.Run("reads the EXIF rating behind a packet that does not parse", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", ratedExif, xmpPacket("<x:xmpmeta><unclosed>", 2000))
+
+		assert.Equal(t, favoriteRating, mustRating(t, svc, path))
+
+		_, err := svc.ToggleFavorite(path)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot take a rating")
+	})
+
 	untouched := []struct {
 		name    string
 		write   func(t *testing.T, dir string) string
@@ -173,7 +214,7 @@ func TestExifService_ToggleFavorite(t *testing.T) {
 			write: func(t *testing.T, dir string) string {
 				return writeJPEGWithPacket(t, dir, "broken.jpg", cameraExif, xmpPacket("<x:xmpmeta><unclosed>", 2000))
 			},
-			message: "reading the rating",
+			message: "cannot take a rating",
 		},
 	}
 	for _, tt := range untouched {

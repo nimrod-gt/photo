@@ -2,6 +2,7 @@ package imaging
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -27,26 +28,28 @@ type StockInfo struct {
 // of the JPEG and, when the photo has a RAW pair, the sidecar written next to
 // it.
 func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
+	s.access.RLock()
+	defer s.access.RUnlock()
+
 	var info StockInfo
+	var jpegErr error
 	if photo.IsJPEG() {
-		var err error
-		if info, err = jpegStockInfo(photo.ImagePath); err != nil {
-			return info, err
-		}
+		info, jpegErr = jpegStockInfo(photo.ImagePath)
 	}
 	if !photo.HasRAW() {
-		return info, nil
+		return info, jpegErr
 	}
-	// The JPEG is already read at this point, so an unreadable sidecar is
-	// reported without throwing away what the JPEG itself carries.
+	// The sidecar is read whatever the JPEG had to say about itself: it is the
+	// store the dialog writes on its own, and a dialog seeded without it would
+	// overwrite the tags it holds with the first save.
 	sidecar, err := ReadSidecar(model.SidecarPath(photo.RAWPath))
 	if err != nil {
-		return info, err
+		return info, errors.Join(jpegErr, err)
 	}
-	// The sidecar is the store the dialog writes on its own, so it holds the
-	// newer tags whenever the two disagree; the JPEG only fills what it lacks.
+	// The sidecar holds the newer tags whenever the two disagree; the JPEG only
+	// fills what it lacks.
 	info.Tags = fillMissing(sidecar, info.Tags)
-	return info, nil
+	return info, jpegErr
 }
 
 // The packet is where the tags are written now, so it wins over the EXIF,

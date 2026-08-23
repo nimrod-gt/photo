@@ -13,6 +13,10 @@ func (a *Application) showPhoto(photo model.Photo) {
 	img, err := a.imageProvider.Get(photo.ImagePath, a.fullImageSize())
 	if err != nil {
 		a.viewer.Clear()
+		// The photo the buttons act on has already moved, so they follow it even
+		// though it cannot be shown: the toolbar is the only place the state is
+		// displayed now.
+		a.updateActionStates(photo)
 		a.showError("Failed to load image", err)
 		return
 	}
@@ -80,6 +84,7 @@ func (a *Application) showCurrentOrFirst() {
 		a.fileBrowser.SelectIndex(a.navigator.CurrentIndex())
 	} else {
 		a.viewer.Clear()
+		a.clearActionStates()
 	}
 }
 

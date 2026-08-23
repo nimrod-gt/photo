@@ -14,8 +14,8 @@ const favoriteRating = 5
 // it. A JPEG whose packet cannot take the rating is reported and left alone
 // rather than rewritten around it.
 func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error) {
-	s.writes.Lock()
-	defer s.writes.Unlock()
+	s.access.Lock()
+	defer s.access.Unlock()
 
 	original, err := os.ReadFile(jpegPath)
 	if err != nil {
@@ -50,6 +50,10 @@ func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error)
 	return target > 0, nil
 }
 
+// A packet the parser rejects still leaves the EXIF rating to go by, which is
+// what the folder scan shows for it; failing here instead would refuse to toggle
+// a photo that is showing a star. Writing into such a packet is refused further
+// down, where the refusal can be reported for what it is.
 func currentRating(data []byte, source string) (int, error) {
 	sl, err := segmentsFromBytes(data, source)
 	if err != nil {
@@ -59,9 +63,6 @@ func currentRating(data []byte, source string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	rating, err := ratingOf(sl, rootIfd)
-	if err != nil {
-		return 0, fmt.Errorf("reading the rating of %s: %w", source, err)
-	}
+	rating, _ := ratingOf(sl, rootIfd)
 	return rating, nil
 }

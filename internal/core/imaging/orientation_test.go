@@ -435,3 +435,21 @@ func TestApplyOrientationNonRGBASource(t *testing.T) {
 		}
 	}
 }
+
+// jpegn registers the same magic bytes as image/jpeg, so which decoder
+// image.Decode hands a JPEG to is decided by package initialisation order: the
+// loader has to route JPEGs by itself, and that route is the one that refuses a
+// file which is still being copied.
+func TestLoadImageOrientedTruncated(t *testing.T) {
+	t.Parallel()
+
+	full, err := os.ReadFile(writeTestJPEG(t, 64, 48))
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "copying.jpg")
+	require.NoError(t, os.WriteFile(path, full[:len(full)*60/100], 0600))
+
+	img, err := LoadImageOriented(path, 1600)
+
+	require.Error(t, err)
+	assert.Nil(t, img)
+}

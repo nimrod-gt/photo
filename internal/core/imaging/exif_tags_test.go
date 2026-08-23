@@ -281,3 +281,27 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, "From the EXIF.", info.Tags.Title)
 	})
 }
+
+// The sidecar is the store the dialog writes on its own. A JPEG packet the
+// parser rejects used to end the read before it, and the dialog was seeded from
+// the EXIF instead - the first save then wrote that over the tags in the sidecar.
+func TestExifService_GetStockInfo_ReadsTheSidecarBehindABrokenPacket(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := writeJPEGWithPacket(t, dir, "DSC010.jpg", map[string]any{
+		"Make":             "SONY",
+		"ImageDescription": "The title in the EXIF.",
+	}, xmpPacket("<x:xmpmeta><unclosed>", 2000))
+	rawPath := filepath.Join(dir, "DSC010.ARW")
+	require.NoError(t, os.WriteFile(rawPath, []byte("not a real raw"), 0600))
+	saved := model.Tags{Title: "Saved earlier.", Keywords: []string{"lisbon", "tram"}}
+	require.NoError(t, WriteSidecar(model.SidecarPath(rawPath), saved))
+
+	photo := model.NewPhoto(path)
+	require.True(t, photo.HasRAW())
+	info, err := NewExifService().GetStockInfo(photo)
+
+	require.Error(t, err, "the unreadable packet is still reported")
+	assert.Equal(t, saved, info.Tags)
+}

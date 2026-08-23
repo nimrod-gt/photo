@@ -22,8 +22,9 @@ import (
 func (a *Application) updateActionStates(photo model.Photo) {
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
+		// Unreadable colours are still a state to show: leaving the buttons as
+		// they were would have them describe the photo before this one.
 		a.showError("Failed to get colors", err)
-		return
 	}
 	a.updateButtonStates(photo, colors, a.favoriteOf(photo))
 }
@@ -31,6 +32,13 @@ func (a *Application) updateActionStates(photo model.Photo) {
 func (a *Application) updateButtonStates(photo model.Photo, colors []model.ColorLabel, favorite bool) {
 	a.updateColorButtonStates(colors)
 	a.updateFavoriteButtonStates(photo, favorite)
+}
+
+// Nothing is on screen, so the buttons describe nothing: leaving them as they
+// were would let the next keystroke act on a photo the user is no longer
+// looking at.
+func (a *Application) clearActionStates() {
+	a.updateButtonStates(model.Photo{}, nil, false)
 }
 
 // The rating is read once per folder, with the thumbnails, and kept in the
@@ -76,7 +84,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 			return
 		}
 		fyne.Do(func() {
-			a.photoStateChanged(photo, a.favoriteOf(photo))
+			a.photoStateChanged(photo, a.favoriteOf(photo), false)
 		})
 	}()
 }
@@ -98,7 +106,7 @@ func (a *Application) handleFavorite() {
 			return
 		}
 		fyne.Do(func() {
-			a.photoStateChanged(photo, favorite)
+			a.photoStateChanged(photo, favorite, true)
 		})
 	}()
 }
@@ -118,15 +126,27 @@ func (a *Application) handleMetaLoaded(displayIndex int) {
 
 // The toggle runs off the main goroutine, and the photo it changed may no
 // longer be the one on screen by the time it lands: the file list is refreshed
-// wherever the photo sits, the buttons only while they still describe it.
-func (a *Application) photoStateChanged(photo model.Photo, favorite bool) {
+// wherever the photo sits, the buttons only while they still describe it. The
+// rating is written into the list only when the app is the one that wrote it
+// into the file, so a colour change does not put a stale one back.
+func (a *Application) photoStateChanged(photo model.Photo, favorite, ratingWritten bool) {
+	idx := a.navigator.FindIndex(photo.ImagePath)
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
+		// The change is already on disk, so the colours the list last read stand
+		// in for the ones that could not be read now: dropping the refresh would
+		// leave the star and the buttons describing the state before it.
+		if idx >= 0 {
+			colors = a.fileBrowser.GetMeta(idx).Colors
+		}
 		a.showError("Failed to get colors", err)
-		return
 	}
-	if idx := a.navigator.FindIndex(photo.ImagePath); idx >= 0 {
-		a.fileBrowser.RefreshItemMeta(idx, colors, favorite)
+	if idx >= 0 {
+		if ratingWritten {
+			a.fileBrowser.RefreshItemMeta(idx, colors, favorite)
+		} else {
+			a.fileBrowser.RefreshItemColors(idx, colors)
+		}
 	}
 	if current, ok := a.navigator.Current(); ok && current.ImagePath == photo.ImagePath {
 		a.updateButtonStates(photo, colors, favorite)
