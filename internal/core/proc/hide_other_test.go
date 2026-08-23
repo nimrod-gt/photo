@@ -11,7 +11,9 @@ import (
 )
 
 func TestHideLeavesTheCommandRunnable(t *testing.T) {
-	cmd := exec.Command("true")
+	t.Parallel()
+
+	cmd := exec.Command("/bin/sh", "-c", "exit 0")
 	Hide(cmd)
 
 	assert.Nil(t, cmd.SysProcAttr)

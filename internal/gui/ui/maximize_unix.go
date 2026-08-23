@@ -2,13 +2,54 @@
 
 package ui
 
-import "fyne.io/fyne/v2"
+import (
+	"log"
 
-// Windows and macOS maximize through their native window handle; elsewhere the
-// window is grown to the area a maximized one would cover.
+	"fyne.io/fyne/v2"
+	"github.com/go-gl/glfw/v3.4/glfw"
+)
+
+// Windows and macOS maximize through their native window handle. Elsewhere the
+// window is grown to the largest size that still fits the work area, which is
+// all Fyne can ask for: it sizes the content rather than the frame and can only
+// place a window by centring it on the monitor.
 func maximizeWindow(window fyne.Window) {
-	if area, ok := workArea(window.Canvas().Scale()); ok {
-		window.Resize(area)
-		window.CenterOnScreen()
+	metrics, ok := screenLayout(window.Canvas().Scale())
+	if !ok {
+		return
 	}
+	size, ok := maximizedContentSize(metrics)
+	if !ok {
+		return
+	}
+	window.Resize(size)
+	window.CenterOnScreen()
+}
+
+// glfw reports a monitor in screen coordinates, which are pixels wherever the
+// desktop is scaled, while a window is sized in Fyne coordinates.
+func screenLayout(scale float32) (metrics screenMetrics, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("screenLayout: recovered from panic: %v", r)
+			ok = false
+		}
+	}()
+	monitor := glfw.GetPrimaryMonitor()
+	if monitor == nil || scale <= 0 {
+		return screenMetrics{}, false
+	}
+	mode := monitor.GetVideoMode()
+	if mode == nil || mode.Height <= 0 {
+		return screenMetrics{}, false
+	}
+	_, top, width, height := monitor.GetWorkarea()
+	if width <= 0 || height <= 0 {
+		return screenMetrics{}, false
+	}
+	return screenMetrics{
+		monitorHeight: float32(mode.Height) / scale,
+		areaTop:       float32(top) / scale,
+		area:          fyne.NewSize(float32(width)/scale, float32(height)/scale),
+	}, true
 }

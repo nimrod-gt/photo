@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"image"
 	"log"
 	"os"
 	"slices"
@@ -11,7 +10,6 @@ import (
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
-	"github.com/go-gl/glfw/v3.4/glfw"
 
 	"photo/internal/core/imaging"
 	"photo/internal/core/library"
@@ -117,7 +115,7 @@ func (a *Application) Run() {
 	})
 
 	a.fullImageSize = sync.OnceValue(func() int {
-		s := monitorSize()
+		s := ui.MonitorSize()
 		return max(s.X, s.Y)
 	})
 
@@ -138,8 +136,8 @@ func (a *Application) Run() {
 	notifier := ui.NewNotifier()
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
 
-	// The driver only has a monitor to measure once its loop is up, which is
-	// after Show returns.
+	// The window has no native handle to maximize before the driver loop has
+	// created it, which the loop does on its way to the first frame.
 	fyneApp.Lifecycle().SetOnStarted(a.mainWindow.Maximize)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
@@ -175,24 +173,6 @@ func (a *Application) Run() {
 	}
 
 	a.mainWindow.Show()
-}
-
-func monitorSize() (size image.Point) {
-	size = image.Point{X: 3840, Y: 2160}
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("monitorSize: recovered from panic: %v", r)
-		}
-	}()
-	mon := glfw.GetPrimaryMonitor()
-	if mon == nil {
-		return
-	}
-	mode := mon.GetVideoMode()
-	if mode == nil || mode.Width <= 0 || mode.Height <= 0 {
-		return
-	}
-	return image.Point{X: mode.Width, Y: mode.Height}
 }
 
 func (a *Application) showError(msg string, err error) {

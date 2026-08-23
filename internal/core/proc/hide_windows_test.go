@@ -11,6 +11,8 @@ import (
 )
 
 func TestHideKeepsTheConsoleAway(t *testing.T) {
+	t.Parallel()
+
 	cmd := exec.Command("cmd", "/c", "exit")
 	Hide(cmd)
 

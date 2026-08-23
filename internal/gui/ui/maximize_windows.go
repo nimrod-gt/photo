@@ -12,7 +12,9 @@ var showWindow = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow")
 
 func maximizeWindow(window fyne.Window) {
 	native, ok := window.(driver.NativeWindow)
-	if !ok {
+	// A LazyProc panics when it is called and cannot be resolved, and this one
+	// runs on the goroutine the driver loop lives on.
+	if !ok || showWindow.Find() != nil {
 		return
 	}
 	native.RunNative(func(context any) {
