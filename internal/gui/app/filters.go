@@ -54,6 +54,7 @@ func (a *Application) resortPhotos() {
 	}
 	a.fileBrowser.SetPhotos(photos)
 	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
+	a.saveSortOrder()
 
 	filtered := a.fileBrowser.FilteredPhotos()
 	a.navigator.SetPhotos(filtered)

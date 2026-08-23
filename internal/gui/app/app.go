@@ -162,6 +162,7 @@ func (a *Application) Run() {
 		OnTags:           a.handleTags,
 	})
 
+	a.restoreSortOrder()
 	a.loadInitialDirectory()
 
 	if prefs := fyneApp.Preferences(); !prefs.BoolWithFallback("helpShown", false) {
