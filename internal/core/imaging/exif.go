@@ -56,27 +56,45 @@ func exifRootOf(sl *jpegstructure.SegmentList) *exif.Ifd {
 	return rootIfd
 }
 
+type PhotoInfo struct {
+	Thumbnail image.Image
+	Rating    int
+	// Ratable says whether ToggleFavorite can write into this file, so the
+	// button that calls it is enabled only where a press can succeed.
+	Ratable bool
+}
+
 // the orientation belongs to the parent IFD0 rather than to the thumbnail, so
 // it is applied here and never leaves: the main image is rotated by the decoder
 // off the file's own tag
-func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rating int, err error) {
+func (s *ExifService) GetPhotoInfo(jpegPath string) (PhotoInfo, error) {
 	s.access.RLock()
 	defer s.access.RUnlock()
 
 	sl, err := segmentsFromFile(jpegPath)
 	if err != nil {
-		return nil, 0, err
+		return PhotoInfo{}, err
 	}
+	var info PhotoInfo
 	rootIfd := exifRootOf(sl)
 	if rootIfd != nil {
-		thumbnail = extractThumbnail(rootIfd)
-		if thumbnail != nil {
-			thumbnail = applyOrientation(thumbnail, int(ifdUint16(rootIfd, "Orientation", 1)))
+		info.Thumbnail = extractThumbnail(rootIfd)
+		if info.Thumbnail != nil {
+			info.Thumbnail = applyOrientation(info.Thumbnail, int(ifdUint16(rootIfd, "Orientation", 1)))
 		}
 	}
 	// A packet the parser rejects still leaves the EXIF rating to show.
-	rating, _ = ratingOf(sl, rootIfd)
-	return thumbnail, rating, nil
+	info.Rating, _ = ratingOf(sl, rootIfd)
+	info.Ratable = packetTakesRating(xmpPacketOf(sl))
+	return info, nil
+}
+
+// The toggle writes five or zero, and a packet that takes one takes the other
+// just the same: the digit changes where it stands, or an element is appended
+// behind whatever the room allows.
+func packetTakesRating(packet []byte) bool {
+	_, ok := packetWithRating(packet, favoriteRating)
+	return ok
 }
 
 // The camera and Lightroom keep the rating in the XMP packet and only older

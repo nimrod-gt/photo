@@ -31,13 +31,33 @@ var (
 	emptyDescriptionPattern = regexp.MustCompile(
 		`[ \t]*` + regexp.QuoteMeta(descriptionOpen) + `\s*` + descriptionEnd + `[ \t]*\n?`)
 
-	// The element the camera writes, its self-closing form, and the attribute
-	// form Lightroom writes. Only the xmp prefix is rewritten - the one every
-	// writer spells - and a rating under another prefix makes the whole write
-	// fail, so that no second rating is ever added beside it.
-	ratingElementPattern = regexp.MustCompile(`<xmp:Rating\b(?:[^>]*[^/>])?>[^<]*</xmp:Rating>|<xmp:Rating\s*/>`)
-	ratingAttrPattern    = regexp.MustCompile(`\sxmp:Rating\s*=\s*(?:"[^"]*"|'[^']*')`)
+	// The reader matches the namespace, so the writer has to find the prefix
+	// the document binds it to: older Bridge and Nikon packets spell it xap.
+	xmpBindingPattern = regexp.MustCompile(`xmlns:([A-Za-z_][\w.-]*)\s*=\s*['"]` + regexp.QuoteMeta(xmpNamespace) + `['"]`)
 )
+
+// The element the camera writes, its self-closing form, and the attribute form
+// Lightroom writes, under the prefix the document uses for the namespace.
+func ratingPatterns(prefix string) (element, attribute *regexp.Regexp) {
+	name := regexp.QuoteMeta(prefix) + `:Rating`
+	return regexp.MustCompile(`<` + name + `\b(?:[^>]*[^/>])?>[^<]*</` + name + `>|<` + name + `\s*/>`),
+		regexp.MustCompile(`\s` + name + `\s*=\s*(?:"[^"]*"|'[^']*')`)
+}
+
+// A document that binds the namespace nowhere gets the prefix every writer
+// spells; the description appended below declares it itself.
+func xmpPrefixes(document string) []string {
+	var prefixes []string
+	for _, match := range xmpBindingPattern.FindAllStringSubmatch(document, -1) {
+		if !slices.Contains(prefixes, match[1]) {
+			prefixes = append(prefixes, match[1])
+		}
+	}
+	if len(prefixes) == 0 {
+		return []string{"xmp"}
+	}
+	return prefixes
+}
 
 // packetWithTags rewrites an XMP packet embedded in a JPEG without changing its
 // length: the properties take the place of the whitespace padding behind the
@@ -140,17 +160,20 @@ func documentWithRating(document string, rating int) (string, bool) {
 
 func documentWithRatingWritten(document string, rating int) (string, bool) {
 	value := strconv.Itoa(rating)
-	if ratingElementPattern.MatchString(document) {
-		return ratingElementPattern.ReplaceAllStringFunc(document, func(element string) string {
-			return withRatingElement(element, value)
-		}), true
+	for _, prefix := range xmpPrefixes(document) {
+		elementPattern, attrPattern := ratingPatterns(prefix)
+		if elementPattern.MatchString(document) {
+			return elementPattern.ReplaceAllStringFunc(document, func(element string) string {
+				return withRatingElement(element, prefix, value)
+			}), true
+		}
+		if attrPattern.MatchString(document) {
+			return attrPattern.ReplaceAllStringFunc(document, func(attribute string) string {
+				return withRatingAttribute(attribute, value)
+			}), true
+		}
 	}
-	if ratingAttrPattern.MatchString(document) {
-		return ratingAttrPattern.ReplaceAllStringFunc(document, func(attribute string) string {
-			return withRatingAttribute(attribute, value)
-		}), true
-	}
-	// A rating these patterns do not describe - one under another prefix, say -
+	// A rating these patterns do not describe - one inside a comment, say -
 	// would still be read, and a second one appended here would race it, so the
 	// packet is left alone instead.
 	if parsed, err := parseSidecar([]byte(document)); err != nil || parsed.rated {
@@ -165,9 +188,9 @@ func documentWithRatingWritten(document string, rating int) (string, bool) {
 
 // Only the text between the tags is replaced, so an xml:lang or any other
 // attribute the element carries survives the write.
-func withRatingElement(element, value string) string {
+func withRatingElement(element, prefix, value string) string {
 	open, _, _ := strings.Cut(element, ">")
-	return strings.TrimRight(open, "/ \t") + ">" + value + ratingClose
+	return strings.TrimRight(open, "/ \t") + ">" + value + "</" + prefix + ":Rating>"
 }
 
 func withRatingAttribute(attribute, value string) string {

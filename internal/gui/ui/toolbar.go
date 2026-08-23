@@ -38,11 +38,7 @@ func (p *ActionPanel) Container() *fyne.Container {
 }
 
 func (p *ActionPanel) SetFavoriteEnabled(enabled bool) {
-	if enabled {
-		p.favBtn.Enable()
-	} else {
-		p.favBtn.Disable()
-	}
+	setEnabled(p.favBtn, enabled)
 }
 
 func (p *ActionPanel) SetFavoriteActive(active bool) {

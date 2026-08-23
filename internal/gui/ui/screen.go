@@ -14,22 +14,32 @@ import (
 // work area is worth more than one whose title bar sits off the screen.
 const decorationAllowance = 48
 
-func MonitorSize() (size image.Point) {
-	size = image.Point{X: 3840, Y: 2160}
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("MonitorSize: recovered from panic: %v", r)
-		}
-	}()
-	monitor := glfw.GetPrimaryMonitor()
-	if monitor == nil {
-		return
-	}
-	mode := monitor.GetVideoMode()
-	if mode == nil || mode.Width <= 0 || mode.Height <= 0 {
-		return
+func MonitorSize() image.Point {
+	mode, _ := primaryVideoMode()
+	if mode == nil {
+		return image.Point{X: 3840, Y: 2160}
 	}
 	return image.Point{X: mode.Width, Y: mode.Height}
+}
+
+// glfw panics rather than failing when there is no window system to ask, so
+// the probe is recovered and reports no monitor instead.
+func primaryVideoMode() (mode *glfw.VidMode, monitor *glfw.Monitor) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("primaryVideoMode: recovered from panic: %v", r)
+			mode, monitor = nil, nil
+		}
+	}()
+	monitor = glfw.GetPrimaryMonitor()
+	if monitor == nil {
+		return nil, nil
+	}
+	mode = monitor.GetVideoMode()
+	if mode == nil || mode.Width <= 0 || mode.Height <= 0 {
+		return nil, nil
+	}
+	return mode, monitor
 }
 
 type screenMetrics struct {

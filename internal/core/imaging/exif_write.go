@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 
+	exif "github.com/dsoprea/go-exif/v3"
+
 	"photo/internal/core/model"
 )
 
@@ -61,6 +63,10 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritte
 	if err != nil {
 		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
+	return replaceIfChanged(jpegPath, original, updated)
+}
+
+func replaceIfChanged(jpegPath string, original, updated []byte) (bool, error) {
 	if bytes.Equal(updated, original) {
 		return false, nil
 	}
@@ -72,11 +78,7 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritte
 // user cleared would be filled back in from there and could never be deleted:
 // that is the one case where the whole file is rewritten, to clear it as well.
 func writePacketTags(jpegPath string, original []byte, start, end int, packet []byte, tags model.Tags) (bool, error) {
-	shadowed, err := exifShadows(original, jpegPath, tags)
-	if err != nil {
-		return false, err
-	}
-	if !shadowed {
+	if !exifShadows(original, tags) {
 		if bytes.Equal(packet, original[start:end]) {
 			return false, nil
 		}
@@ -87,28 +89,32 @@ func writePacketTags(jpegPath string, original []byte, start, end int, packet []
 	if err != nil {
 		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
-	if bytes.Equal(updated, original) {
-		return false, nil
-	}
-	return true, replaceFileKeepingModTime(jpegPath, updated)
+	return replaceIfChanged(jpegPath, original, updated)
 }
 
 // The packet wins on read and the EXIF only fills what it lacks, so the EXIF
-// hides nothing except a field the tags being written leave empty.
-func exifShadows(data []byte, source string, tags model.Tags) (bool, error) {
-	sl, err := segmentsFromBytes(data, source)
-	if err != nil {
-		return false, err
-	}
-	flat, err := flatExifOf(sl, source)
-	if err != nil {
-		return false, err
-	}
-	existing := stockInfoFromTags(flat).Tags
+// hides nothing except a field the tags being written leave empty. Only the
+// EXIF segment is parsed, not the file: the in-place patch this decides about
+// is a few kilobytes, and a block the parser rejects is a block no reader shows
+// either, so it shadows nothing.
+func exifShadows(data []byte, tags model.Tags) bool {
+	existing := exifStockTags(data)
 	if len(strings.TrimSpace(tags.Title)) == 0 && len(strings.TrimSpace(existing.Title)) != 0 {
-		return true, nil
+		return true
 	}
-	return len(tags.Keywords) == 0 && len(existing.Keywords) != 0, nil
+	return len(tags.Keywords) == 0 && len(existing.Keywords) != 0
+}
+
+func exifStockTags(data []byte) model.Tags {
+	start, end, err := exifSegmentSpan(data)
+	if err != nil || start == end {
+		return model.Tags{}
+	}
+	flat, _, err := exif.GetFlatExifData(data[start+segmentHeaderSize+len(exifSegmentPrefix):end], nil)
+	if err != nil {
+		return model.Tags{}
+	}
+	return stockInfoFromTags(flat).Tags
 }
 
 // The EXIF is read behind the packet, so properties the packet still carries -
@@ -130,10 +136,14 @@ func withoutPacketTags(data []byte, start, end int, source string) ([]byte, erro
 	return slices.Concat(data[:start], cleared, data[end:]), nil
 }
 
+// A packet the parser rejects is one the app reads nothing from - the dialog
+// it opens is seeded from the EXIF - so the EXIF is written behind it and shown
+// the same way.
 func dataWithoutClearablePacket(data []byte, start, end int, source string) ([]byte, error) {
 	parsed, err := parseSidecar(data[start:end])
 	if err != nil {
-		return nil, fmt.Errorf("parsing the XMP of %s: %w", source, err)
+		//nolint:nilerr // a packet no reader parses shadows nothing
+		return data, nil
 	}
 	if !parsed.tags().IsEmpty() {
 		return nil, fmt.Errorf("the XMP packet of %s is closed to updates and carries a title or "+

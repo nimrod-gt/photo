@@ -138,46 +138,72 @@ func replaceFileKeepingModTime(path string, data []byte) error {
 // from. Its length is checked rather than trusted: a packet of another size
 // would silently run over the segments behind it.
 //
-// A write that fails partway leaves the packet half old and half new in the
+// The bytes are written over their own place in the file, which keeps its size,
+// its blocks and its directory entry: a camera keeps a database of the files it
+// wrote and refuses to display a photo whose file no longer matches it until
+// the user rebuilds that database. The write is not atomic, unlike replaceFile:
+// a fault in the middle of it leaves the packet half old and half new in the
 // only copy of the photo there is, so the bytes that stood there are put back
 // before the failure is reported. Putting them back is best-effort - the disk
 // has just refused a write of the same size at the same offset - and its own
-// failure is reported alongside the first.
+// failure is reported alongside the first. A file that could not even be
+// opened is untouched and nothing is restored.
 func patchPacket(path string, start int, packet, previous []byte) error {
 	if len(packet) != len(previous) {
 		return fmt.Errorf("the XMP packet of %s would change size from %d to %d bytes",
 			path, len(previous), len(packet))
 	}
-	err := patchFileKeepingModTime(path, int64(start), packet)
-	if err == nil {
+	return keepingModTime(path, func() (err error) {
+		file, closeFile, err := openForPatching(path)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, closeFile()) }()
+
+		if err := writeAtSynced(file, int64(start), packet); err != nil {
+			if restore := writeAtSynced(file, int64(start), previous); restore != nil {
+				return errors.Join(err, fmt.Errorf("restoring the XMP packet of %s: %w", path, restore))
+			}
+			return err
+		}
 		return nil
-	}
-	if restore := patchFileKeepingModTime(path, int64(start), previous); restore != nil {
-		return errors.Join(err, fmt.Errorf("restoring the XMP packet of %s: %w", path, restore))
-	}
-	return err
+	})
 }
 
-// The bytes are written over their own place in the file, which keeps its size,
-// its blocks and its directory entry: a camera keeps a database of the files it
-// wrote and refuses to display a photo whose file no longer matches it until
-// the user rebuilds that database. Only the modification time moves, and it is
-// put back for the reasons below.
-func patchFileKeepingModTime(path string, offset int64, data []byte) error {
-	return keepingModTime(path, func() error { return patchFile(path, offset, data) })
-}
-
-// The write is not atomic, unlike replaceFile: a fault in the middle of it
-// leaves the packet half old and half new, and the file has to be re-tagged.
-// That is the price of the directory entry the camera recognises, so the window
-// is kept as small as the packet itself.
-func patchFile(path string, offset int64, data []byte) error {
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+// A photo copied off a locked card, or marked read-only by hand, still takes
+// the write the user asked for, the way replaceFile always has: the write bit
+// is lifted for the duration of the patch and put back with the file closed.
+func openForPatching(path string) (file *os.File, closeFile func() error, err error) {
+	file, err = os.OpenFile(path, os.O_RDWR, 0)
+	if err == nil {
+		return file, file.Close, nil
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		return nil, nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	mode := permissionsOf(path)
+	if err := os.Chmod(path, mode|0o200); err != nil {
+		return nil, nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+	file, err = os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("opening %s: %w", path, err)
+		_ = os.Chmod(path, mode)
+		return nil, nil, fmt.Errorf("opening %s: %w", path, err)
 	}
-	if err := writeAtAndClose(file, offset, data); err != nil {
-		return fmt.Errorf("writing %s: %w", path, err)
+	return file, func() error {
+		return errors.Join(file.Close(), os.Chmod(path, mode))
+	}, nil
+}
+
+// The data is flushed before the caller moves on, because a rename only
+// publishes the directory entry: without the sync a crash can leave a truncated
+// file standing where the original photo used to be.
+func writeAtSynced(file *os.File, offset int64, data []byte) error {
+	if _, err := file.WriteAt(data, offset); err != nil {
+		return fmt.Errorf("writing %s: %w", file.Name(), err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("writing %s: %w", file.Name(), err)
 	}
 	return nil
 }
@@ -209,7 +235,7 @@ func writeTempFile(path string, data []byte) (string, error) {
 	tmpPath := tmp.Name()
 	if err := writeAndClose(tmp, data); err != nil {
 		_ = os.Remove(tmpPath)
-		return "", fmt.Errorf("writing %s: %w", tmpPath, err)
+		return "", err
 	}
 	if err := os.Chmod(tmpPath, permissionsOf(path)); err != nil {
 		_ = os.Remove(tmpPath)
@@ -218,19 +244,8 @@ func writeTempFile(path string, data []byte) (string, error) {
 	return tmpPath, nil
 }
 
-// The data is flushed before the rename, because the rename only publishes the
-// directory entry: without the sync a crash can leave a truncated file standing
-// where the original photo used to be.
 func writeAndClose(file *os.File, data []byte) error {
-	return writeAtAndClose(file, 0, data)
-}
-
-func writeAtAndClose(file *os.File, offset int64, data []byte) error {
-	if _, err := file.WriteAt(data, offset); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
+	if err := writeAtSynced(file, 0, data); err != nil {
 		_ = file.Close()
 		return err
 	}

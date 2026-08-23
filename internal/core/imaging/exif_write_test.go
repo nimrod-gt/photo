@@ -57,11 +57,11 @@ func TestExifService_WriteStockTags(t *testing.T) {
 
 		mustWriteStockTags(t, svc, path, written)
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 		require.NoError(t, err)
-		assert.Equal(t, 5, rating)
+		assert.Equal(t, 5, info.Rating)
 
-		// the rating is rewritten in place, so the tags around it have to survive
+		// the info.Rating is rewritten in place, so the tags around it have to survive
 		rootIfd, err := exifRootFromFile(path)
 		require.NoError(t, err)
 		require.NotNil(t, rootIfd)

@@ -298,17 +298,17 @@ func TestXMPPacketSpan(t *testing.T) {
 	})
 }
 
-func TestPatchFileKeepingModTime(t *testing.T) {
+func TestPatchPacketKeepsFile(t *testing.T) {
 	t.Parallel()
 
-	t.Run("replaces the bytes at the offset and nothing else", func(t *testing.T) {
+	t.Run("replaces the bytes at the offset, nothing else, and keeps the modification time", func(t *testing.T) {
 		t.Parallel()
 		path := filepath.Join(t.TempDir(), "data.bin")
 		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
 		taken := time.Date(2024, time.June, 13, 10, 30, 0, 0, time.UTC)
 		require.NoError(t, os.Chtimes(path, taken, taken))
 
-		require.NoError(t, patchFileKeepingModTime(path, 3, []byte("abc")))
+		require.NoError(t, patchPacket(path, 3, []byte("abc"), []byte("345")))
 
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -318,10 +318,27 @@ func TestPatchFileKeepingModTime(t *testing.T) {
 		assert.True(t, info.ModTime().Equal(taken), "got %s", info.ModTime())
 	})
 
-	t.Run("reports a missing file", func(t *testing.T) {
+	t.Run("writes a read-only file and leaves it read-only", func(t *testing.T) {
 		t.Parallel()
-		err := patchFileKeepingModTime(filepath.Join(t.TempDir(), "absent.bin"), 0, []byte("x"))
+		path := filepath.Join(t.TempDir(), "data.bin")
+		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
+		require.NoError(t, os.Chmod(path, 0o444))
+
+		require.NoError(t, patchPacket(path, 3, []byte("abc"), []byte("345")))
+
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "012abc6789", string(data))
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o444), info.Mode().Perm())
+	})
+
+	t.Run("reports a missing file without claiming a restore", func(t *testing.T) {
+		t.Parallel()
+		err := patchPacket(filepath.Join(t.TempDir(), "absent.bin"), 0, []byte("x"), []byte("y"))
 		require.ErrorIs(t, err, os.ErrNotExist)
+		assert.NotContains(t, err.Error(), "restoring")
 	})
 }
 
@@ -351,8 +368,8 @@ func TestPatchPacket(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "would change size from 3 to 4 bytes")
-		data, readErr := os.ReadFile(path)
-		require.NoError(t, readErr)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
 		assert.Equal(t, "0123456789", string(data))
 	})
 }
@@ -497,7 +514,7 @@ func TestPacketWithRating(t *testing.T) {
 		assert.Equal(t, 5, rating)
 	})
 
-	t.Run("refuses a rating under a prefix it does not rewrite", func(t *testing.T) {
+	t.Run("rewrites a rating under the prefix the document binds to the namespace", func(t *testing.T) {
 		t.Parallel()
 		content := strings.NewReplacer("xmlns:xmp=", "xmlns:xap=", "<xmp:Rating>", "<xap:Rating>", "</xmp:Rating>", "</xap:Rating>").
 			Replace(sonyXMPContent)
@@ -505,8 +522,13 @@ func TestPacketWithRating(t *testing.T) {
 
 		updated, ok := packetWithRating(packet, favoriteRating)
 
-		assert.False(t, ok)
-		assert.Nil(t, updated)
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		assert.Contains(t, string(updated), "<xap:Rating>5</xap:Rating>")
+		assert.NotContains(t, string(updated), "xmp:Rating")
+		rating, rated := readPacketRating(t, updated)
+		assert.True(t, rated)
+		assert.Equal(t, 5, rating)
 	})
 
 	t.Run("a neighbouring property is not taken for a rating", func(t *testing.T) {

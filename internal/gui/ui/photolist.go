@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"image"
 	"maps"
 	"slices"
 	"sync"
 
+	"photo/internal/core/imaging"
 	"photo/internal/core/model"
 )
 
@@ -14,9 +14,9 @@ type photoList struct {
 	allPhotos []model.Photo
 	allMeta   []model.PhotoMeta
 	// A filter that matches nothing leaves indices empty, which is not the same
-	// as the whole folder: the flag says which of the two it is rather than
-	// leaving an empty slice to speak for both.
-	filtered     bool
+	// as the whole folder: displayByAll is nil only while no filter is on, so
+	// it says which of the two it is rather than leaving an empty slice to
+	// speak for both.
 	indices      []int
 	displayByAll map[int]int
 	// The rating of a photo the user toggled is already on disk and in allMeta,
@@ -54,19 +54,23 @@ func (pl *photoList) initMeta(photos []model.Photo, colorMap model.ColorMap) {
 			pl.allMeta[i].Colors = colorMap[photo.Name]
 		}
 		pl.allMeta[i].Date = photo.ModTime
+		// Until the scan has read the file, any JPEG may take a rating; the
+		// scan refines this to the packet it actually finds.
+		pl.allMeta[i].Ratable = photo.IsJPEG()
 	}
 }
 
-func (pl *photoList) setLoadedMeta(index int, thumbnail image.Image, favorite bool, gen uint64) (int, bool) {
+func (pl *photoList) setLoadedMeta(index int, meta imaging.LoadedMeta, gen uint64) (int, bool) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	if pl.generation != gen {
 		return -1, false
 	}
 	if index >= 0 && index < len(pl.allMeta) {
-		pl.allMeta[index].Thumbnail = thumbnail
+		pl.allMeta[index].Thumbnail = meta.Thumbnail
+		pl.allMeta[index].Ratable = meta.Ratable
 		if !pl.toggledFavorites[pl.allPhotos[index].ImagePath] {
-			pl.allMeta[index].Favorite = favorite
+			pl.allMeta[index].Favorite = meta.Favorite
 		}
 	}
 	return pl.displayIndex(index), true
@@ -167,13 +171,11 @@ func (pl *photoList) applyFilter() {
 	defer pl.mu.Unlock()
 
 	if !HasActiveFilter(pl.filterColors, pl.filterFavorite) {
-		pl.filtered = false
 		pl.indices = nil
 		pl.displayByAll = nil
 		return
 	}
 
-	pl.filtered = true
 	pl.indices = nil
 	pl.displayByAll = make(map[int]int)
 	for i, m := range pl.allMeta {
@@ -200,8 +202,12 @@ func (pl *photoList) matchesFilter(meta model.PhotoMeta) bool {
 // The rows on screen are the photos the filter kept, addressed through indices
 // rather than copied: a copy of the meta would go stale as soon as the folder
 // scan filled in a thumbnail or a rating behind the filter.
+func (pl *photoList) filtered() bool {
+	return pl.displayByAll != nil
+}
+
 func (pl *photoList) displayed() int {
-	if !pl.filtered {
+	if !pl.filtered() {
 		return len(pl.allPhotos)
 	}
 	return len(pl.indices)
@@ -211,14 +217,14 @@ func (pl *photoList) allIndex(displayIndex int) int {
 	if displayIndex < 0 || displayIndex >= pl.displayed() {
 		return -1
 	}
-	if !pl.filtered {
+	if !pl.filtered() {
 		return displayIndex
 	}
 	return pl.indices[displayIndex]
 }
 
 func (pl *photoList) displayIndex(allIdx int) int {
-	if !pl.filtered {
+	if !pl.filtered() {
 		return allIdx
 	}
 	if i, ok := pl.displayByAll[allIdx]; ok {
@@ -282,6 +288,7 @@ func (pl *photoList) setItemMeta(displayIndex int, colors []model.ColorLabel, fa
 	}
 	pl.allMeta[allIdx].Colors = colors
 	pl.allMeta[allIdx].Favorite = favorite
+	pl.allMeta[allIdx].Ratable = true
 	if pl.toggledFavorites == nil {
 		pl.toggledFavorites = make(map[string]bool)
 	}

@@ -24,14 +24,19 @@ var stockPhotoPrompt string
 const (
 	taggerTimeout = 3 * time.Minute
 	taggerModel   = "opus"
-	tagsSchema    = `{"type":"object","properties":{"title":{"type":"string"},` +
-		`"keywords":{"type":"array","items":{"type":"string"}}},` +
-		`"required":["title","keywords"],"additionalProperties":false}`
 
 	successSubtype   = "success"
 	usageLimitMarker = "usage limit reached"
 	excerptLimit     = 300
 )
+
+// The schema pins the counts the prompt asks for, so the CLI refuses an answer
+// with 49 keywords instead of handing it over for the dialog to flag.
+var tagsSchema = fmt.Sprintf(`{"type":"object","properties":{`+
+	`"title":{"type":"string","maxLength":%d},`+
+	`"keywords":{"type":"array","items":{"type":"string"},"minItems":%d,"maxItems":%d,"uniqueItems":true}},`+
+	`"required":["title","keywords"],"additionalProperties":false}`,
+	model.MaxTitleLength, model.KeywordCount, model.KeywordCount)
 
 type Request struct {
 	Photo      model.Photo

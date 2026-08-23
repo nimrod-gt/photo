@@ -86,9 +86,16 @@ func (p *Provider) Thumbnail(path string) image.Image {
 	return nil
 }
 
+// LoadedMeta is what the folder scan learns about one JPEG from its own bytes.
+type LoadedMeta struct {
+	Thumbnail image.Image
+	Favorite  bool
+	Ratable   bool
+}
+
 func (p *Provider) LoadFolder(
 	photos []model.Photo,
-	onLoaded func(index int, thumbnail image.Image, favorite bool),
+	onLoaded func(index int, meta LoadedMeta),
 	onComplete func(),
 ) {
 	gen := p.thumbGen.Add(1)
@@ -112,22 +119,22 @@ func (p *Provider) LoadFolder(
 					return
 				}
 				if !photo.IsJPEG() {
-					onLoaded(i, nil, false)
+					onLoaded(i, LoadedMeta{})
 					return
 				}
-				thumbnail, rating, err := p.exif.GetPhotoInfo(photo.ImagePath)
+				info, err := p.exif.GetPhotoInfo(photo.ImagePath)
 				if err != nil {
 					log.Printf("Failed to read EXIF for %s: %v", photo.Name, err)
-					onLoaded(i, nil, false)
+					onLoaded(i, LoadedMeta{})
 					return
 				}
 				if p.thumbGen.Load() != gen {
 					return
 				}
-				if thumbnail != nil {
-					p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: thumbnail})
+				if info.Thumbnail != nil {
+					p.thumbnails.LoadOrStore(photo.ImagePath, thumbEntry{img: info.Thumbnail})
 				}
-				onLoaded(i, thumbnail, rating > 0)
+				onLoaded(i, LoadedMeta{Thumbnail: info.Thumbnail, Favorite: info.Rating > 0, Ratable: info.Ratable})
 			}()
 		}
 		wg.Wait()

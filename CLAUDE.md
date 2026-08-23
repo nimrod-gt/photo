@@ -60,7 +60,7 @@ internal/
   core/
     model/      photo, color labels, tags - data types and validation, no I/O
     library/    scanner, navigator, copier, deleter, color service
-    imaging/    image loader, thumbnail provider, orientation, EXIF read
+    imaging/    image loader, jpeg decoding, thumbnail provider, orientation, EXIF/XMP read, in-place XMP packet writes (favorite, stock tags)
     proc/       hidden-window attributes for child processes
     tags/       stock metadata generation via the claude CLI + prompts/
     clipboard/  per-OS clipboard image copy

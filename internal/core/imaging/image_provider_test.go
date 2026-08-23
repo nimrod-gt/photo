@@ -123,11 +123,10 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 		done := make(chan struct{})
 
 		p.LoadFolder(photos,
-			func(index int, thumbnail image.Image, favorite bool) {
+			func(index int, meta LoadedMeta) {
 				mu.Lock()
 				results[index] = true
-				assert.Nil(t, thumbnail)
-				assert.False(t, favorite)
+				assert.Equal(t, LoadedMeta{}, meta)
 				mu.Unlock()
 			},
 			func() { close(done) },
@@ -157,7 +156,7 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 		var mu sync.Mutex
 
 		p.LoadFolder(photos,
-			func(index int, _ image.Image, _ bool) {
+			func(int, LoadedMeta) {
 				mu.Lock()
 				callCount1++
 				mu.Unlock()
@@ -167,7 +166,7 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 
 		done := make(chan struct{})
 		p.LoadFolder(nil,
-			func(int, image.Image, bool) { t.Fatal("should not be called") },
+			func(int, LoadedMeta) { t.Fatal("should not be called") },
 			func() { close(done) },
 		)
 
@@ -185,7 +184,7 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 
 		done := make(chan struct{})
 		p.LoadFolder(nil,
-			func(int, image.Image, bool) {},
+			func(int, LoadedMeta) {},
 			func() { close(done) },
 		)
 
@@ -203,7 +202,7 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 		p := stubProvider(nil)
 		done := make(chan struct{})
 		p.LoadFolder(nil,
-			func(int, image.Image, bool) { t.Fatal("should not be called") },
+			func(int, LoadedMeta) { t.Fatal("should not be called") },
 			func() { close(done) },
 		)
 
@@ -229,11 +228,10 @@ func TestImageProvider_LoadFolder(t *testing.T) {
 		done := make(chan struct{})
 
 		p.LoadFolder(photos,
-			func(index int, thumbnail image.Image, favorite bool) {
+			func(index int, meta LoadedMeta) {
 				mu.Lock()
 				results[index] = true
-				assert.Nil(t, thumbnail)
-				assert.False(t, favorite)
+				assert.Equal(t, LoadedMeta{}, meta)
 				mu.Unlock()
 			},
 			func() { close(done) },

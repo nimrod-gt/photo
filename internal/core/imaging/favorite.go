@@ -52,7 +52,8 @@ func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error)
 
 // The packet comes from the span the write itself will use, so the reader and
 // the writer cannot disagree about which packet holds the rating, and the file
-// is parsed a second time only when that packet says nothing.
+// is parsed a second time only when that packet says nothing - then only the
+// EXIF is asked, the packet has already had its say.
 //
 // A packet the parser rejects still leaves the EXIF rating to go by, which is
 // what the folder scan shows for it; failing here instead would refuse to toggle
@@ -66,6 +67,5 @@ func currentRating(data, packet []byte, source string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	rating, _ := ratingOf(sl, exifRootOf(sl))
-	return rating, nil
+	return exifRating(exifRootOf(sl)), nil
 }

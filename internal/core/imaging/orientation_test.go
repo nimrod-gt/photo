@@ -453,3 +453,35 @@ func TestLoadImageOrientedTruncated(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, img)
 }
+
+func TestHasEOI(t *testing.T) {
+	t.Parallel()
+
+	full, err := os.ReadFile(writeTestJPEG(t, 64, 48))
+	require.NoError(t, err)
+	require.True(t, hasEOI(full))
+
+	t.Run("a trailer behind the marker is not a truncation", func(t *testing.T) {
+		t.Parallel()
+		withTrailer := append(append([]byte{}, full...), []byte("SEFT\x01\x02\x03\n")...)
+		assert.True(t, hasEOI(withTrailer))
+	})
+
+	t.Run("zero padding behind the marker is not a truncation", func(t *testing.T) {
+		t.Parallel()
+		padded := append(append([]byte{}, full...), make([]byte, 16)...)
+		assert.True(t, hasEOI(padded))
+	})
+
+	t.Run("a file cut inside the image data has no marker", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, hasEOI(full[:len(full)*60/100]))
+	})
+
+	t.Run("a marker inside a segment does not count", func(t *testing.T) {
+		t.Parallel()
+		segment := append([]byte{markerStart, markerAPP1, 0x00, 0x06}, markerStart, markerEOI, 0x00, 0x00)
+		data := append(append([]byte{markerStart, markerSOI}, segment...), full[2:len(full)*60/100]...)
+		assert.False(t, hasEOI(data))
+	})
+}

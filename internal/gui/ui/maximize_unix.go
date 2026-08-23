@@ -6,7 +6,6 @@ import (
 	"log"
 
 	"fyne.io/fyne/v2"
-	"github.com/go-gl/glfw/v3.4/glfw"
 )
 
 // Windows and macOS maximize through their native window handle. Elsewhere the
@@ -35,12 +34,8 @@ func screenLayout(scale float32) (metrics screenMetrics, ok bool) {
 			ok = false
 		}
 	}()
-	monitor := glfw.GetPrimaryMonitor()
-	if monitor == nil || scale <= 0 {
-		return screenMetrics{}, false
-	}
-	mode := monitor.GetVideoMode()
-	if mode == nil || mode.Height <= 0 {
+	mode, monitor := primaryVideoMode()
+	if mode == nil || scale <= 0 {
 		return screenMetrics{}, false
 	}
 	_, top, width, height := monitor.GetWorkarea()

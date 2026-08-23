@@ -60,8 +60,8 @@ func applyOrientation(img image.Image, orientation int) image.Image {
 	}
 }
 
-// transformPixels indexes Pix directly, and the CMYK path in decodeCMYK has a
-// source it cannot index, so that one gets converted first
+// transformPixels indexes Pix directly, so a source of any other format is
+// converted first
 func toRGBA(img image.Image) *image.RGBA {
 	if rgba, ok := img.(*image.RGBA); ok {
 		return rgba

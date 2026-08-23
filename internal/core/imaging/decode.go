@@ -32,13 +32,13 @@ func decodeJPEG(data []byte, fit int, source string) (image.Image, error) {
 		// honest, and a colour that is merely wrong arrives without an error to
 		// show for it.
 		if cmyk {
-			return decodeStdlib(data, source, "the frame has four components")
+			return decodeStdlib(data, fit, source, "the frame has four components")
 		}
 		// jpegn decodes a frame that stops early down to wherever it stops and
 		// reports no error at all, so a photo still being copied off a card
 		// would be kept as a half-grey image until the folder is reloaded.
-		if !endsWithEOI(data) {
-			return decodeStdlib(data, source, "the file does not end with an EOI marker")
+		if !hasEOI(data) {
+			return decodeStdlib(data, fit, source, "the file has no EOI marker behind its image data")
 		}
 
 		img, err := jpegn.Decode(bytes.NewReader(data), &jpegn.Options{
@@ -51,32 +51,48 @@ func decodeJPEG(data []byte, fit int, source string) (image.Image, error) {
 		// pixels than it trusts the bytes to hold - that the standard library
 		// decodes, so its refusal is not final either.
 		if err != nil {
-			return decodeStdlib(data, source, err.Error())
+			return decodeStdlib(data, fit, source, err.Error())
 		}
 		return img, nil
 	})
 }
 
-// A file whose copy stopped halfway ends wherever it stopped; writers that pad
-// their output pad behind the marker with zeros.
-func endsWithEOI(data []byte) bool {
-	return bytes.HasSuffix(bytes.TrimRight(data, "\x00"), eoiMarker)
+// A file whose copy stopped halfway ends wherever it stopped, so the marker is
+// looked for behind the start of the image data rather than at the very end of
+// the file: Samsung appends its trailer behind the marker, motion photos a
+// whole video, and other writers pad with zeros. Inside the entropy-coded data
+// 0xFF is always followed by 0x00 or a restart marker, so the pair cannot occur
+// there by accident; the segments in front of it are skipped because the EXIF
+// thumbnail carries a marker of its own.
+func hasEOI(data []byte) bool {
+	spans, err := segmentSpans(data)
+	if err != nil {
+		return false
+	}
+	imageStart := 2
+	if len(spans) != 0 {
+		imageStart = spans[len(spans)-1].end
+	}
+	return bytes.Contains(data[imageStart:], eoiMarker)
 }
 
 // The standard library reads every frame jpegn declines and refuses the ones it
 // decodes silently, at the price of decoding at full size: it has no scaling of
-// its own, so the caller shrinks the result the whole way. It does not rotate
-// either, so the tag is applied here. Which files take this path is worth
-// knowing, because a folder of them loads several times slower for no reason
-// the user can see; only the photo on screen and its neighbours come through
-// here, so there is one line per photo shown rather than one per file scanned.
-func decodeStdlib(data []byte, source, reason string) (image.Image, error) {
+// its own, so the frame is shrunk to the budget here, before it is rotated, so
+// that the rotation works on the small image rather than on the full one. The
+// decoder's own pixel format is kept, the scaler reads it directly. Which files
+// take this path is worth knowing, because a folder of them loads several times
+// slower for no reason the user can see; only the photo on screen and its
+// neighbours come through here, so there is one line per photo shown rather
+// than one per file scanned.
+func decodeStdlib(data []byte, fit int, source, reason string) (image.Image, error) {
 	log.Printf("Decoding %s at full size with the standard library: %s", source, reason)
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
-	return toRGBA(applyOrientation(img, exifOrientation(data))), nil
+	img = DownscaleToFit(img, image.Point{X: fit, Y: fit})
+	return applyOrientation(img, exifOrientation(data)), nil
 }
 
 // DecodeExif reports 0 for an absent tag and passes any out-of-range value

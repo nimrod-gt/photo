@@ -26,35 +26,49 @@ func (a *Application) updateActionStates(photo model.Photo) {
 		// they were would have them describe the photo before this one.
 		a.showError("Failed to get colors", err)
 	}
-	a.updateButtonStates(photo, colors, a.favoriteOf(photo))
-}
-
-func (a *Application) updateButtonStates(photo model.Photo, colors []model.ColorLabel, favorite bool) {
 	a.updateColorButtonStates(colors)
-	a.updateFavoriteButtonStates(photo, favorite)
+	a.updateFavoriteButtonStates(photo)
 }
 
 // Nothing is on screen, so the buttons describe nothing: leaving them as they
 // were would let the next keystroke act on a photo the user is no longer
 // looking at.
 func (a *Application) clearActionStates() {
-	a.updateButtonStates(model.Photo{}, nil, false)
+	a.updateColorButtonStates(nil)
+	a.setFavoriteButtonStates(false, false)
+}
+
+func (a *Application) clearViewer() {
+	a.viewer.Clear()
+	a.clearActionStates()
 }
 
 // The rating is read once per folder, with the thumbnails, and kept in the
 // browser's meta; the file is not opened again for the viewer.
 func (a *Application) favoriteOf(photo model.Photo) bool {
-	idx := a.navigator.FindIndex(photo.ImagePath)
-	if idx < 0 {
-		return false
-	}
-	return a.fileBrowser.GetMeta(idx).Favorite
+	return a.metaOf(photo).Favorite
 }
 
-func (a *Application) updateFavoriteButtonStates(photo model.Photo, favorite bool) {
-	a.actionPanel.SetFavoriteEnabled(photo.IsJPEG())
+func (a *Application) metaOf(photo model.Photo) model.PhotoMeta {
+	idx := a.navigator.FindIndex(photo.ImagePath)
+	if idx < 0 {
+		return model.PhotoMeta{}
+	}
+	return a.fileBrowser.GetMeta(idx)
+}
+
+func (a *Application) updateFavoriteButtonStates(photo model.Photo) {
+	meta := a.metaOf(photo)
+	a.setFavoriteButtonStates(meta.Favorite, meta.Ratable)
+}
+
+// The button is enabled only where a press can succeed: the scan has looked
+// for a packet the rating can be written into, and a JPEG without one would
+// answer every press with the same error.
+func (a *Application) setFavoriteButtonStates(favorite, ratable bool) {
+	a.actionPanel.SetFavoriteEnabled(ratable)
 	a.actionPanel.SetFavoriteActive(favorite)
-	a.contextMenuItems.Favorite.Disabled = !photo.IsJPEG()
+	a.contextMenuItems.Favorite.Disabled = !ratable
 	a.contextMenuItems.Favorite.Checked = favorite
 }
 
@@ -94,7 +108,7 @@ func (a *Application) handleFavorite() {
 		return
 	}
 	photo, ok := a.navigator.Current()
-	if !ok || !photo.IsJPEG() {
+	if !ok || !a.metaOf(photo).Ratable {
 		return
 	}
 	go func() {
@@ -112,7 +126,8 @@ func (a *Application) handleFavorite() {
 }
 
 // The ratings arrive with the thumbnails, after the folder is shown, and the
-// photo on screen may be one of them.
+// photo on screen may be one of them. Only the favorite comes from the scan;
+// the colours were read when the photo was shown and are not read again here.
 func (a *Application) handleMetaLoaded(displayIndex int) {
 	if a.gridMode {
 		return
@@ -121,7 +136,7 @@ func (a *Application) handleMetaLoaded(displayIndex int) {
 	if !ok || a.navigator.CurrentIndex() != displayIndex {
 		return
 	}
-	a.updateActionStates(photo)
+	a.updateFavoriteButtonStates(photo)
 }
 
 // The toggle runs off the main goroutine, and the photo it changed may no
@@ -149,7 +164,8 @@ func (a *Application) photoStateChanged(photo model.Photo, favorite, ratingWritt
 		}
 	}
 	if current, ok := a.navigator.Current(); ok && current.ImagePath == photo.ImagePath {
-		a.updateButtonStates(photo, colors, favorite)
+		a.updateColorButtonStates(colors)
+		a.updateFavoriteButtonStates(photo)
 	}
 	if a.fileBrowser.HasFilter() {
 		a.fileBrowser.SetPinnedPath(photo.ImagePath)
@@ -218,7 +234,7 @@ func (a *Application) handleDelete() {
 						a.showPhoto(nextPhoto)
 						a.fileBrowser.SelectIndex(navIdx)
 					} else {
-						a.viewer.Clear()
+						a.clearViewer()
 					}
 				})
 			}()
@@ -378,7 +394,7 @@ func (a *Application) handleDeleteAll() {
 						a.showPhoto(p)
 						a.fileBrowser.SelectIndex(navIdx)
 					} else {
-						a.viewer.Clear()
+						a.clearViewer()
 					}
 					if skipped > 0 {
 						a.mainWindow.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", deleted, skipped))

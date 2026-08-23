@@ -19,7 +19,6 @@ type MainWindow struct {
 	gridViewer  *GridViewer
 	notifier    *Notifier
 	viewStack   *fyne.Container
-	split       *container.Split
 }
 
 func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, gridViewer *GridViewer, notifier *Notifier) *MainWindow {
@@ -79,8 +78,8 @@ func (mw *MainWindow) build() {
 	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewStack)
 	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
-	mw.split = container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)
-	mw.split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
+	split := container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)
+	split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
 
-	mw.window.SetContent(container.New(newPanelWidthKeeper(mw.split), mw.split))
+	mw.window.SetContent(container.New(newPanelWidthKeeper(split), split))
 }

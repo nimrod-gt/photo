@@ -94,16 +94,14 @@ func TestDecodeJPEGCMYK(t *testing.T) {
 	img, err := decodeJPEG(data, 1600, "test.jpg")
 	require.NoError(t, err)
 
-	rgba, ok := img.(*image.RGBA)
-	require.True(t, ok, "got %T", img)
-	require.Equal(t, image.Rect(0, 0, 8, 8), rgba.Bounds())
-	assert.NotEqual(t, 0, countNonZero(rgba.Pix), "decoded to an all-zero buffer")
+	require.Equal(t, image.Rect(0, 0, 8, 8), img.Bounds())
+	assert.NotEqual(t, 0, countNonZero(toRGBA(img).Pix), "decoded to an all-zero buffer")
 
 	want, err := jpeg.Decode(bytes.NewReader(data))
 	require.NoError(t, err)
 	for y := range 8 {
 		for x := range 8 {
-			assert.Equal(t, color.RGBAModel.Convert(want.At(x, y)), rgba.At(x, y), "pixel (%d,%d)", x, y)
+			assert.Equal(t, color.RGBAModel.Convert(want.At(x, y)), color.RGBAModel.Convert(img.At(x, y)), "pixel (%d,%d)", x, y)
 		}
 	}
 }

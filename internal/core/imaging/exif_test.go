@@ -70,11 +70,31 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 	t.Run("plain JPEG without EXIF", func(t *testing.T) {
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 
-		thumbnail, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Nil(t, thumbnail)
-		assert.Equal(t, 0, rating)
+		assert.Nil(t, info.Thumbnail)
+		assert.Equal(t, 0, info.Rating)
+		assert.False(t, info.Ratable, "no packet to write a rating into")
+	})
+
+	t.Run("the camera's packet takes a rating", func(t *testing.T) {
+		path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", nil, sonyPacket(2000))
+
+		info, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.True(t, info.Ratable)
+	})
+
+	t.Run("a read-only packet takes none", func(t *testing.T) {
+		packet := bytes.Replace(sonyPacket(2000), []byte("end='w'"), []byte("end='r'"), 1)
+		path := writeJPEGWithPacket(t, t.TempDir(), "locked.jpg", nil, packet)
+
+		info, err := svc.GetPhotoInfo(path)
+
+		require.NoError(t, err)
+		assert.False(t, info.Ratable)
 	})
 
 	// EXIF without a Rating tag has to read as unrated, not as an error: it
@@ -85,14 +105,14 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 			"Orientation": []uint16{6},
 		})
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 0, rating)
+		assert.Equal(t, 0, info.Rating)
 	})
 
 	t.Run("missing file", func(t *testing.T) {
-		_, _, err := svc.GetPhotoInfo(filepath.Join(t.TempDir(), "missing.jpg"))
+		_, err := svc.GetPhotoInfo(filepath.Join(t.TempDir(), "missing.jpg"))
 		assert.Error(t, err)
 	})
 
@@ -100,7 +120,7 @@ func TestExifService_GetPhotoInfo(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "broken.jpg")
 		require.NoError(t, os.WriteFile(path, []byte("not a jpeg"), 0600))
 
-		_, _, err := svc.GetPhotoInfo(path)
+		_, err := svc.GetPhotoInfo(path)
 		assert.Error(t, err)
 	})
 }
@@ -147,60 +167,60 @@ func TestExifService_GetPhotoInfo_XMP(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "rated.jpg", map[string]any{"Make": "SONY"}, ratedPacket(t, 3))
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 3, rating)
+		assert.Equal(t, 3, info.Rating)
 	})
 
 	t.Run("reads the attribute Lightroom writes", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "lightroom.jpg", map[string]any{"Make": "SONY"}, xmpPacket(lightroomRatedDocument, 200))
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 3, rating)
+		assert.Equal(t, 3, info.Rating)
 	})
 
 	t.Run("the packet wins over the EXIF even at zero", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "both.jpg", ratedExif, sonyPacket(200))
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 0, rating)
+		assert.Equal(t, 0, info.Rating)
 	})
 
 	t.Run("falls back to the EXIF when the packet has no rating", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "unrated-packet.jpg", ratedExif, xmpPacket(unratedSonyContent(), 200))
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 5, rating)
+		assert.Equal(t, 5, info.Rating)
 	})
 
 	t.Run("keeps the EXIF rating when the packet does not parse", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", ratedExif, xmpPacket("<x:xmpmeta><unclosed>", 40))
 
-		_, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Equal(t, 5, rating)
+		assert.Equal(t, 5, info.Rating)
 	})
 
 	t.Run("reads the packet of a JPEG without EXIF", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacketOnly(t, t.TempDir(), "packet-only.jpg", ratedPacket(t, 2))
 
-		thumbnail, rating, err := svc.GetPhotoInfo(path)
+		info, err := svc.GetPhotoInfo(path)
 
 		require.NoError(t, err)
-		assert.Nil(t, thumbnail)
-		assert.Equal(t, 2, rating)
+		assert.Nil(t, info.Thumbnail)
+		assert.Equal(t, 2, info.Rating)
 	})
 }

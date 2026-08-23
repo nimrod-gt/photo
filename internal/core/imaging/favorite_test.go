@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -31,9 +30,9 @@ func writeJPEGWithPacketOnly(t *testing.T, dir, name string, packet []byte) stri
 
 func mustRating(t *testing.T, svc *ExifService, path string) int {
 	t.Helper()
-	_, rating, err := svc.GetPhotoInfo(path)
+	info, err := svc.GetPhotoInfo(path)
 	require.NoError(t, err)
-	return rating
+	return info.Rating
 }
 
 func mustToggleFavorite(t *testing.T, svc *ExifService, path string) bool {
@@ -149,9 +148,9 @@ func TestExifService_ToggleFavorite(t *testing.T) {
 			})
 			wg.Go(func() {
 				for range 8 {
-					_, rating, err := svc.GetPhotoInfo(path)
+					info, err := svc.GetPhotoInfo(path)
 					if assert.NoError(t, err) {
-						assert.Contains(t, []int{0, favoriteRating}, rating)
+						assert.Contains(t, []int{0, favoriteRating}, info.Rating)
 					}
 				}
 			})
@@ -199,15 +198,6 @@ func TestExifService_ToggleFavorite(t *testing.T) {
 				return writeJPEGWithPacket(t, dir, "full.jpg", cameraExif, xmpPacket(unratedSonyContent(), 16))
 			},
 			message: "no room",
-		},
-		{
-			name: "a rating under a prefix this app does not rewrite",
-			write: func(t *testing.T, dir string) string {
-				content := strings.NewReplacer("xmlns:xmp=", "xmlns:xap=", "<xmp:Rating>", "<xap:Rating>", "</xmp:Rating>", "</xap:Rating>").
-					Replace(sonyXMPContent)
-				return writeJPEGWithPacket(t, dir, "xap.jpg", cameraExif, xmpPacket(content, 2000))
-			},
-			message: "cannot take a rating",
 		},
 		{
 			name: "a packet that does not parse",

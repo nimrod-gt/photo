@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"photo/internal/core/imaging"
 	"photo/internal/core/model"
 )
 
@@ -33,7 +34,7 @@ func TestPhotoListFilteredRows(t *testing.T) {
 	// the row draws the photo behind it, not a copy taken when the filter ran:
 	// the folder scan is still on its way with the thumbnails and the ratings
 	thumbnail := image.NewGray(image.Rect(0, 0, 2, 2))
-	displayIndex, ok := pl.setLoadedMeta(1, thumbnail, true, gen)
+	displayIndex, ok := pl.setLoadedMeta(1, imaging.LoadedMeta{Thumbnail: thumbnail, Favorite: true, Ratable: true}, gen)
 	require.True(t, ok)
 	require.Equal(t, 0, displayIndex)
 
@@ -59,7 +60,7 @@ func TestPhotoListRatingWrittenByTheApp(t *testing.T) {
 
 	// the scan read the file before the toggle wrote into it
 	thumbnail := image.NewGray(image.Rect(0, 0, 2, 2))
-	_, ok := pl.setLoadedMeta(0, thumbnail, false, gen)
+	_, ok := pl.setLoadedMeta(0, imaging.LoadedMeta{Thumbnail: thumbnail}, gen)
 	require.True(t, ok)
 
 	meta := pl.metaAt(0)
@@ -77,7 +78,7 @@ func TestPhotoListColorChangeLeavesTheRatingToTheScan(t *testing.T) {
 	pl.applyFilter()
 
 	pl.setItemColors(0, []model.ColorLabel{model.ColorBlue})
-	_, ok := pl.setLoadedMeta(0, nil, true, gen)
+	_, ok := pl.setLoadedMeta(0, imaging.LoadedMeta{Favorite: true}, gen)
 	require.True(t, ok)
 
 	meta := pl.metaAt(0)

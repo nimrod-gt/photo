@@ -116,8 +116,8 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 
-	fb.imageProvider.LoadFolder(photos, func(index int, thumbnail image.Image, favorite bool) {
-		displayIdx, ok := fb.data.setLoadedMeta(index, thumbnail, favorite, gen)
+	fb.imageProvider.LoadFolder(photos, func(index int, meta imaging.LoadedMeta) {
+		displayIdx, ok := fb.data.setLoadedMeta(index, meta, gen)
 		if ok && displayIdx >= 0 {
 			fyne.Do(func() {
 				fb.list.RefreshItem(displayIdx)
