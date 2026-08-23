@@ -3,14 +3,17 @@ name: todo
 description: Per-project micro-task list stored in todo.json. Subcommands: new (default, keyword optional), list, plan [n], start n, finish n, order, help.
 argument-hint: "[<text> | new <text> | list [full] | plan [n] | start <n> | finish <n> | order | help]"
 disable-model-invocation: true
-allowed-tools: Read, Write, Glob, Grep, Agent, AskUserQuestion, Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git status:*)
+allowed-tools: Read, Write, Glob, Grep, Agent, AskUserQuestion, ToolSearch, Bash(date:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git status:*), Bash(git checkout:*), Bash(git symbolic-ref:*)
 ---
 
 # /todo
 
-Micro-task tracker. Tasks live in `todo.json` at the project root (the directory Claude Code runs in).
+Micro-task tracker. Tasks live in `todo.json` in the **current working directory** (not the git
+toplevel) — run `/todo` from the project root so `docs` paths stay root-relative.
 This skill is project-independent: it contains no project-specific commands or paths. Project checks
 (build/lint/test) are discovered at run time from the project's `CLAUDE.md` when a subcommand needs them.
+`allowed-tools` above covers the skill's own needs; `start` additionally runs the project's build/test
+commands and plan-mode tools, which may prompt for permission.
 
 ## Injected context
 
@@ -21,49 +24,62 @@ This skill is project-independent: it contains no project-specific commands or p
 
 !`cat todo.json 2>/dev/null || echo '{"version":1,"next_id":1,"todos":[]}'`
 
-If any value above shows a placeholder instead of real output (shell execution disabled), obtain it
-yourself: Read `todo.json`, run `git rev-parse --short HEAD`, and use the current UTC time.
+Fallbacks:
+
+- If a value above shows a placeholder instead of real output (shell execution disabled): Read
+  `todo.json`, run `date -u +%Y-%m-%dT%H:%M:%SZ` and `git rev-parse --short HEAD` yourself.
+- If SKILL_DIR is empty: it is `.claude/skills/todo` under the project root.
+- If the injected `todo.json` content is empty (0-byte file): treat it as the default above.
+- If it is not valid JSON: print `todo.json is not valid JSON — fix it by hand` and stop. Never
+  overwrite a file you cannot parse.
+- HEAD `none` means no git repository; `plan.base_commit` then stores `none`.
 
 ## Dispatch
 
 Arguments: `$ARGUMENTS`
 
-Split on the first whitespace. Route by the first token (case-insensitive):
+Split on the first whitespace into `first` and `rest`. Route (first token case-insensitive):
 
-| first token | subcommand | rest of arguments |
+| condition | subcommand | argument |
 |---|---|---|
-| `list` | list | optional `full` |
-| `plan` | plan | optional todo id |
-| `start` | start | todo id (required) |
-| `finish` | finish | todo id (required) |
-| `order` | order | — |
-| `help` | help | — |
-| `new` | new | todo text |
-| anything else | new | the **whole** argument string is the todo text |
-| (empty) | help | — |
+| empty `$ARGUMENTS` | help | — |
+| `help`, rest empty | help | — |
+| `order`, rest empty | order | — |
+| `list`, rest empty or `full` | list | `full` flag |
+| `plan`, rest empty or an integer | plan | optional id |
+| `start`, rest is an integer | start | id |
+| `finish`, rest is an integer | finish | id |
+| `start` / `finish`, rest empty | — | print `missing todo id`, stop |
+| `new` | new | rest is the todo text |
+| anything else | new | the **whole** `$ARGUMENTS` is the todo text |
 
 The `new` keyword is optional: `/todo fix empty filter crash` ≡ `/todo new fix empty filter crash`.
+Natural text that merely starts with a keyword is still a todo: `/todo Start the importer rewrite`
+→ `new`, because `the importer rewrite` is not an integer.
 
 Then Read `SKILL_DIR/commands/<subcommand>.md` and follow it exactly. For `help`, print the usage block
 at the bottom of this file and stop.
 
-When a subcommand needs a todo id: it must parse as an integer and exist in `todos[]`; otherwise print
-`todo #<n> not found` (or `missing todo id`) and stop without writing anything.
+When a subcommand gets an id that is not present in `todos[]`: print `todo #<n> not found` and stop
+without writing anything.
 
 ## Shared rules
 
 - Everything written into `todo.json` is **English**. Translate user input if needed; fix typos and
   punctuation; otherwise keep the user's wording and intent. Reply to the user in the language they use.
-- Write the **whole file** on every change: take the current content, apply the change, Write it back
-  with 2-space indent, keys in the documented order, unknown extra keys preserved, trailing newline.
-  Set `updated_at = NOW` on every todo you change. Never write from a subagent — only the main thread
+- Write the **whole file** on every change, 2-space indent, keys in the documented order, unknown
+  extra keys preserved, trailing newline. **Always Read `todo.json` immediately before every Write**
+  (the injected content is for reading; a Write must be based on a fresh Read — other sessions or a
+  `new` run meanwhile may have changed the file). Never write from a subagent — only the main thread
   writes `todo.json`.
-- Before a write that happens after a delay (e.g. after a background agent finishes), Read `todo.json`
-  again and apply the change to the fresh content — the user may have added todos meanwhile.
+- Timestamps: NOW is valid for writes that happen right away. For a write after background agents
+  or user interaction, run `date -u +%Y-%m-%dT%H:%M:%SZ` again and use that value. Set `updated_at`
+  on every todo you change.
 - Do not ask the user anything unless the subcommand file says so (`start` and `finish` do; the rest
   never do).
-- `list`, `order`, `finish` use no tools except what is needed to print and to write `todo.json`.
-  They never read source code.
+- `list` and `order` read nothing but the injected `todo.json` (plus their command file, plus
+  `todo.json` itself if injection failed). `finish` additionally asks one question and writes.
+  None of them reads source code.
 
 ## todo.json format
 
@@ -114,6 +130,7 @@ When a subcommand needs a todo id: it must parse as an integer and exist in `tod
 
 Rules:
 
+- Every key above is always present (`depends_on` may be `[]`, `branch`/`plan` may be `null`).
 - `id` is an integer taken from `next_id`, which then increments. Ids are never reused: `finish`
   deletes the entry but leaves `next_id` alone.
 - `status` is `open` or `in_progress`. "Planned" is not a status: a todo is planned when `plan != null`.
@@ -121,13 +138,14 @@ Rules:
   `context`, not into a longer description.
 - `context`: at most ~3 sentences; may be `""`. Orientation only — never steps, never "first X then Y".
 - `docs`: up to 8 paths relative to the project root, each verified to exist at write time.
-- `depends_on`: ids of other todos that should be finished first. Optional; filled by `plan`/`start`
-  when discovered. A dependency is satisfied when its id is no longer present in `todos[]`.
-- `branch`: git branch for the work, set by `start` (`todo/<id>-<slug>`), `null` before that.
-- `plan.base_commit`: short HEAD when the plan was written or last revised. `start` compares the
-  codebase against it. `plan.revised_at` is `null` until `start` revises the plan.
+- `depends_on`: ids of other todos that should be finished first; filled by `plan`/`start` when
+  discovered. A dependency is satisfied when its id is no longer present in `todos[]`.
+- `branch`: git branch for the work, set by `start` (`todo/<id>-<slug>`), `null` before that and in
+  projects without git.
+- `plan.base_commit`: short HEAD when the plan was written or last revised (`none` without git).
+  `start` compares the codebase against it. `plan.revised_at` is `null` until `start` revises the plan.
 - `plan.questions[]`: open points for the user; `answer` is `null` until `start` resolves it.
-- Timestamps: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`), taken from NOW.
+- Timestamps: ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`).
 
 A JSON Schema for the file is in `SKILL_DIR/schema.json` (documentation, not enforced).
 

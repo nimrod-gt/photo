@@ -25,27 +25,29 @@ Tell the user which todos are being planned, then wait for the agents.
 
 ## Merge
 
-When an agent finishes: parse its returned JSON. If it is not valid JSON or lacks `steps`, retry that
-agent once; on a second failure print the raw output and leave that todo unplanned.
+When an agent finishes: parse its returned JSON. If it is not valid JSON or lacks `steps`, launch a
+fresh agent with the same prompt once; on a second failure print the raw output and leave that todo
+unplanned.
 
-For a valid result, Read `todo.json` again (fresh content), find the todo by id (it may have been
-deleted meanwhile — then skip it and say so), and set:
+For a valid result, run `date -u +%Y-%m-%dT%H:%M:%SZ` (fresh time), Read `todo.json`, find the todo
+by id (it may have been deleted meanwhile — then skip it and say so), and set:
 
 ```json
 "plan": {
-  "created_at": "<NOW>",
+  "created_at": "<fresh time>",
   "revised_at": null,
   "base_commit": "<HEAD>",
   "summary": "<agent summary>",
   "steps": [ {"title": "...", "details": "...", "files": ["..."]}, ... ],
-  "questions": [ {"question": "...", "answer": null}, ... ],
+  "questions": [ {"question": "<agent question string>", "answer": null}, ... ],
   "risks": ["..."]
 }
 ```
 
+The agent returns `questions` as plain strings; wrap each one into `{"question": ..., "answer": null}`.
 `depends_on` = union of the existing list and the agent's `depends_on` (ids that exist in `todos[]`
-only, never the todo's own id). `updated_at = NOW`. Write the whole file. Print one line per todo:
-`#<id> planned: <k> steps, <q> open questions`.
+only, never the todo's own id). `updated_at` = fresh time. Write the whole file. Print one line per
+todo: `#<id> planned: <k> steps, <q> open questions`.
 
 ## Agent brief
 
@@ -59,7 +61,7 @@ Procedure:
    conventions, layout, build/test commands.
 2. Read every path in `docs`; follow references from there (callers, tests, related types) until you
    can name concrete files for every step. Explore enough to be specific, no more.
-3. Produce 3-10 steps. Each step must be independently reviewable and leave the code building; name
+3. Produce 1-10 steps. Each step must be independently reviewable and leave the code building; name
    the files it touches (paths relative to the project root, existing or to-be-created). Where the
    project has tests, include adding/extending tests in the step that changes behaviour, not as a
    separate final step. Do not include "create branch", "review", "commit" or "finish" steps — the

@@ -1,6 +1,6 @@
 # /todo list
 
-Uses only the injected `todo.json`. No other tools.
+Uses only the injected `todo.json` (Read it only if injection failed). No other tools.
 
 Print a table sorted by id:
 
@@ -14,7 +14,7 @@ Print a table sorted by id:
 - `plan`: `–` when `plan == null`; otherwise `✓ <n> steps`, plus ` ?<k>` when `k > 0` questions have
   `answer == null`.
 - Keep descriptions on one line (no truncation unless wider than ~120 chars; then cut with `…`).
-- Last line: `N todos: A open, B in progress, C unplanned`.
+- Last line: `N todos: A open, B in progress, C unplanned` (unplanned = `plan == null`, any status).
 - If `todos[]` is empty print `no todos — add one with /todo <text>`.
 
 With `full` as argument, print each todo as a block instead of a row: id + description, then

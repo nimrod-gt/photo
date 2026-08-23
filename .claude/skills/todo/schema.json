@@ -3,14 +3,27 @@
   "title": "todo.json",
   "description": "Per-project micro-task list managed by the /todo skill.",
   "type": "object",
-  "required": ["version", "next_id", "todos"],
+  "required": [
+    "version",
+    "next_id",
+    "todos"
+  ],
   "additionalProperties": true,
   "properties": {
-    "version": { "type": "integer", "const": 1 },
-    "next_id": { "type": "integer", "minimum": 1, "description": "Id for the next todo; never decremented, ids are never reused." },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "next_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Id for the next todo; never decremented, ids are never reused."
+    },
     "todos": {
       "type": "array",
-      "items": { "$ref": "#/definitions/todo" }
+      "items": {
+        "$ref": "#/definitions/todo"
+      }
     }
   },
   "definitions": {
@@ -21,55 +34,137 @@
     },
     "todo": {
       "type": "object",
-      "required": ["id", "description", "context", "docs", "status", "created_at", "updated_at", "plan"],
+      "required": [
+        "id",
+        "description",
+        "context",
+        "docs",
+        "depends_on",
+        "status",
+        "branch",
+        "created_at",
+        "updated_at",
+        "plan"
+      ],
       "additionalProperties": true,
       "properties": {
-        "id": { "type": "integer", "minimum": 1 },
-        "description": { "type": "string", "minLength": 1, "description": "One English sentence, imperative mood." },
-        "context": { "type": "string", "description": "Up to ~3 sentences of orientation. Not a plan. May be empty." },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One English sentence, imperative mood."
+        },
+        "context": {
+          "type": "string",
+          "description": "Up to ~3 sentences of orientation. Not a plan. May be empty."
+        },
         "docs": {
           "type": "array",
           "maxItems": 8,
-          "items": { "type": "string", "description": "Path relative to the project root." }
+          "items": {
+            "type": "string",
+            "description": "Path relative to the project root."
+          }
         },
         "depends_on": {
           "type": "array",
-          "items": { "type": "integer", "minimum": 1 },
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
           "description": "Ids of todos to finish first. Satisfied once the id is gone from todos[]."
         },
-        "status": { "type": "string", "enum": ["open", "in_progress"] },
-        "branch": { "type": ["string", "null"], "description": "Set by start: todo/<id>-<slug>." },
-        "created_at": { "$ref": "#/definitions/timestamp" },
-        "updated_at": { "$ref": "#/definitions/timestamp" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "in_progress"
+          ]
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Set by start: todo/<id>-<slug>; null before that and without git."
+        },
+        "created_at": {
+          "$ref": "#/definitions/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/definitions/timestamp"
+        },
         "plan": {
           "oneOf": [
-            { "type": "null" },
-            { "$ref": "#/definitions/plan" }
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/definitions/plan"
+            }
           ]
         }
       }
     },
     "plan": {
       "type": "object",
-      "required": ["created_at", "revised_at", "base_commit", "summary", "steps", "questions", "risks"],
+      "required": [
+        "created_at",
+        "revised_at",
+        "base_commit",
+        "summary",
+        "steps",
+        "questions",
+        "risks"
+      ],
       "additionalProperties": true,
       "properties": {
-        "created_at": { "$ref": "#/definitions/timestamp" },
+        "created_at": {
+          "$ref": "#/definitions/timestamp"
+        },
         "revised_at": {
-          "oneOf": [ { "type": "null" }, { "$ref": "#/definitions/timestamp" } ],
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/definitions/timestamp"
+            }
+          ],
           "description": "Set by start when the plan is revalidated."
         },
-        "base_commit": { "type": "string", "description": "Short git HEAD the plan was written/revised against." },
-        "summary": { "type": "string" },
+        "base_commit": {
+          "type": "string",
+          "description": "Short git HEAD the plan was written/revised against; \"none\" without git."
+        },
+        "summary": {
+          "type": "string"
+        },
         "steps": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["title", "details", "files"],
+            "required": [
+              "title",
+              "details",
+              "files"
+            ],
             "properties": {
-              "title": { "type": "string" },
-              "details": { "type": "string" },
-              "files": { "type": "array", "items": { "type": "string" } }
+              "title": {
+                "type": "string"
+              },
+              "details": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             }
           }
         },
@@ -77,14 +172,29 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["question", "answer"],
+            "required": [
+              "question",
+              "answer"
+            ],
             "properties": {
-              "question": { "type": "string" },
-              "answer": { "type": ["string", "null"] }
+              "question": {
+                "type": "string"
+              },
+              "answer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
             }
           }
         },
-        "risks": { "type": "array", "items": { "type": "string" } }
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       }
     }
   }
