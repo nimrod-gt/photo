@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "next_id": 4,
+  "todos": [
+    {
+      "id": 1,
+      "description": "Move tags into the cache",
+      "context": "Tags today live only in the files: the session writes an XMP sidecar next to the RAW and, on demand, into the JPEG XMP packet, and re-reads them from EXIF/XMP on every dialog open (tagsSession in internal/gui/app/actions.go). The imaging Loader already has an LRU cache pattern to follow.",
+      "docs": [
+        "internal/gui/app/actions.go",
+        "internal/core/tags/tagger.go",
+        "internal/core/imaging/image_loader.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-23T13:38:01Z",
+      "updated_at": "2026-08-23T13:53:45Z",
+      "plan": {
+        "created_at": "2026-08-23T13:53:45Z",
+        "revised_at": null,
+        "base_commit": "4fce1b4",
+        "summary": "Introduce an in-memory, LRU-backed tags cache in `internal/core/tags` that becomes the single read path for stock tags (title, keywords, shooting date) and the write-through point for the XMP sidecar, then wire it into the Fyne app so the Tags dialog no longer re-parses the JPEG EXIF/XMP packet and the RAW sidecar on every open. The cache follows the pattern of `internal/core/imaging/image_loader.go`: a `github.com/hashicorp/golang-lru/v2` cache guarded by a mutex, an inflight map so concurrent readers of the same path share one file read, injectable function fields (`read`, `writeSidecar`) for tests exactly like `Loader.loadImage` and `Tagger.run`. `Application` gains a `tagsCache` field built from the existing `ExifService`; `tagsSession.prefill` reads through it (and seeds the dialog synchronously on a hit), generation and both save paths update it, deletes forget their entries, and showing a photo warms it in the background so a later dialog open, todo #2 (painting tags over/near the photo) and todo #3 (background generation) can read tags without touching the disk.",
+        "steps": [
+          {
+            "title": "Add the tags cache to internal/core/tags",
+            "details": "New file `internal/core/tags/cache.go` with a `Cache` type modelled on `imaging.Loader`: `entries *lru.Cache[string, imaging.StockInfo]` guarded by a `sync.Mutex`, an `inflight map[string]*infoWaiter` with a `done chan struct{}` so two goroutines asking for the same photo do one file read, and injectable function fields `read func(model.Photo) (imaging.StockInfo, error)` and `writeSidecar func(path string, tags model.Tags) error` (the same stub-for-tests pattern as `Loader.loadImage` and `Tagger.run`/`lookup`). `NewCache(exif *imaging.ExifService) *Cache` wires them to `exif.GetStockInfo` and `imaging.WriteSidecar` and sizes the LRU by entry count only (proposed `cacheMaxEntries = 2048`). API: `Get` read-through, `Peek` non-blocking, `Store` (replaces tags, keeps the already read `Taken` date), `SaveSidecar` (no-op without a RAW, otherwise writes `model.SidecarPath(photo.RAWPath)` and stores only after a successful write), `Forget(paths ...string)` and `Clear()`. Key is `photo.ImagePath`. Errors are returned but not cached, like the loader. The cache mutex is never held across a `read` call. Tests in `internal/core/tags/cache_test.go` (testify, stub funcs, `t.Parallel()` in the style of `image_loader_test.go`): read-through hit, Peek miss/hit, concurrent Get does one read, errors not cached, Store keeps Taken, SaveSidecar writes then stores, failed write leaves the entry untouched, no-RAW writes nothing, Forget/Clear, eviction.",
+            "files": [
+              "internal/core/tags/cache.go",
+              "internal/core/tags/cache_test.go"
+            ]
+          },
+          {
+            "title": "Wire the cache into the app and make the Tags dialog read from it",
+            "details": "In `internal/gui/app/app.go` add a `tagsCache *tags.Cache` field to `Application` and build it in `New()` from the `exifService` already constructed there. In `internal/gui/app/actions.go`: `handleTags` seeds the dialog from `a.tagsCache.Peek(photo)` right after `session.dialog.Show()` when the entry exists (sets `session.saved`, calls `SetPhotoInfo`), so a reopened dialog is filled without a flash; `tagsSession.prefill` keeps its goroutine but calls `s.app.tagsCache.Get(s.photo)` instead of `s.app.exifService.GetStockInfo` and returns early when already seeded; `tagsSession.saveSidecar` calls `s.app.tagsCache.SaveSidecar(s.photo, saved)` in place of the direct `imaging.WriteSidecar`; `tagsSession.generate` calls `Store` on success so generated tags survive the dialog even for a JPEG with no RAW pair; `saveJPEG` calls `Store` after a successful `WriteStockTags`. The `saved` bookkeeping and revert-on-failure stay unchanged. No test here: `internal/gui/app` has no harness for `Application` (only `settings_test.go`).",
+            "files": [
+              "internal/gui/app/app.go",
+              "internal/gui/app/actions.go"
+            ]
+          },
+          {
+            "title": "Forget cached tags for deleted photos",
+            "details": "In `internal/gui/app/actions.go` the delete paths drop their cache entries so a file recreated at the same path is read afresh: `handleDelete` calls `a.tagsCache.Forget(photo.ImagePath)` next to the existing `a.colorService.RemoveColors(photo)`, and `handleDeleteAll` collects the paths it already gathers into `deletedPhotos` and calls `a.tagsCache.Forget(paths...)` beside `RemoveMultipleColors`. Both run on the worker goroutine, which is fine — the cache has its own lock and touches no widget.",
+            "files": [
+              "internal/gui/app/actions.go"
+            ]
+          },
+          {
+            "title": "Warm the cache for the photo on screen",
+            "details": "In `internal/gui/app/navigation.go`, `showPhoto` starts a goroutine that calls `a.tagsCache.Get(photo)` and only logs a failure (`log.Printf`), touching no widget, so no `fyne.Do` wrapping is needed. The tags of the photo being looked at are then in memory by the time `T` is pressed, and todo #2 can paint from `Peek` without I/O on the main goroutine. Only the current photo is warmed, not the 15 neighbours `prefetchAdjacent` preloads: reading tags parses the whole JPEG through `GetStockInfo`.",
+            "files": [
+              "internal/gui/app/navigation.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Placement: put the cache in `internal/core/tags` (package `tags` then imports `internal/core/imaging` for `StockInfo`/`GetStockInfo`/`WriteSidecar`; there is no cycle, imaging does not import tags). Assume yes unless you would rather have it in `internal/core/imaging` next to the readers, or have a tags-local `Info` struct instead of returning `imaging.StockInfo`. Affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Should tags that were generated but not yet saved to any file be cached (so closing and reopening the dialog for a JPEG with no RAW pair shows them again)? Assume yes. Affects step 2, and it means a future \"display tags on the photo\" (todo #2) may show tags that are not in the file.",
+            "answer": null
+          },
+          {
+            "question": "Cache lifetime: entries survive a folder change and are never revalidated against file mtime, so tags edited by Lightroom or exiftool while the app runs are not picked up until restart (only an app-side write refreshes them). Assume that is acceptable; the alternative is a mtime check on each `Get` or a `Clear()` in `loadDirectory`. Affects steps 1 and 4.",
+            "answer": null
+          },
+          {
+            "question": "Cache size: 2048 entries, LRU by count, no byte budget. Assume fine unless you want it to cover a whole large folder (10k photos) outright. Affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Should `Get` cache a partial result that came back with an error (e.g. a JPEG with a broken XMP packet but a readable sidecar)? Assume no, matching `Loader`, at the cost of re-reading such files on every access. Affects step 1.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Stale tags: the cache is authoritative for the UI while another program editing the sidecar or the JPEG in the background is invisible to it.",
+          "What is cached after a save is what the app handed to the writer, which may not be byte-identical to what a re-read of the file would return (the XMP/EXIF write path normalizes and can be refused); todo #2 will display those cached values.",
+          "Two locks now sit on the tags read path (the cache's inflight mutex and `ExifService.access`); the plan keeps the cache mutex out of the `read` call to avoid holding one while waiting on the other.",
+          "`internal/gui/app` is effectively untested, so steps 2-4 are only covered by manual runs; keeping the session's `saved`/revert logic unchanged is what limits the blast radius of the sidecar write path.",
+          "Warming on every photo shown adds one full JPEG parse per navigation step on the worker goroutine; on a slow volume that is extra I/O competing with image preloading."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "description": "Display the tags on the photo",
+      "context": "The center panel is a zoomable image widget (ui.Viewer, wrapped by MainWindow into a Border with the ActionPanel on top and stacked with the grid viewer), and today nothing is painted over the photo: per the standing UI Layout decision in CLAUDE.md, favorite/color state is surfaced only through the toolbar buttons, the context menu and the file list, all driven from Application.showPhoto -> updateActionStates. Tags (title + keywords) are visible only inside the modal Tags dialog, which re-reads them per photo through exifService.GetStockInfo from the XMP sidecar/JPEG packet; there is no in-memory tag cache yet (todo #1). Where the tags go relative to the \"nothing over the photo\" rule is not decided yet.",
+      "docs": [
+        "internal/gui/ui/viewer.go",
+        "internal/gui/ui/window.go",
+        "internal/gui/app/navigation.go",
+        "internal/gui/app/actions.go",
+        "internal/gui/ui/toolbar.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/core/imaging/exif_tags.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-23T13:45:33Z",
+      "updated_at": "2026-08-23T13:53:45Z",
+      "plan": {
+        "created_at": "2026-08-23T13:53:45Z",
+        "revised_at": null,
+        "base_commit": "4fce1b4",
+        "summary": "Surface the current photo's stock tags (title + keywords) in the center panel without breaking the standing \"nothing is drawn over the photo\" rule: add a new `ui.TagBar` strip that MainWindow places in the bottom slot of the center Border (below the zoomable viewer), fed from `Application.showPhoto` by an asynchronous, debounced `exifService.GetStockInfo` read that is applied only while the photo it was started for is still the current one. The bar collapses to zero height when the photo has no tags, is suppressed in grid mode, stays in sync with edits made in the Tags dialog (generate / save / close), and can be toggled off with a new `I` shortcut whose state is remembered in preferences. No core package changes are needed: `GetStockInfo` already returns exactly the data required and is safe to call from a worker goroutine (it takes the service RLock); every widget touch is wrapped in `fyne.Do` per the project's threading rules. The work is independent of todo #1 (the tag cache), which would later only replace the read behind `loadTagsFor` with a cache lookup.",
+        "steps": [
+          {
+            "title": "Add the TagBar widget",
+            "details": "New `ui.TagBar` in `internal/gui/ui/tagbar.go`, modelled on the small composite widgets already in the package (Notifier, ActionPanel): `NewTagBar() *TagBar`, `Container() *fyne.Container`, `SetTags(model.Tags)`, `Clear()`, `SetEnabled(bool)` (user toggle) and `SetSuppressed(bool)` (grid mode). Internals: a padded VBox with a bold title `widget.Label` and a keywords `widget.Label`, both `Truncation = fyne.TextTruncateEllipsis` so the strip keeps a fixed two-line height whatever the tags are; keywords rendered via `model.Tags.KeywordLine()`. Visibility is derived, not set directly: the container shows only when `enabled && !suppressed && !tags.IsEmpty()`; a single `refresh()` recomputes it after every setter. Empty title or empty keyword list hides just that label. Tests in `internal/gui/ui/tagbar_test.go` following `tags_dialog_test.go` (fyne `test.NewTempWindow`, testify, non-parallel): tags shown, empty tags hide the bar, `Clear` hides it, disabled bar stays hidden after `SetTags`, re-enabling brings it back, suppression wins over enabled.",
+            "files": [
+              "internal/gui/ui/tagbar.go",
+              "internal/gui/ui/tagbar_test.go"
+            ]
+          },
+          {
+            "title": "Place the bar under the photo in MainWindow",
+            "details": "Extend `NewMainWindow` with a `*TagBar` parameter, store it on `MainWindow`, and in `build()` change the center panel to `container.NewBorder(mw.actionPanel.Container(), mw.tagBar.Container(), nil, nil, mw.viewStack)` so the strip sits below the viewer and never overlaps the image (the notifier stack stays as it is). In `SetGridMode` call `mw.tagBar.SetSuppressed(grid)` next to the existing action panel show/hide. Add thin forwarders used by the app layer: `SetPhotoTags(model.Tags)`, `ClearPhotoTags()`, `SetTagsVisible(bool)`. Update the single construction site in `internal/gui/app/app.go` (`ui.NewTagBar()` built next to `ui.NewNotifier()` and passed in).",
+            "files": [
+              "internal/gui/ui/window.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Load and show the tags of the current photo",
+            "details": "New `internal/gui/app/tags_view.go` holding the read path. `Application` gains two fields (`tagGeneration int`, `tagTimer *time.Timer`). `showTagsFor(photo model.Photo)`: increments the generation, clears the bar immediately (the strip must never describe the previous photo, same reasoning as `clearActionStates`), stops any pending timer and starts `time.AfterFunc(tagReadDelay, ...)` with ~200ms so arrow-key scrolling does not open every skipped JPEG; the timer goroutine calls `a.exifService.GetStockInfo(photo)` and then `fyne.Do` to check `a.tagGeneration == captured` plus `navigator.Current().ImagePath == photo.ImagePath` before `a.mainWindow.SetPhotoTags(info.Tags)` (stale results dropped, read errors only logged). `clearTags()` bumps the generation, stops the timer and clears the bar. Call `showTagsFor` from `Application.showPhoto` in `internal/gui/app/navigation.go` (both on the success and the load-failure branch, next to `updateActionStates`) and `clearTags` from `clearViewer` in `internal/gui/app/actions.go`. Grid mode needs nothing extra.",
+            "files": [
+              "internal/gui/app/tags_view.go",
+              "internal/gui/app/navigation.go",
+              "internal/gui/app/actions.go"
+            ]
+          },
+          {
+            "title": "Keep the bar in sync with the Tags dialog",
+            "details": "In `internal/gui/app/actions.go` push the dialog's tags into the bar instead of re-reading the file: add `setTagsIfCurrent(photo model.Photo, tags model.Tags)` to `internal/gui/app/tags_view.go` (bumps the generation so an in-flight read cannot overwrite the newer tags, then sets the bar only while `navigator.Current()` is still that photo) and call it from `tagsSession.generate` right after `s.dialog.SetTags(generated)`, from `tagsSession.saveJPEG`/`saveSidecar` success and from `tagsSession.close` after the final `saveSidecar`, so an edit made in the dialog — including clearing both fields — is visible under the photo the moment the dialog goes away. `prefill` also calls it, which gives the bar the freshly read tags when the dialog was opened before the debounced read finished.",
+            "files": [
+              "internal/gui/app/actions.go",
+              "internal/gui/app/tags_view.go"
+            ]
+          },
+          {
+            "title": "Toggle shortcut, help entry and documentation",
+            "details": "Add `OnToggleTags` to `ui.ShortcutCallbacks` and bind it to `glfw.KeyI` in the scancode map in `internal/gui/ui/shortcuts.go` (I is free: F R G B D C N S 1-4 H Y L Z T are taken). Wire it in `internal/gui/app/app.go` to a handler in `internal/gui/app/tags_view.go` that flips `a.showTags`, calls `a.mainWindow.SetTagsVisible(...)` and persists the flag; guard it with the existing `shortcutsBlocked()`. Persist through `internal/gui/app/settings.go` with a `showTagsKey = \"showTags\"` constant, restored by a new `restoreTagVisibility` called from `Run` before the first directory load, default true. Add `{\"I\", \"Toggle tag strip\"}` to `helpLeft` in `internal/gui/ui/help.go`. Update `CLAUDE.md`: the UI Layout section gets a line saying the tag strip sits below the photo (the favorite/color rule is unchanged), and the Keyboard Shortcuts list gets `I`.",
+            "files": [
+              "internal/gui/ui/shortcuts.go",
+              "internal/gui/app/tags_view.go",
+              "internal/gui/app/app.go",
+              "internal/gui/app/settings.go",
+              "internal/gui/ui/help.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Placement: assume a strip below the photo (inside the center panel, image never covered) unless you want the tags painted over the bottom of the image the way the notifier toast is — which would need the CLAUDE.md 'nothing is drawn over the photo' rule amended. Affects steps 1-2.",
+            "answer": null
+          },
+          {
+            "question": "Content: assume one truncated line for the title and one truncated line for the keywords (fixed height, full text stays in the Tags dialog). Do you instead want the keywords word-wrapped over several lines, or the keyword count only? Affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Toggle: assume the strip can be hidden with `I` and that the choice is remembered between launches, default on. Is `I` acceptable, or should the strip always be on? Affects step 5.",
+            "answer": null
+          },
+          {
+            "question": "Photos with no tags: assume the strip collapses completely (no 'no tags' placeholder), so the viewer keeps the full height for untagged folders. Affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Read cost: assume a ~200ms debounce before reading tags during navigation, and that a read error is only logged, not shown as an error toast. Affects step 3.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Every navigation step reads the XMP/EXIF of a file until todo #1 lands a tag cache; the debounce limits it, but a slow network volume can still make the strip lag behind the photo.",
+          "The strip appearing and disappearing changes the viewer's height, so a zoomed-in photo is re-laid out (pan is clamped in `zoomWidget.clampPan`, so nothing breaks, but the view shifts). Fixed strip height keeps the shift constant.",
+          "`NewMainWindow`'s signature changes; it has one caller (`internal/gui/app/app.go`) but is already six parameters long and grows to seven.",
+          "Stale-result handling depends on the generation counter plus the current-path check; getting either wrong shows one photo's tags under another.",
+          "`GetStockInfo` returns empty tags and no error for a PNG or a JPEG without EXIF, which is indistinguishable from 'no tags' — acceptable, but it means the strip cannot report an unreadable file."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "description": "Add a background mode for tag generation",
+      "context": "Tag generation (stock title + keywords via the claude CLI in internal/core/tags) runs only as a foreground, per-photo modal flow today: `T` -> Application.handleTags builds a tagsSession whose generate() spawns a goroutine writing into the Tags dialog and an XMP sidecar, with the context cancelled in tagsSession.close when the dialog is dismissed. Existing background machinery it would sit next to: imaging.Provider.LoadFolder (bounded worker pool, generation counters, onLoaded callback), the bulk-operation pattern in handleCopyAll/handleDeleteAll with ui.BulkDialog progress, and ui.Notifier for completion messages; the Fyne threading rules in CLAUDE.md apply to any UI update from a worker goroutine. Related open todos: #1 tag cache, #2 display tags on the photo.",
+      "docs": [
+        "internal/gui/app/actions.go",
+        "internal/core/tags/tagger.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/app/app.go",
+        "internal/core/imaging/image_provider.go",
+        "internal/gui/ui/bulk_dialog.go",
+        "internal/gui/ui/notifier.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-23T13:47:50Z",
+      "updated_at": "2026-08-23T13:53:45Z",
+      "plan": {
+        "created_at": "2026-08-23T13:53:45Z",
+        "revised_at": null,
+        "base_commit": "4fce1b4",
+        "summary": "Add background (non-modal) tag generation alongside today's per-photo modal flow. A new core `tags.Queue` runs Claude CLI requests on a bounded worker pool with cancellation, de-duplication and progress/result callbacks, mirroring the shape of imaging.Provider.LoadFolder. A new GUI-side controller (internal/gui/app/tags_background.go) owns that queue, applies the persistence policy (XMP sidecar next to the RAW), reports progress and reports the summary through ui.Notifier, always hopping to fyne.Do before touching widgets. Two entry points use it: a new \"Tag All\" button in the file browser bulk bar that tags the currently filtered photos, and the existing Tags dialog, whose in-flight run is handed over to the controller instead of being cancelled when the dialog is dismissed. A small progress row with a Stop button in the left panel shows how far the batch is and cancels it. Help text is updated last.",
+        "steps": [
+          {
+            "title": "Add a bounded tag-generation queue to internal/core/tags",
+            "details": "New file internal/core/tags/queue.go with a `Queue` that has no Fyne and no I/O beyond the generator it is given: `NewQueue(generate func(context.Context, Request) (model.Tags, error), workers int) *Queue`, so *Tagger is passed as `tagger.Generate` and tests inject a fake. State under one mutex: pending []Request, active map keyed by Request.Photo.ImagePath (re-enqueueing a queued or running photo is a no-op), running worker count, done/total counters for the current burst, and a ctx/cancel created when the first worker starts. API: `Enqueue(reqs ...Request) int`, `Cancel()`, `Progress() (done, total int)`, `Busy() bool`, and a `Callbacks` struct with `OnResult(Result)` and `OnFinished(Summary)`. Each worker pops under the lock, runs generate with the queue context, fires OnResult, and the last worker fires OnFinished exactly once. Comment that callbacks run on worker goroutines (the CLAUDE.md fyne.Do rule then applies to callers). Also add `var ErrUsageLimit = errors.New(\"usage limit reached\")` in internal/core/tags/tagger.go, wrapped into the usage-limit branch of responseMessage/responseFailure with %w (message text unchanged), so a batch can stop itself. Tests in internal/core/tags/queue_test.go (table/subtest style like tagger_test.go, testify): concurrency never exceeds `workers`, duplicates dropped, Cancel stops pending work and cancels the passed context, OnFinished fires once with the right counts, per-photo results and errors. Extend tagger_test.go with an errors.Is(err, ErrUsageLimit) assertion on the existing usage-limit fixtures.",
+            "files": [
+              "internal/core/tags/queue.go",
+              "internal/core/tags/queue_test.go",
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/tagger_test.go"
+            ]
+          },
+          {
+            "title": "Add the GUI-side background tagging controller and wire it into Application",
+            "details": "New file internal/gui/app/tags_background.go holding `backgroundTagger`: it owns a *tags.Queue built over a.tagger.Generate plus the policy the queue must not know about. The `generate` wrapper calls a.tagger.Generate and on success persists: when photo.HasRAW(), imaging.WriteSidecar(model.SidecarPath(photo.RAWPath), tags), mirroring tagsSession.saveSidecar; a photo without a RAW pair is not written to at all and is counted as skipped. `RunNow(req, onResult)` starts a single detached goroutine outside the pool for the Tags dialog (step 4) so an interactive run is never stuck behind a batch, sharing the same persist + notify path. Failures are logged (log.Printf, as handleDeleteAll does); a tags.ErrUsageLimit result cancels the whole batch and shows one warning. Every UI touch goes through fyne.Do because callbacks arrive on queue workers. Wire it in internal/gui/app/app.go: new field `bgTags *backgroundTagger`, constructed in New() (`backgroundTagWorkers = 2`) and given its window/progress hooks in Run() after mainWindow exists; cancel the queue from the window's close/lifecycle hook next to the existing SetOnStarted wiring. Inert but compiles and is reviewable on its own.",
+            "files": [
+              "internal/gui/app/tags_background.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Add the \"Tag All\" bulk entry point over the filtered photos",
+            "details": "internal/gui/ui/filebrowser.go: add `OnTagAll func()` to FileBrowserCallbacks and a `tagAllBtn` (theme.DocumentCreateIcon(), the icon the Tags action uses in toolbar.go) into fb.bulkBar next to Delete All / Copy All, under the same visibility rule (updateBulkBarVisibility). internal/gui/ui/bulk_dialog.go: add `NewTagAllDialogContent(count int) (*fyne.Container, *widget.Check)` following NewDeleteAllDialogContent — a bold \"Generate tags for N filtered photos?\" label plus a \"Skip photos that already have tags\" check (checked by default), wrapped in minWidthLayout{width: copyDialogWidth}. internal/gui/app/actions.go: `handleTagAll` next to handleDeleteAll/handleCopyAll — guard on a.gridMode || a.dialogs.anyOpen(), take a.fileBrowser.FilteredPhotos(), show the confirm dialog through a.dialogs.open(dialogTagAll, ...), and on confirm start one goroutine that (a) with the skip box checked drops photos whose exifService.GetStockInfo already returns non-empty tags, (b) builds tags.Request values with the stored `claudePath` preference and no notes, (c) enqueues them via a.bgTags and reports \"Queued N photos for tagging\" (or \"Nothing to tag\") through fyne.Do + ShowNotification. internal/gui/app/dialogs.go: add the `dialogTagAll` kind. internal/gui/app/app.go: pass OnTagAll: a.handleTagAll in the FileBrowserCallbacks literal.",
+            "files": [
+              "internal/gui/ui/filebrowser.go",
+              "internal/gui/ui/bulk_dialog.go",
+              "internal/gui/app/actions.go",
+              "internal/gui/app/dialogs.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Let a Tags dialog run survive the dialog being closed",
+            "details": "internal/gui/app/actions.go: route tagsSession.generate through a.bgTags.RunNow instead of its own goroutine + tagger call. The result callback keeps the existing `a.dialogs.isCurrent(s.dialog)` guard, keeps setting the `claudePath` preference on success, and keeps calling s.dialog.SetTags / s.dialog.Fail; the sidecar write for generated tags now belongs to the controller alone, so tagsSession.saveSidecar keeps only its close-time job of persisting user edits (leave its `saved` bookkeeping intact so a run followed by a close does not write the same bytes twice — WriteSidecar already no-ops on identical content). Stop cancelling the run in tagsSession.close: drop the per-session context and the cancel passed to a.dialogs.open, so `Esc` or Close leaves the run going; when the run finishes with the dialog gone, the controller persists the sidecar and shows \"Tags generated for <name>\" (or the failure) through the notifier. Reflect this in internal/gui/ui/tags_dialog.go only if the generating status line should say the run continues in the background (a one-line setStatus text change); extend internal/gui/ui/tags_dialog_test.go if that text is asserted.",
+            "files": [
+              "internal/gui/app/actions.go",
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Show background progress with a Stop button in the left panel",
+            "details": "New internal/gui/ui/tag_progress.go: a small `TagProgress` type wrapping a widget.ProgressBar plus a label (\"Tagging 3/20\") and a Stop button, hidden by default, with `SetProgress(done, total int)`, `Hide()` and an OnStop callback. internal/gui/ui/filebrowser.go: build one in FileBrowser, add it to the existing `topBars` VBox (below bulkBar so it stays visible whether or not a filter is on), add `OnStopTagging func()` to FileBrowserCallbacks and expose `SetTagProgress(done, total int)` / `HideTagProgress()`. internal/gui/app/tags_background.go: feed OnResult/OnFinished into those two methods inside fyne.Do, and on OnFinished show the summary through the notifier (\"Tagged 18/20 photos (2 failed)\" as a warning when anything failed or was skipped, a plain notification otherwise), mirroring handleCopyAll's wording. internal/gui/app/app.go: pass OnStopTagging: a.bgTags.Cancel. Add a table test in internal/gui/ui/tag_progress_test.go (test.NewTempWindow like tags_dialog_test.go) covering visibility and label text for zero/partial/complete states.",
+            "files": [
+              "internal/gui/ui/tag_progress.go",
+              "internal/gui/ui/tag_progress_test.go",
+              "internal/gui/ui/filebrowser.go",
+              "internal/gui/app/tags_background.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Document the background mode",
+            "details": "internal/gui/ui/help.go: extend the Actions section only if a keyboard shortcut is added (see the last question); otherwise no change there. CLAUDE.md: in Features/UI Layout, note that Tag All in the bulk bar generates tags for the filtered photos in the background, that background results are written to the XMP sidecar of the RAW pair, that the Tags dialog no longer cancels a run when closed, and that progress is shown in the left panel with a Stop button. Keep the edit confined to the feature/shortcut documentation.",
+            "files": [
+              "CLAUDE.md",
+              "internal/gui/ui/help.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Scope check for steps 3 and 4: background mode = (a) bulk tagging of the currently filtered photos plus (b) an interactive run that keeps going after the Tags dialog is closed. Assume both unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "Step 2: how many concurrent claude CLI runs? Each spawns a process with a 3-minute timeout and consumes subscription quota. Assume 2 workers unless told otherwise; should it be a preference instead of a constant?",
+            "answer": null
+          },
+          {
+            "question": "Step 2: a photo without a RAW pair has nowhere to store tags except the JPEG's own XMP packet, which the foreground flow only writes behind an explicit button. Assume background runs skip JPEG-only photos and count them as skipped, rather than writing into the JPEG.",
+            "answer": null
+          },
+          {
+            "question": "Step 3: should Tag All skip photos that already carry a title and keywords? Assume yes, with a checkbox in the confirm dialog checked by default.",
+            "answer": null
+          },
+          {
+            "question": "Step 3: bulk runs send no Concept/Location/Editorial notes, unlike the dialog. Assume no notes unless the dialog's inputs should be reused for the whole batch.",
+            "answer": null
+          },
+          {
+            "question": "Step 2: should a running batch be cancelled when the user opens another folder or quits? Assume it keeps running across folder changes (paths are absolute) and is cancelled only by Stop or app exit.",
+            "answer": null
+          },
+          {
+            "question": "Step 2: on a usage-limit error, assume the whole batch is cancelled and one warning is shown, instead of every remaining photo failing the same way.",
+            "answer": null
+          },
+          {
+            "question": "Step 6: does background tagging need a keyboard shortcut of its own (e.g. Shift+T for the current photo)? Assume no shortcut for now; button only.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Concurrent claude CLI processes multiply cost and can trip the subscription usage limit quickly; the worker count and the usage-limit abort are the only brakes.",
+          "Two writers for the same sidecar: the controller writes generated tags while tagsSession still writes edited tags on close. WriteSidecar is a read-modify-write with no lock (ExifService.access does not cover it), so a close landing exactly on a finishing run can lose one of the two writes.",
+          "Detaching the dialog run removes the cancel-on-close guarantee: a user who closes the dialog can no longer stop a run except through the new Stop button; make sure the controller's context is also cancelled on app exit so no claude process outlives the window.",
+          "Queue callbacks arrive on worker goroutines and the thread checks are compiled out (CLAUDE.md), so a missing fyne.Do will not warn — it will corrupt the canvas intermittently.",
+          "Deleting or moving photos while a batch runs leaves stale requests that fail per photo; noise in the summary counts.",
+          "Overlap with open todos #1 (tag cache) and #2 (display tags): the persistence helper added here is the code #1 would move behind a cache, so expect a merge touch-up in internal/gui/app/tags_background.go."
+        ]
+      }
+    }
+  ]
+}

@@ -79,7 +79,8 @@ without writing anything.
   never do).
 - `list` and `order` read nothing but the injected `todo.json` (plus their command file, plus
   `todo.json` itself if injection failed). `finish` additionally asks one question and writes.
-  None of them reads source code.
+  None of them reads source code, and neither does the main thread in `new` — `new` and `plan`
+  delegate all code exploration to background agents.
 
 ## todo.json format
 
@@ -153,7 +154,7 @@ A JSON Schema for the file is in `SKILL_DIR/schema.json` (documentation, not enf
 
 ```
 /todo <text>          add a todo (same as /todo new <text>)
-/todo new <text>      add a todo: English description + short context + related files
+/todo new <text>      add a todo: English description + short context + related files (background agent)
 /todo list [full]     list todos (full: also context, docs, plan summary)
 /todo plan [n]        write a plan for todo n, or for every todo without one (background agents, no questions)
 /todo start <n>       take todo n into work: revalidate plan, resolve questions, plan mode, branch + reviews
