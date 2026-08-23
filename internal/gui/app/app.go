@@ -138,6 +138,10 @@ func (a *Application) Run() {
 	notifier := ui.NewNotifier()
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
 
+	// The driver only has a monitor to measure once its loop is up, which is
+	// after Show returns.
+	fyneApp.Lifecycle().SetOnStarted(a.mainWindow.Maximize)
+
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnFavorite:       a.handleFavorite,
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },

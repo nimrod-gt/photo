@@ -23,6 +23,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
 - **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
 - **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
+- **Settings**: Sort order and direction are remembered between launches. The window always opens maximized.
 - **Navigation**: Arrow keys (Right/Down = next, Left/Up = previous) and left mouse click on photo = next. Stays on last/first photo at boundaries.
 
 ### Keyboard Shortcuts (layout-independent)
@@ -60,6 +61,7 @@ internal/
     model/      photo, color labels, tags - data types and validation, no I/O
     library/    scanner, navigator, copier, deleter, color service
     imaging/    image loader, thumbnail provider, orientation, EXIF read
+    proc/       hidden-window attributes for child processes
     tags/       stock metadata generation via the claude CLI + prompts/
     clipboard/  per-OS clipboard image copy
   gui/

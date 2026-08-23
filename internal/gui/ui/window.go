@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"log"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"github.com/go-gl/glfw/v3.4/glfw"
 )
 
 const (
@@ -19,6 +22,7 @@ type MainWindow struct {
 	gridViewer  *GridViewer
 	notifier    *Notifier
 	viewStack   *fyne.Container
+	split       *container.Split
 }
 
 func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, gridViewer *GridViewer, notifier *Notifier) *MainWindow {
@@ -53,6 +57,42 @@ func (mw *MainWindow) ShowNotification(msg string) {
 	mw.notifier.ShowNotification(msg)
 }
 
+// The split offset is a ratio, so a maximized window would hand the left panel
+// its share of the whole width instead of the 250px it is meant to keep.
+func (mw *MainWindow) Maximize() {
+	if area, ok := workArea(mw.window.Canvas().Scale()); ok {
+		mw.split.SetOffset(panelOffset(area.Width))
+	}
+	maximizeWindow(mw.window)
+}
+
+func panelOffset(width float32) float64 {
+	if width < leftPanelWidth {
+		return 1
+	}
+	return float64(leftPanelWidth) / float64(width)
+}
+
+// glfw reports the area in screen coordinates, which are pixels wherever the
+// desktop is scaled, while a window is resized in Fyne coordinates.
+func workArea(scale float32) (area fyne.Size, ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("workArea: recovered from panic: %v", r)
+			ok = false
+		}
+	}()
+	monitor := glfw.GetPrimaryMonitor()
+	if monitor == nil || scale <= 0 {
+		return fyne.Size{}, false
+	}
+	_, _, width, height := monitor.GetWorkarea()
+	if width <= 0 || height <= 0 {
+		return fyne.Size{}, false
+	}
+	return fyne.NewSize(float32(width)/scale, float32(height)/scale), true
+}
+
 func (mw *MainWindow) Show() {
 	mw.window.ShowAndRun()
 }
@@ -74,8 +114,8 @@ func (mw *MainWindow) build() {
 	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewStack)
 	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
-	split := container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)
-	split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
+	mw.split = container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)
+	mw.split.SetOffset(float64(leftPanelWidth) / float64(defaultWindowWidth))
 
-	mw.window.SetContent(split)
+	mw.window.SetContent(mw.split)
 }
