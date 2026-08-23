@@ -91,7 +91,7 @@ func TestDecodeJPEGCMYK(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, color.CMYKModel, cfg.ColorModel)
 
-	img, err := decodeJPEG(data, 1600)
+	img, err := decodeJPEG(data, 1600, "test.jpg")
 	require.NoError(t, err)
 
 	rgba, ok := img.(*image.RGBA)
@@ -183,7 +183,7 @@ func TestDecodeJPEGAppliesScaleDenom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := decodeJPEG(data, tt.fit)
+			img, err := decodeJPEG(data, tt.fit, "test.jpg")
 			require.NoError(t, err)
 			// a YCbCr result would put the generic scaler back in the pipeline
 			assert.IsType(t, &image.RGBA{}, img)
@@ -204,7 +204,7 @@ func TestDecodeJPEGMatchesStdlib(t *testing.T) {
 	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
 	data := buf.Bytes()
 
-	got, err := decodeJPEG(data, 0)
+	got, err := decodeJPEG(data, 0, "test.jpg")
 	require.NoError(t, err)
 	want, err := jpeg.Decode(bytes.NewReader(data))
 	require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestDecodeJPEGCorrupt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := decodeJPEG(tt.data, 1600)
+			img, err := decodeJPEG(tt.data, 1600, "test.jpg")
 			require.Error(t, err)
 			assert.Nil(t, img)
 		})
@@ -277,7 +277,7 @@ func TestDecodeJPEGTruncated(t *testing.T) {
 	for _, part := range []int{40, 60, 75, 90} {
 		t.Run(strconv.Itoa(part)+" percent copied", func(t *testing.T) {
 			t.Parallel()
-			img, err := decodeJPEG(full[:len(full)*part/100], 1600)
+			img, err := decodeJPEG(full[:len(full)*part/100], 1600, "test.jpg")
 			require.Error(t, err)
 			assert.Nil(t, img)
 		})
@@ -285,7 +285,7 @@ func TestDecodeJPEGTruncated(t *testing.T) {
 
 	t.Run("padding behind the end marker is not truncation", func(t *testing.T) {
 		t.Parallel()
-		img, err := decodeJPEG(slices.Concat(full, make([]byte, 16)), 1600)
+		img, err := decodeJPEG(slices.Concat(full, make([]byte, 16)), 1600, "test.jpg")
 		require.NoError(t, err)
 		assert.Equal(t, 64, img.Bounds().Dx())
 	})
@@ -294,7 +294,7 @@ func TestDecodeJPEGTruncated(t *testing.T) {
 	// the file are not the end marker of the photo being decoded
 	t.Run("an appended image is not truncation", func(t *testing.T) {
 		t.Parallel()
-		img, err := decodeJPEG(slices.Concat(full, full), 1600)
+		img, err := decodeJPEG(slices.Concat(full, full), 1600, "test.jpg")
 		require.NoError(t, err)
 		assert.Equal(t, 64, img.Bounds().Dx())
 	})

@@ -77,6 +77,11 @@ func imageBytes(img image.Image) int {
 		return len(v.Pix)
 	case *image.RGBA:
 		return len(v.Pix)
+	case *image.YCbCr:
+		// nothing decoded for the cache is YCbCr today, but the default below
+		// bills every format at four bytes a pixel, which would bill a
+		// subsampled one for two and a half times what it holds
+		return len(v.Y) + len(v.Cb) + len(v.Cr)
 	default:
 		b := img.Bounds()
 		return b.Dx() * b.Dy() * 4

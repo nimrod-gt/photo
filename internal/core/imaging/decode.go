@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"log"
 
 	"github.com/gen2brain/jpegn"
 )
@@ -15,7 +16,7 @@ var eoiMarker = []byte{markerStart, markerEOI}
 // the decoder applies the EXIF orientation itself, so the file's own tag wins
 // over anything the caller believes; the returned image is already rotated and
 // the caller keeps using the same fit on both axes.
-func decodeJPEG(data []byte, fit int) (image.Image, error) {
+func decodeJPEG(data []byte, fit int, source string) (image.Image, error) {
 	return decodeRecovered(func() (image.Image, error) {
 		denom, cmyk := 1, false
 		if cfg, err := jpegn.DecodeConfig(bytes.NewReader(data)); err == nil {
@@ -23,17 +24,21 @@ func decodeJPEG(data []byte, fit int) (image.Image, error) {
 			cmyk = cfg.ColorModel == color.CMYKModel
 		}
 
+		// jpegn fills its RGBA buffer for one- and three-component frames only,
+		// so asking a four-component one for RGBA - or for a rotation, which
+		// implies RGBA - hands back a blank image and no error at all. It has a
+		// native path for the CMYK and YCCK frames an Adobe marker describes,
+		// but it is reached by so few files that nothing here would keep it
+		// honest, and a colour that is merely wrong arrives without an error to
+		// show for it.
 		if cmyk {
-			return decodeCMYK(data, denom)
+			return decodeStdlib(data, source, "the frame has four components")
 		}
 		// jpegn decodes a frame that stops early down to wherever it stops and
 		// reports no error at all, so a photo still being copied off a card
-		// would be kept as a half-grey image until the folder is reloaded. It
-		// also refuses frames of its own - above its pixel cap, or with more
-		// pixels than it trusts the bytes to hold - that the standard library
-		// decodes, so its refusal is not final either.
+		// would be kept as a half-grey image until the folder is reloaded.
 		if !endsWithEOI(data) {
-			return decodeStdlib(data)
+			return decodeStdlib(data, source, "the file does not end with an EOI marker")
 		}
 
 		img, err := jpegn.Decode(bytes.NewReader(data), &jpegn.Options{
@@ -42,8 +47,11 @@ func decodeJPEG(data []byte, fit int) (image.Image, error) {
 			AutoRotate:     true,
 			ScaleDenom:     denom,
 		})
+		// jpegn refuses frames of its own - above its pixel cap, or with more
+		// pixels than it trusts the bytes to hold - that the standard library
+		// decodes, so its refusal is not final either.
 		if err != nil {
-			return decodeStdlib(data)
+			return decodeStdlib(data, source, err.Error())
 		}
 		return img, nil
 	})
@@ -55,25 +63,15 @@ func endsWithEOI(data []byte) bool {
 	return bytes.HasSuffix(bytes.TrimRight(data, "\x00"), eoiMarker)
 }
 
-// jpegn fills its RGBA buffer for one- and three-component frames only, so
-// asking a four-component one for RGBA - or for a rotation, which implies RGBA -
-// hands back a blank image and no error at all. Its native path covers the CMYK
-// and YCCK frames an Adobe marker describes; anything else, a colour transform
-// of 0 among them, still arrives as that blank buffer.
-func decodeCMYK(data []byte, denom int) (image.Image, error) {
-	img, err := jpegn.Decode(bytes.NewReader(data), &jpegn.Options{ScaleDenom: denom})
-	if _, blank := img.(*image.RGBA); err != nil || blank {
-		return decodeStdlib(data)
-	}
-
-	return toRGBA(applyOrientation(img, exifOrientation(data))), nil
-}
-
 // The standard library reads every frame jpegn declines and refuses the ones it
 // decodes silently, at the price of decoding at full size: it has no scaling of
 // its own, so the caller shrinks the result the whole way. It does not rotate
-// either, so the tag is applied here.
-func decodeStdlib(data []byte) (image.Image, error) {
+// either, so the tag is applied here. Which files take this path is worth
+// knowing, because a folder of them loads several times slower for no reason
+// the user can see; only the photo on screen and its neighbours come through
+// here, so there is one line per photo shown rather than one per file scanned.
+func decodeStdlib(data []byte, source, reason string) (image.Image, error) {
+	log.Printf("Decoding %s at full size with the standard library: %s", source, reason)
 	img, err := jpeg.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err

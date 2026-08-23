@@ -10,9 +10,13 @@ import (
 )
 
 type photoList struct {
-	mu           sync.Mutex
-	allPhotos    []model.Photo
-	allMeta      []model.PhotoMeta
+	mu        sync.Mutex
+	allPhotos []model.Photo
+	allMeta   []model.PhotoMeta
+	// A filter that matches nothing leaves indices empty, which is not the same
+	// as the whole folder: the flag says which of the two it is rather than
+	// leaving an empty slice to speak for both.
+	filtered     bool
 	indices      []int
 	displayByAll map[int]int
 	// The rating of a photo the user toggled is already on disk and in allMeta,
@@ -163,11 +167,13 @@ func (pl *photoList) applyFilter() {
 	defer pl.mu.Unlock()
 
 	if !HasActiveFilter(pl.filterColors, pl.filterFavorite) {
+		pl.filtered = false
 		pl.indices = nil
 		pl.displayByAll = nil
 		return
 	}
 
+	pl.filtered = true
 	pl.indices = nil
 	pl.displayByAll = make(map[int]int)
 	for i, m := range pl.allMeta {
@@ -195,7 +201,7 @@ func (pl *photoList) matchesFilter(meta model.PhotoMeta) bool {
 // rather than copied: a copy of the meta would go stale as soon as the folder
 // scan filled in a thumbnail or a rating behind the filter.
 func (pl *photoList) displayed() int {
-	if pl.indices == nil {
+	if !pl.filtered {
 		return len(pl.allPhotos)
 	}
 	return len(pl.indices)
@@ -205,14 +211,14 @@ func (pl *photoList) allIndex(displayIndex int) int {
 	if displayIndex < 0 || displayIndex >= pl.displayed() {
 		return -1
 	}
-	if pl.indices == nil {
+	if !pl.filtered {
 		return displayIndex
 	}
 	return pl.indices[displayIndex]
 }
 
 func (pl *photoList) displayIndex(allIdx int) int {
-	if pl.indices == nil {
+	if !pl.filtered {
 		return allIdx
 	}
 	if i, ok := pl.displayByAll[allIdx]; ok {

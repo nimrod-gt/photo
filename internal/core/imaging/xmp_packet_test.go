@@ -82,6 +82,29 @@ func TestPacketWithTags(t *testing.T) {
 		assert.Equal(t, tags, parsed.tags())
 	})
 
+	// The removal spells the dc prefix while the reader matches the namespace, so
+	// a packet binding Dublin Core elsewhere keeps a title the write cannot see:
+	// clearing it in place would report a save every reader ignores.
+	t.Run("refuses a packet that binds Dublin Core to another prefix", func(t *testing.T) {
+		t.Parallel()
+		content := strings.Replace(sonyXMPContent,
+			"  <xmp:Rating>0</xmp:Rating>\n",
+			"  <xmp:Rating>0</xmp:Rating>\n"+
+				" </rdf:Description>\n"+
+				" <rdf:Description rdf:about='' xmlns:d='"+dcNamespace+"'>\n"+
+				"  <d:title><rdf:Alt><rdf:li xml:lang='x-default'>Someone else</rdf:li></rdf:Alt></d:title>\n", 1)
+		packet := xmpPacket(content, 2000)
+		parsed, err := parseSidecar(packet)
+		require.NoError(t, err)
+		require.Equal(t, "Someone else", parsed.tags().Title)
+
+		_, ok := packetWithTags(packet, tags)
+		assert.False(t, ok, "a title the write cannot remove must send the tags to the EXIF instead")
+
+		_, ok = packetWithTags(packet, model.Tags{})
+		assert.False(t, ok, "clearing must not report a save that leaves the title standing")
+	})
+
 	t.Run("writing the same tags again changes nothing", func(t *testing.T) {
 		t.Parallel()
 		first, ok := packetWithTags(sonyPacket(2000), tags)
@@ -312,7 +335,7 @@ func TestPatchPacket(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "data.bin")
 		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
 
-		require.NoError(t, patchPacket(path, 3, 6, []byte("abc")))
+		require.NoError(t, patchPacket(path, 3, []byte("abc"), []byte("345")))
 
 		data, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -324,7 +347,7 @@ func TestPatchPacket(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "data.bin")
 		require.NoError(t, os.WriteFile(path, []byte("0123456789"), 0600))
 
-		err := patchPacket(path, 3, 6, []byte("abcd"))
+		err := patchPacket(path, 3, []byte("abcd"), []byte("345"))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "would change size from 3 to 4 bytes")
@@ -361,7 +384,7 @@ func differingBytes(a, b []byte) int {
 	return count + max(len(a), len(b)) - min(len(a), len(b))
 }
 
-func packetRating(t *testing.T, packet []byte) (int, bool) {
+func readPacketRating(t *testing.T, packet []byte) (int, bool) {
 	t.Helper()
 	parsed, err := parseSidecar(packet)
 	require.NoError(t, err)
@@ -383,7 +406,7 @@ func TestPacketWithRating(t *testing.T) {
 		assert.Equal(t, byte('0'), packet[at])
 		assert.Equal(t, byte('5'), updated[at])
 		assert.Equal(t, 1, differingBytes(packet, updated))
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 5, rating)
 	})
@@ -413,7 +436,7 @@ func TestPacketWithRating(t *testing.T) {
 	t.Run("adds the rating to a packet without one", func(t *testing.T) {
 		t.Parallel()
 		packet := xmpPacket(unratedSonyContent(), 2000)
-		_, rated := packetRating(t, packet)
+		_, rated := readPacketRating(t, packet)
 		require.False(t, rated)
 
 		updated, ok := packetWithRating(packet, favoriteRating)
@@ -424,7 +447,7 @@ func TestPacketWithRating(t *testing.T) {
 		text := string(updated)
 		assert.Contains(t, text, ratingDescriptionOpen)
 		assert.Equal(t, 2, strings.Count(text, "<rdf:Description"))
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 5, rating)
 	})
@@ -437,7 +460,7 @@ func TestPacketWithRating(t *testing.T) {
 
 		require.True(t, ok)
 		assert.Contains(t, string(updated), ratingOpen+"0"+ratingClose)
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 0, rating)
 	})
@@ -452,7 +475,7 @@ func TestPacketWithRating(t *testing.T) {
 		require.True(t, ok)
 		assert.Len(t, updated, len(packet))
 		assert.Equal(t, 1, strings.Count(string(updated), "<xmp:Rating"))
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 4, rating)
 	})
@@ -469,7 +492,7 @@ func TestPacketWithRating(t *testing.T) {
 		assert.Contains(t, text, "xmp:Rating='5'")
 		assert.Contains(t, text, `crs:Exposure2012="+0.35"`)
 		assert.Equal(t, 1, differingBytes(packet, updated))
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 5, rating)
 	})
@@ -498,7 +521,7 @@ func TestPacketWithRating(t *testing.T) {
 		require.Len(t, updated, len(packet))
 		requireWellFormed(t, updated)
 		assert.Contains(t, string(updated), "<xmp:RatingPercent>50</xmp:RatingPercent>")
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 5, rating)
 	})
@@ -563,7 +586,7 @@ func TestPacketWithRating(t *testing.T) {
 		require.True(t, ok)
 		requireWellFormed(t, updated)
 		assert.Contains(t, string(updated), "<xmp:Rating xml:lang='x-default'>5</xmp:Rating>")
-		rating, rated := packetRating(t, updated)
+		rating, rated := readPacketRating(t, updated)
 		assert.True(t, rated)
 		assert.Equal(t, 5, rating)
 	})

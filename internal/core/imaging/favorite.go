@@ -28,7 +28,7 @@ func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error)
 	if start == end {
 		return false, fmt.Errorf("%s has no XMP packet to hold a rating", jpegPath)
 	}
-	rating, err := currentRating(original, jpegPath)
+	rating, err := currentRating(original, original[start:end], jpegPath)
 	if err != nil {
 		return false, err
 	}
@@ -43,26 +43,29 @@ func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error)
 			"or holds one written in a form this app does not rewrite", jpegPath)
 	}
 	if !bytes.Equal(packet, original[start:end]) {
-		if err := patchPacket(jpegPath, start, end, packet); err != nil {
+		if err := patchPacket(jpegPath, start, packet, original[start:end]); err != nil {
 			return false, err
 		}
 	}
 	return target > 0, nil
 }
 
+// The packet comes from the span the write itself will use, so the reader and
+// the writer cannot disagree about which packet holds the rating, and the file
+// is parsed a second time only when that packet says nothing.
+//
 // A packet the parser rejects still leaves the EXIF rating to go by, which is
 // what the folder scan shows for it; failing here instead would refuse to toggle
 // a photo that is showing a star. Writing into such a packet is refused further
 // down, where the refusal can be reported for what it is.
-func currentRating(data []byte, source string) (int, error) {
+func currentRating(data, packet []byte, source string) (int, error) {
+	if rating, found, _ := packetRating(packet); found {
+		return rating, nil
+	}
 	sl, err := segmentsFromBytes(data, source)
 	if err != nil {
 		return 0, err
 	}
-	rootIfd, err := exifRootOf(sl)
-	if err != nil {
-		return 0, err
-	}
-	rating, _ := ratingOf(sl, rootIfd)
+	rating, _ := ratingOf(sl, exifRootOf(sl))
 	return rating, nil
 }

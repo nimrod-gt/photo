@@ -137,12 +137,25 @@ func replaceFileKeepingModTime(path string, data []byte) error {
 // patchPacket writes a rewritten XMP packet back over the bytes it was read
 // from. Its length is checked rather than trusted: a packet of another size
 // would silently run over the segments behind it.
-func patchPacket(path string, start, end int, packet []byte) error {
-	if len(packet) != end-start {
+//
+// A write that fails partway leaves the packet half old and half new in the
+// only copy of the photo there is, so the bytes that stood there are put back
+// before the failure is reported. Putting them back is best-effort - the disk
+// has just refused a write of the same size at the same offset - and its own
+// failure is reported alongside the first.
+func patchPacket(path string, start int, packet, previous []byte) error {
+	if len(packet) != len(previous) {
 		return fmt.Errorf("the XMP packet of %s would change size from %d to %d bytes",
-			path, end-start, len(packet))
+			path, len(previous), len(packet))
 	}
-	return patchFileKeepingModTime(path, int64(start), packet)
+	err := patchFileKeepingModTime(path, int64(start), packet)
+	if err == nil {
+		return nil
+	}
+	if restore := patchFileKeepingModTime(path, int64(start), previous); restore != nil {
+		return errors.Join(err, fmt.Errorf("restoring the XMP packet of %s: %w", path, restore))
+	}
+	return err
 }
 
 // The bytes are written over their own place in the file, which keeps its size,

@@ -94,6 +94,16 @@ func rewritePacket(packet []byte, update func(document string) (string, bool)) (
 // the ones an earlier save left are removed. Empty tags leave only the removal.
 func appendDescription(content string, tags model.Tags) (string, bool) {
 	content = emptyDescriptionPattern.ReplaceAllString(stripProperties(content), "")
+	// The removal spells the dc prefix, the one every writer uses, while the
+	// reader matches the namespace behind it, so a packet that binds Dublin Core
+	// to a prefix of its own keeps properties the removal never saw. Appending
+	// beside them would leave two answers to the same question, and clearing a
+	// title would report a save no reader acts on, so such a packet is left to
+	// the EXIF path instead. A packet that does not parse is left there too:
+	// what it shows cannot be known, and it shadows the EXIF on read.
+	if parsed, err := parseSidecar([]byte(content)); err != nil || !parsed.tags().IsEmpty() {
+		return "", false
+	}
 	if !strings.Contains(content, rdfEnd) {
 		return "", false
 	}

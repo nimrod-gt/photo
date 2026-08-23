@@ -84,3 +84,30 @@ func TestPhotoListColorChangeLeavesTheRatingToTheScan(t *testing.T) {
 	assert.True(t, meta.Favorite)
 	assert.Equal(t, []model.ColorLabel{model.ColorBlue}, meta.Colors)
 }
+
+// A filter that keeps nothing is a filter all the same: reading an empty list
+// as "no filter" would put the whole folder back on screen and hand every photo
+// in it to Delete All.
+func TestPhotoListFilterMatchingNothing(t *testing.T) {
+	t.Parallel()
+
+	photos := testPhotos("a.jpg", "b.jpg")
+	pl := newPhotoList()
+	pl.reset(photos)
+	pl.initMeta(photos, model.ColorMap{})
+	pl.toggleColorFilter(model.ColorRed)
+	pl.applyFilter()
+
+	assert.Equal(t, 0, pl.count())
+	assert.Empty(t, pl.filteredPhotos())
+	assert.Empty(t, pl.filteredMeta())
+	_, ok := pl.photoAt(0)
+	assert.False(t, ok)
+	_, _, ok = pl.itemAt(0)
+	assert.False(t, ok)
+	assert.Equal(t, -1, pl.displayIndex(0))
+
+	active, _, count := pl.bulkState()
+	assert.True(t, active)
+	assert.Equal(t, 0, count)
+}

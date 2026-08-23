@@ -56,7 +56,7 @@ func BenchmarkDecodeJPEG(b *testing.B) {
 	})
 	b.Run("jpegn", func(b *testing.B) {
 		for b.Loop() {
-			if _, err := decodeJPEG(data, benchFit); err != nil {
+			if _, err := decodeJPEG(data, benchFit, "bench.jpg"); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -78,7 +78,7 @@ func BenchmarkDownscaleToFit(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	src, err := decodeJPEG(data, 0)
+	src, err := decodeJPEG(data, 0, "bench.jpg")
 	if err != nil {
 		b.Fatal(err)
 	}

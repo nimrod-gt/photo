@@ -80,7 +80,7 @@ func writePacketTags(jpegPath string, original []byte, start, end int, packet []
 		if bytes.Equal(packet, original[start:end]) {
 			return false, nil
 		}
-		return false, patchPacket(jpegPath, start, end, packet)
+		return false, patchPacket(jpegPath, start, packet, original[start:end])
 	}
 
 	updated, err := withStockTags(slices.Concat(original[:start], packet, original[end:]), tags)

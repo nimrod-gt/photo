@@ -45,13 +45,15 @@ func segmentsOf(intfc any, parseErr error, source string) (*jpegstructure.Segmen
 	return sl, nil
 }
 
-func exifRootOf(sl *jpegstructure.SegmentList) (*exif.Ifd, error) {
+// A block that cannot be read and no block at all are the same nothing here:
+// the caller still has the XMP packet to read the rating from, and reporting a
+// broken EXIF as a failure would take that away along with the thumbnail.
+func exifRootOf(sl *jpegstructure.SegmentList) *exif.Ifd {
 	rootIfd, _, err := sl.Exif()
 	if err != nil {
-		//nolint:nilerr // no EXIF data means nothing to read
-		return nil, nil
+		return nil
 	}
-	return rootIfd, nil
+	return rootIfd
 }
 
 // the orientation belongs to the parent IFD0 rather than to the thumbnail, so
@@ -65,10 +67,7 @@ func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rati
 	if err != nil {
 		return nil, 0, err
 	}
-	rootIfd, err := exifRootOf(sl)
-	if err != nil {
-		return nil, 0, err
-	}
+	rootIfd := exifRootOf(sl)
 	if rootIfd != nil {
 		thumbnail = extractThumbnail(rootIfd)
 		if thumbnail != nil {
@@ -84,16 +83,15 @@ func (s *ExifService) GetPhotoInfo(jpegPath string) (thumbnail image.Image, rati
 // tools in the EXIF, so the packet wins whenever it says anything, zero
 // included: that is what the camera shows.
 func ratingOf(sl *jpegstructure.SegmentList, rootIfd *exif.Ifd) (int, error) {
-	rating, found, err := xmpRating(sl)
+	rating, found, err := packetRating(xmpPacketOf(sl))
 	if found {
 		return rating, nil
 	}
 	return exifRating(rootIfd), err
 }
 
-func xmpRating(sl *jpegstructure.SegmentList) (rating int, found bool, err error) {
-	packet := xmpPacketOf(sl)
-	if packet == nil {
+func packetRating(packet []byte) (rating int, found bool, err error) {
+	if len(packet) == 0 {
 		return 0, false, nil
 	}
 	parsed, err := parseSidecar(packet)

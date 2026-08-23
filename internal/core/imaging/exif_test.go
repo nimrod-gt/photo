@@ -18,7 +18,7 @@ func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
 	if err != nil {
 		return nil, err
 	}
-	return exifRootOf(sl)
+	return exifRootOf(sl), nil
 }
 
 func writePlainJPEG(t *testing.T, dir, name string) string {

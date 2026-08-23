@@ -20,7 +20,7 @@ func LoadImageOriented(path string, fit int) (image.Image, error) {
 		return nil, fmt.Errorf("reading image %s: %w", path, err)
 	}
 
-	img, err := decodeImage(data, fit)
+	img, err := decodeImage(data, fit, path)
 	if err != nil {
 		return nil, fmt.Errorf("decoding image %s: %w", path, err)
 	}
@@ -30,9 +30,9 @@ func LoadImageOriented(path string, fit int) (image.Image, error) {
 // JPEG is routed by its magic bytes rather than by extension, and its EXIF
 // orientation is read and applied by the decoder itself. The other formats the
 // viewer opens carry no orientation at all, so nothing rotates them.
-func decodeImage(data []byte, fit int) (image.Image, error) {
+func decodeImage(data []byte, fit int, source string) (image.Image, error) {
 	if bytes.HasPrefix(data, jpegMagic) {
-		return decodeJPEG(data, fit)
+		return decodeJPEG(data, fit, source)
 	}
 
 	img, _, err := image.Decode(bytes.NewReader(data))
