@@ -42,6 +42,7 @@ type Application struct {
 	sortOrder        library.SortOrder
 	sortDescending   bool
 	gridMode         bool
+	tagGeneration    int
 }
 
 func New() *Application {

@@ -85,6 +85,7 @@ func (s *tagsSession) seed() {
 // already holds.
 func (s *tagsSession) storeStock(written model.Tags, taken time.Time) {
 	s.app.imageProvider.StoreStockInfo(s.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
+	s.app.setTagsIfCurrent(s.photo.ImagePath, written)
 }
 
 func (s *tagsSession) generate(ctx context.Context) {

@@ -4,6 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 
+	"photo/internal/core/model"
 	"photo/internal/gui/nativewin"
 )
 
@@ -20,6 +21,7 @@ type MainWindow struct {
 	viewer      *Viewer
 	gridViewer  *GridViewer
 	notifier    *Notifier
+	tagBar      *TagBar
 	viewStack   *fyne.Container
 }
 
@@ -34,6 +36,7 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 		viewer:      viewer,
 		gridViewer:  gridViewer,
 		notifier:    notifier,
+		tagBar:      NewTagBar(),
 	}
 	mw.build()
 	return mw
@@ -55,6 +58,18 @@ func (mw *MainWindow) ShowNotification(msg string) {
 	mw.notifier.ShowNotification(msg)
 }
 
+func (mw *MainWindow) SetPhotoTags(tags model.Tags) {
+	mw.tagBar.SetTags(tags)
+}
+
+func (mw *MainWindow) ClearPhotoTags() {
+	mw.tagBar.Clear()
+}
+
+func (mw *MainWindow) SetTagsVisible(visible bool) {
+	mw.tagBar.SetEnabled(visible)
+}
+
 func (mw *MainWindow) Maximize() {
 	nativewin.Maximize(mw.window)
 }
@@ -72,12 +87,14 @@ func (mw *MainWindow) SetGridMode(grid bool) {
 		mw.viewStack.Add(mw.viewer.Container())
 		mw.actionPanel.Container().Show()
 	}
+	mw.tagBar.SetSuppressed(grid)
 	mw.viewStack.Refresh()
 }
 
 func (mw *MainWindow) build() {
 	mw.viewStack = container.NewStack(mw.viewer.Container())
-	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, mw.viewStack)
+	withTags := container.NewStack(mw.viewStack, mw.tagBar.Container())
+	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, withTags)
 	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
 	split := container.NewHSplit(mw.fileBrowser.Container(), rightWithNotifier)

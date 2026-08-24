@@ -27,6 +27,7 @@ func (a *Application) clearActionStates() {
 func (a *Application) clearViewer() {
 	a.viewer.Clear()
 	a.clearActionStates()
+	a.clearTags()
 }
 
 func (a *Application) metaOf(photo model.Photo) model.PhotoMeta {

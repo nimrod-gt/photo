@@ -13,11 +13,15 @@ func (a *Application) showPhoto(photo model.Photo) {
 	img, err := a.imageProvider.Get(photo.ImagePath, a.fullImageSize())
 	if err != nil {
 		a.viewer.Clear()
+		// Unlike the toolbar, the overlay speaks for the photo underneath it,
+		// and there is none once the image could not be shown.
+		a.clearTags()
 		a.showError("Failed to load image", err)
 	} else {
 		a.viewer.ShowPhoto(img)
 		a.prefetchAdjacent()
 		a.mainWindow.Window().Canvas().Unfocus()
+		a.showTagsFor(photo)
 	}
 	// The photo the buttons act on has moved whether or not it could be shown:
 	// the toolbar is the only place the state is displayed now.
