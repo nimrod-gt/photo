@@ -588,6 +588,50 @@ func TestImageProvider_PeekStockInfo(t *testing.T) {
 	})
 }
 
+func TestImageProvider_PeekStockDate(t *testing.T) {
+	t.Parallel()
+
+	taken := time.Date(2026, time.June, 14, 8, 0, 0, 0, time.UTC)
+
+	t.Run("answers off a plain load, before the tags are whole", func(t *testing.T) {
+		var reads atomic.Int64
+		p := stockProvider(t, map[string]StockInfo{"/photo.jpg": {Taken: taken}}, func(model.Photo) (StockInfo, error) {
+			reads.Add(1)
+			return StockInfo{}, nil
+		})
+		_, err := p.Get("/photo.jpg", 2000)
+		require.NoError(t, err)
+
+		date, ok := p.PeekStockDate("/photo.jpg")
+
+		require.True(t, ok)
+		assert.Equal(t, taken, date)
+		assert.Equal(t, int64(0), reads.Load())
+		_, complete := p.PeekStockInfo("/photo.jpg")
+		assert.False(t, complete, "the tags of the entry are not whole yet")
+	})
+
+	t.Run("misses an unknown path", func(t *testing.T) {
+		p := stockProvider(t, nil, nil)
+
+		_, ok := p.PeekStockDate("/photo.jpg")
+
+		assert.False(t, ok)
+	})
+
+	t.Run("survives a store that carries no date", func(t *testing.T) {
+		p := stockProvider(t, map[string]StockInfo{"/photo.jpg": {Taken: taken}}, nil)
+		_, err := p.Get("/photo.jpg", 2000)
+		require.NoError(t, err)
+
+		p.StoreStockInfo("/photo.jpg", stockOfTitle("bay"))
+
+		date, ok := p.PeekStockDate("/photo.jpg")
+		require.True(t, ok)
+		assert.Equal(t, taken, date)
+	})
+}
+
 func TestImageProvider_StoreStockInfo(t *testing.T) {
 	t.Parallel()
 

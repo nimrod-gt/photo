@@ -658,6 +658,25 @@ func TestImageLoader_StockOfAReload(t *testing.T) {
 	})
 }
 
+func TestImageLoader_StoreStockKeepsTheDate(t *testing.T) {
+	t.Parallel()
+
+	taken := time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)
+	l := stubLoader(nil)
+	l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+		return LoadedImage{Image: fakeImage(10, 10), Stock: StockInfo{Taken: taken}}, nil
+	})
+	_, err := l.Get("/photo.jpg", 100)
+	require.NoError(t, err)
+
+	l.StoreStock("/photo.jpg", stockOfTitle("bay"))
+
+	info, ok := l.PeekStock("/photo.jpg")
+	require.True(t, ok)
+	assert.Equal(t, "bay", info.Tags.Title)
+	assert.Equal(t, taken, info.Taken)
+}
+
 func TestImageLoader_StockKeywordsAreNotShared(t *testing.T) {
 	t.Parallel()
 

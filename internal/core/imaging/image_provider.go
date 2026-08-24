@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"photo/internal/core/model"
 )
@@ -59,7 +60,7 @@ func (p *Provider) StockInfo(photo model.Photo) (StockInfo, error) {
 	if w, ok := p.stockInflight[photo.ImagePath]; ok {
 		p.stockMu.Unlock()
 		<-w.done
-		return w.info, w.err
+		return clonedStock(w.info), w.err
 	}
 	w := &stockWaiter{done: make(chan struct{})}
 	p.stockInflight[photo.ImagePath] = w
@@ -128,6 +129,17 @@ func (p *Provider) PeekStockInfo(path string) (StockInfo, bool) {
 		return StockInfo{}, false
 	}
 	return info, true
+}
+
+// PeekStockDate answers the date alone, which the tags of an entry need not be
+// whole for: it is settled when the image is read, and the XMP sidecar that
+// completeness waits for carries no date.
+func (p *Provider) PeekStockDate(path string) (time.Time, bool) {
+	info, ok := p.loader.PeekStock(path)
+	if !ok || info.Taken.IsZero() {
+		return time.Time{}, false
+	}
+	return info.Taken, true
 }
 
 // StoreStockInfo takes what the app itself wrote or generated. It is the whole

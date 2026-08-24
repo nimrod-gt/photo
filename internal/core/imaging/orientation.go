@@ -47,6 +47,7 @@ func decodeLoaded(data []byte, fit int, source string) (LoadedImage, error) {
 
 	loaded := LoadedImage{Image: DownscaleToFit(img, image.Point{X: fit, Y: fit})}
 	loaded.Stock, loaded.StockErr = stockInfoFromBytes(data, source)
+	loaded.Stock = withFileDate(loaded.Stock, source)
 	return loaded, nil
 }
 

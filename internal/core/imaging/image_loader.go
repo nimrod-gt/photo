@@ -210,6 +210,9 @@ func clonedStock(info StockInfo) StockInfo {
 // An entry without an image holds tags alone - the ones generated or saved for
 // a photo that is not in the cache. Its size is zero, which no Get or Peek can
 // ask for, so it is never handed out as an image.
+// The date the photo was taken is read from the file and never written, so a
+// store that carries none keeps the one the entry already learned instead of
+// erasing it: nothing would read the file for it a second time.
 func (l *Loader) StoreStock(path string, info StockInfo) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
@@ -219,6 +222,9 @@ func (l *Loader) StoreStock(path string, info StockInfo) {
 		entry = cachedImage{}
 	}
 	stock := clonedStock(info)
+	if stock.Taken.IsZero() && entry.stock != nil {
+		stock.Taken = entry.stock.Taken
+	}
 	entry.stock = &stock
 	l.cache.Add(path, entry)
 }

@@ -522,7 +522,20 @@ func TestLoadImageWithStock(t *testing.T) {
 
 		fromFile, err := jpegStockInfo(path)
 		require.NoError(t, err)
-		assert.Equal(t, fromFile, loaded.Stock)
+		assert.Equal(t, fromFile.Tags, loaded.Stock.Tags)
+	})
+
+	t.Run("a photo whose EXIF has no date is dated by its file", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "undated.jpg", map[string]any{
+			"ImageDescription": "From the EXIF.",
+		}, packet)
+
+		loaded, err := LoadImageWithStock(path, 1600)
+
+		require.NoError(t, err)
+		require.NoError(t, loaded.StockErr)
+		assert.Equal(t, fileCreated(path), loaded.Stock.Taken)
 	})
 
 	t.Run("a format that carries no tags loads without any", func(t *testing.T) {
@@ -537,7 +550,8 @@ func TestLoadImageWithStock(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, loaded.Image)
 		require.NoError(t, loaded.StockErr)
-		assert.Equal(t, StockInfo{}, loaded.Stock)
+		assert.Equal(t, model.Tags{}, loaded.Stock.Tags)
+		assert.Equal(t, fileCreated(path), loaded.Stock.Taken)
 	})
 
 	t.Run("a packet it cannot parse still yields the image", func(t *testing.T) {

@@ -50,14 +50,15 @@ func TestExifService_GetStockInfo(t *testing.T) {
 
 	svc := NewExifService()
 
-	t.Run("plain JPEG has neither tags nor a date", func(t *testing.T) {
+	t.Run("plain JPEG has no tags and is dated by its file", func(t *testing.T) {
 		t.Parallel()
 		path := writePlainJPEG(t, t.TempDir(), "plain.jpg")
 
 		info, err := svc.GetStockInfo(model.NewPhoto(path))
 
 		require.NoError(t, err)
-		assert.Equal(t, StockInfo{}, info)
+		assert.Equal(t, model.Tags{}, info.Tags)
+		assert.Equal(t, fileCreated(path), info.Taken)
 	})
 
 	t.Run("reads the tags and the shooting date", func(t *testing.T) {

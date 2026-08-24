@@ -29,6 +29,16 @@ type StockInfo struct {
 	complete bool
 }
 
+// A photo whose EXIF carries no date is dated by the file it lives in: the time
+// it was created, not the time it was last written, because writing tags into a
+// JPEG rewrites the file and must not move the photo's date.
+func withFileDate(info StockInfo, path string) StockInfo {
+	if info.Taken.IsZero() {
+		info.Taken = fileCreated(path)
+	}
+	return info
+}
+
 // GetStockInfo reads what the files already carry: the XMP packet and the EXIF
 // of the JPEG and, when the photo has a RAW pair, the sidecar written next to
 // it.
@@ -41,6 +51,7 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	if photo.IsJPEG() {
 		info, jpegErr = jpegStockInfo(photo.ImagePath)
 	}
+	info = withFileDate(info, photo.ImagePath)
 	if !photo.HasRAW() {
 		return info, jpegErr
 	}

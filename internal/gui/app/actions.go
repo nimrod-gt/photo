@@ -565,12 +565,15 @@ func (a *Application) handleTags() {
 
 	prefs := a.fyneApp.Preferences()
 	ctx, cancel := context.WithCancel(context.Background())
-	session := &tagsSession{app: a, photo: photo, prefs: prefs}
+	// The date the photo was taken is settled when its image is read, so the
+	// dialog is built with it and never shows another one first.
+	taken, _ := a.imageProvider.PeekStockDate(photo.ImagePath)
+	session := &tagsSession{app: a, photo: photo, prefs: prefs, taken: taken}
 
 	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{
 		Filename:   photo.Name,
 		ClaudePath: prefs.String("claudePath"),
-		Date:       photo.ModTime,
+		Date:       taken,
 		IsJPEG:     photo.IsJPEG(),
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnEscape:   a.handleCancel,
@@ -618,14 +621,9 @@ func (s *tagsSession) seed() {
 
 // The shooting date is read from the file and never edited here, so what was
 // read for the photo is kept beside the tags the app itself wrote. A save that
-// beat the read to it has no date of its own and takes whatever the cache
-// learned meanwhile, because a stored entry is not read over again.
+// beat the read to it has no date of its own and the cache keeps the one it
+// already holds.
 func (s *tagsSession) storeStock(written model.Tags, taken time.Time) {
-	if taken.IsZero() {
-		if info, ok := s.app.imageProvider.PeekStockInfo(s.photo.ImagePath); ok {
-			taken = info.Taken
-		}
-	}
 	s.app.imageProvider.StoreStockInfo(s.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
 }
 
@@ -677,7 +675,13 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 		}
 		s.storeStock(saved, taken)
 		return "", nil
-	}, func() { s.saved = previous })
+	}, func() {
+		s.saved = previous
+		// A generated run cached its tags before this write; leaving them there
+		// would tell the next dialog they are saved and stop it from writing
+		// them again, so the entry goes and the file is read instead.
+		s.app.imageProvider.Forget(s.photo.ImagePath)
+	})
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A
