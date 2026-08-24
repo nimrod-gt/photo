@@ -81,7 +81,7 @@ func (bi *browserItem) CreateRenderer() fyne.WidgetRenderer {
 
 func (bi *browserItem) update(photo model.Photo, meta model.PhotoMeta, thumbnail image.Image) {
 	updateThumbnail(bi.thumb, thumbnail)
-	bi.name.SetText(photo.Name)
+	updateName(bi.name, photo.Name)
 	updateStar(bi.star, meta.Favorite)
 	updateColorDots(bi.dots, meta.Colors)
 	updateDateText(bi.dateText, meta.Date)
@@ -120,7 +120,12 @@ func newColorDots() *fyne.Container {
 	return container.NewHBox(dots...)
 }
 
+// Fyne refreshes every visible row on any list refresh, and both Image and Label
+// refreshes are expensive (texture upload, text shaping), so skip unchanged ones.
 func updateThumbnail(thumb *canvas.Image, img image.Image) {
+	if thumb.Image == img && thumb.Visible() == (img != nil) {
+		return
+	}
 	if img != nil {
 		thumb.Image = img
 		thumb.Show()
@@ -129,6 +134,13 @@ func updateThumbnail(thumb *canvas.Image, img image.Image) {
 		thumb.Hide()
 	}
 	thumb.Refresh()
+}
+
+func updateName(label *widget.Label, name string) {
+	if label.Text == name {
+		return
+	}
+	label.SetText(name)
 }
 
 func updateStar(star *canvas.Text, favorite bool) {

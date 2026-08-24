@@ -31,3 +31,13 @@ func TestGridItemCarriesItsOwnState(t *testing.T) {
 	assert.Nil(t, item.thumb.Image)
 	assert.False(t, item.thumb.Visible())
 }
+
+func TestGridItemHidesThumbWithoutImageOnFirstUpdate(t *testing.T) {
+	item := newGridItem(200)
+	test.NewTempWindow(t, item)
+
+	item.update("DSC001.JPG", nil)
+
+	assert.Nil(t, item.thumb.Image)
+	assert.False(t, item.thumb.Visible())
+}

@@ -40,5 +40,5 @@ func (gi *gridItem) CreateRenderer() fyne.WidgetRenderer {
 
 func (gi *gridItem) update(name string, img image.Image) {
 	updateThumbnail(gi.thumb, img)
-	gi.name.SetText(name)
+	updateName(gi.name, name)
 }
