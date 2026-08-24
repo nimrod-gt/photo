@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 4,
+  "next_id": 5,
   "todos": [
     {
       "id": 1,
@@ -317,6 +317,27 @@
           "Overlap with open todos #1 (tag cache) and #2 (display tags): the persistence helper added here is the code #1 would move behind a cache, so expect a merge touch-up in internal/gui/app/tags_background.go."
         ]
       }
+    },
+    {
+      "id": 4,
+      "description": "Try to simplify the code.",
+      "context": "Codebase-wide simplification pass on a Go + Fyne photo viewer (GUI in internal/gui, everything else in internal/core, which may not import Fyne); a /simplify skill and golangci-lint are configured. The densest spots are internal/gui/app/actions.go (711 lines, 29 funcs, holding button-state sync, per-photo actions, three near-parallel bulk flows handleDeleteAll/handleUnselectAll/handleCopyAll that each repeat the gridMode/dialogs.anyOpen guard plus FilteredPhotos progress-dialog scaffolding, and the whole tagsSession lifecycle) and internal/gui/ui/filebrowser.go (530 lines, 38 funcs mixing tree, list, sorting and color filtering); internal/core/imaging is 22 files whose EXIF/XMP/JPEG-segment responsibilities overlap across exif.go, exif_tags.go, exif_write.go, xmp.go, xmp_packet.go and jpeg_file.go. This is separate work from todo #1 and should not be scoped to the tags change.",
+      "docs": [
+        "internal/gui/app/actions.go",
+        "internal/gui/ui/filebrowser.go",
+        "internal/core/imaging/exif.go",
+        "internal/core/imaging/exif_tags.go",
+        "internal/core/imaging/xmp.go",
+        "internal/core/imaging/image_loader.go",
+        "internal/gui/app/app.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T09:12:34Z",
+      "updated_at": "2026-08-24T09:12:34Z",
+      "plan": null
     }
   ]
 }

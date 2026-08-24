@@ -3,6 +3,7 @@ package imaging
 import (
 	"image"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -17,6 +18,9 @@ const (
 type cachedImage struct {
 	img  image.Image
 	size int
+	// stock is what the file said about itself when it was read; nil when its
+	// tags could not be parsed, so that a later read may still answer them.
+	stock *StockInfo
 }
 
 type loadWaiter struct {
@@ -25,6 +29,8 @@ type loadWaiter struct {
 	err  error
 	done chan struct{}
 }
+
+type LoadFunc func(path string, size int) (LoadedImage, error)
 
 type Loader struct {
 	cache      *lru.Cache[string, cachedImage]
@@ -36,17 +42,17 @@ type Loader struct {
 	gen        atomic.Uint64
 	sem        chan struct{}
 
-	loadImage func(path string, size int) (image.Image, error)
+	loadImage LoadFunc
 }
 
-func NewLoader() *Loader {
+func NewLoader(load LoadFunc) *Loader {
 	workers := max(runtime.NumCPU()-2, 1)
 
 	l := &Loader{
 		byteBudget: cacheByteBudget,
 		inflight:   make(map[string]*loadWaiter),
 		sem:        make(chan struct{}, workers),
-		loadImage:  LoadImageOriented,
+		loadImage:  load,
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
 		l.cacheBytes.Add(-int64(imageBytes(entry.img)))
@@ -63,6 +69,7 @@ func (l *Loader) addToCache(path string, entry cachedImage) {
 	// golang-lru v2 does not fire onEvict when Add replaces an existing key
 	if old, ok := l.cache.Peek(path); ok {
 		l.cacheBytes.Add(-int64(imageBytes(old.img)))
+		entry.stock = keptStock(entry.stock, old.stock)
 	}
 	l.cache.Add(path, entry)
 	l.cacheBytes.Add(int64(imageBytes(entry.img)))
@@ -71,7 +78,28 @@ func (l *Loader) addToCache(path string, entry cachedImage) {
 	}
 }
 
+// A reload asks for a bigger image, not for the tags again, and tags an entry
+// holds that no file carries - generated and not saved yet - live nowhere else,
+// so whatever the new read did not find is kept from the entry it replaces.
+func keptStock(fresh, old *StockInfo) *StockInfo {
+	if old == nil {
+		return fresh
+	}
+	if fresh == nil {
+		return old
+	}
+	merged := *fresh
+	merged.Tags = fillMissing(merged.Tags, old.Tags)
+	if merged.Taken.IsZero() {
+		merged.Taken = old.Taken
+	}
+	return &merged
+}
+
 func imageBytes(img image.Image) int {
+	if img == nil {
+		return 0
+	}
 	switch v := img.(type) {
 	case *image.NRGBA:
 		return len(v.Pix)
@@ -125,17 +153,27 @@ func (l *Loader) Get(path string, size int) (image.Image, error) {
 
 func (l *Loader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Image, error) {
 	defer l.removeInflight(path)
-	img, err := l.loadImage(path, loadSize)
-	w.img = img
+	loaded, err := l.loadImage(path, loadSize)
+	w.img = loaded.Image
 	w.size = loadSize
 	w.err = err
 	close(w.done)
 
 	if err == nil {
-		l.addToCache(path, cachedImage{img: img, size: loadSize})
+		l.addToCache(path, cachedImage{img: loaded.Image, size: loadSize, stock: stockOf(loaded)})
 	}
 
-	return img, err
+	return loaded.Image, err
+}
+
+// Tags that could not be read are left out of the entry rather than cached as
+// empty ones: the photo is still shown, and the next reader may do better.
+func stockOf(loaded LoadedImage) *StockInfo {
+	if loaded.StockErr != nil {
+		return nil
+	}
+	stock := loaded.Stock
+	return &stock
 }
 
 func (l *Loader) Peek(path string, size int) image.Image {
@@ -145,6 +183,45 @@ func (l *Loader) Peek(path string, size int) image.Image {
 		return entry.img
 	}
 	return nil
+}
+
+func (l *Loader) PeekStock(path string) (StockInfo, bool) {
+	entry, ok := l.cache.Peek(path)
+	if !ok || entry.stock == nil {
+		return StockInfo{}, false
+	}
+	return clonedStock(*entry.stock), true
+}
+
+// The entry owns its keywords: a caller that stored or read tags may go on
+// editing its own slice, and appending to one shared with the cache would
+// change what the next reader gets.
+func clonedStock(info StockInfo) StockInfo {
+	info.Tags.Keywords = slices.Clone(info.Tags.Keywords)
+	return info
+}
+
+// An entry without an image holds tags alone - the ones generated or saved for
+// a photo that is not in the cache. Its size is zero, which no Get or Peek can
+// ask for, so it is never handed out as an image.
+func (l *Loader) StoreStock(path string, info StockInfo) {
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+
+	entry, ok := l.cache.Peek(path)
+	if !ok {
+		entry = cachedImage{}
+	}
+	stock := clonedStock(info)
+	entry.stock = &stock
+	l.cache.Add(path, entry)
+}
+
+func (l *Loader) Forget(path string) {
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+
+	l.cache.Remove(path)
 }
 
 func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
@@ -181,8 +258,8 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 				return
 			}
 
-			img, err := l.loadImage(path, size)
-			w.img = img
+			loaded, err := l.loadImage(path, size)
+			w.img = loaded.Image
 			w.size = size
 			w.err = err
 			close(w.done)
@@ -192,7 +269,7 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 			}
 
 			if err == nil {
-				l.addToCache(path, cachedImage{img: img, size: size})
+				l.addToCache(path, cachedImage{img: loaded.Image, size: size, stock: stockOf(loaded)})
 			}
 
 			if onLoaded != nil && err == nil {

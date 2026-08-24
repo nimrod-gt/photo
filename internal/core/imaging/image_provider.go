@@ -26,7 +26,7 @@ type Provider struct {
 
 func NewProvider(exif *ExifService) *Provider {
 	return &Provider{
-		loader: NewLoader(),
+		loader: NewLoader(exif.LoadImage),
 		exif:   exif,
 	}
 }
