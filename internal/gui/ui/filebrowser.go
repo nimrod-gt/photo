@@ -324,17 +324,9 @@ func (fb *FileBrowser) build() {
 		}
 	}
 
-	chooseBtn := widget.NewButton("Open Folder...", func() {
-		if fb.callbacks.OnChooseFolder != nil {
-			fb.callbacks.OnChooseFolder()
-		}
-	})
+	chooseBtn := widget.NewButton("Open Folder...", func() { call(fb.callbacks.OnChooseFolder) })
 
-	helpBtn := widget.NewButtonWithIcon("", theme.HelpIcon(), func() {
-		if fb.callbacks.OnHelp != nil {
-			fb.callbacks.OnHelp()
-		}
-	})
+	helpBtn := iconButton("", theme.HelpIcon(), fb.callbacks.OnHelp)
 	helpBtn.Importance = widget.LowImportance
 
 	fb.nameSortBtn = widget.NewButton("Name ↑", func() {
@@ -351,48 +343,20 @@ func (fb *FileBrowser) build() {
 	fb.timeSortBtn.Importance = widget.MediumImportance
 	sortBar := container.NewGridWithColumns(2, fb.nameSortBtn, fb.timeSortBtn)
 
-	fb.filterFavBtn = widget.NewButtonWithIcon("", iconHeartOutline, func() {
-		if fb.callbacks.OnFilterFavorite != nil {
-			fb.callbacks.OnFilterFavorite()
-		}
-	})
+	fb.filterFavBtn = iconButton("", iconHeartOutline, fb.callbacks.OnFilterFavorite)
 	fb.filterFavBtn.Importance = widget.MediumImportance
-	fb.filterRedBtn = widget.NewButtonWithIcon("", iconRedCircle, func() {
-		if fb.callbacks.OnFilterRed != nil {
-			fb.callbacks.OnFilterRed()
-		}
-	})
+	fb.filterRedBtn = iconButton("", iconRedCircle, fb.callbacks.OnFilterRed)
 	fb.filterRedBtn.Importance = widget.MediumImportance
-	fb.filterGreenBtn = widget.NewButtonWithIcon("", iconGreenCircle, func() {
-		if fb.callbacks.OnFilterGreen != nil {
-			fb.callbacks.OnFilterGreen()
-		}
-	})
+	fb.filterGreenBtn = iconButton("", iconGreenCircle, fb.callbacks.OnFilterGreen)
 	fb.filterGreenBtn.Importance = widget.MediumImportance
-	fb.filterBlueBtn = widget.NewButtonWithIcon("", iconBlueCircle, func() {
-		if fb.callbacks.OnFilterBlue != nil {
-			fb.callbacks.OnFilterBlue()
-		}
-	})
+	fb.filterBlueBtn = iconButton("", iconBlueCircle, fb.callbacks.OnFilterBlue)
 	fb.filterBlueBtn.Importance = widget.MediumImportance
 	filterBar := container.NewGridWithColumns(4, fb.filterFavBtn, fb.filterRedBtn, fb.filterGreenBtn, fb.filterBlueBtn)
 
-	fb.deleteAllBtn = widget.NewButtonWithIcon("Delete All", theme.DeleteIcon(), func() {
-		if fb.callbacks.OnDeleteAll != nil {
-			fb.callbacks.OnDeleteAll()
-		}
-	})
+	fb.deleteAllBtn = iconButton("Delete All", theme.DeleteIcon(), fb.callbacks.OnDeleteAll)
 	fb.deleteAllBtn.Importance = widget.DangerImportance
-	fb.copyAllBtn = widget.NewButtonWithIcon("Copy All", theme.ContentCopyIcon(), func() {
-		if fb.callbacks.OnCopyAll != nil {
-			fb.callbacks.OnCopyAll()
-		}
-	})
-	fb.unselectAllBtn = widget.NewButtonWithIcon("Unselect All", theme.CancelIcon(), func() {
-		if fb.callbacks.OnUnselectAll != nil {
-			fb.callbacks.OnUnselectAll()
-		}
-	})
+	fb.copyAllBtn = iconButton("Copy All", theme.ContentCopyIcon(), fb.callbacks.OnCopyAll)
+	fb.unselectAllBtn = iconButton("Unselect All", theme.CancelIcon(), fb.callbacks.OnUnselectAll)
 	fb.bulkBar = container.NewVBox(
 		container.NewGridWithColumns(2, fb.deleteAllBtn, fb.copyAllBtn),
 		fb.unselectAllBtn,

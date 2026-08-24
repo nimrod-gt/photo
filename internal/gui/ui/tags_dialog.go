@@ -104,9 +104,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 			return
 		}
 		d.closed = true
-		if d.callbacks.OnClose != nil {
-			d.callbacks.OnClose()
-		}
+		call(d.callbacks.OnClose)
 	})
 }
 
@@ -168,32 +166,18 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 		d.setStatus("Generating, this takes up to a minute...")
 		d.progress.Show()
 		d.progress.Start()
-		if d.callbacks.OnGenerate != nil {
-			d.callbacks.OnGenerate()
-		}
+		call(d.callbacks.OnGenerate)
 	})
 	d.generateBtn.Importance = widget.HighImportance
 
-	d.copyTitleBtn = widget.NewButton("Copy title", func() {
-		if d.callbacks.OnCopyTitle != nil {
-			d.callbacks.OnCopyTitle()
-		}
-	})
+	d.copyTitleBtn = widget.NewButton("Copy title", func() { call(d.callbacks.OnCopyTitle) })
 	d.copyTitleBtn.Disable()
 
-	d.copyKeywordsBtn = widget.NewButton("Copy keywords", func() {
-		if d.callbacks.OnCopyKeywords != nil {
-			d.callbacks.OnCopyKeywords()
-		}
-	})
+	d.copyKeywordsBtn = widget.NewButton("Copy keywords", func() { call(d.callbacks.OnCopyKeywords) })
 	d.copyKeywordsBtn.Disable()
 
 	if opts.IsJPEG {
-		d.saveJPEGBtn = widget.NewButton("Save JPEG", func() {
-			if d.callbacks.OnSaveJPEG != nil {
-				d.callbacks.OnSaveJPEG()
-			}
-		})
+		d.saveJPEGBtn = widget.NewButton("Save JPEG", func() { call(d.callbacks.OnSaveJPEG) })
 		d.saveJPEGBtn.Disable()
 	}
 
@@ -211,9 +195,7 @@ func (d *TagsDialog) buttonRow() *fyne.Container {
 }
 
 func (d *TagsDialog) requestClose() {
-	if d.callbacks.OnClose != nil {
-		d.callbacks.OnClose()
-	}
+	call(d.callbacks.OnClose)
 }
 
 // Escape is answered by the app rather than here, because a Fyne popup - the

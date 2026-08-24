@@ -25,47 +25,19 @@ type ContextMenuItems struct {
 }
 
 func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
-	favoriteItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() {
-		if callbacks.OnFavorite != nil {
-			callbacks.OnFavorite()
-		}
-	})
-	redItem := fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() {
-		if callbacks.OnRed != nil {
-			callbacks.OnRed()
-		}
-	})
-	greenItem := fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() {
-		if callbacks.OnGreen != nil {
-			callbacks.OnGreen()
-		}
-	})
-	blueItem := fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() {
-		if callbacks.OnBlue != nil {
-			callbacks.OnBlue()
-		}
-	})
+	favoriteItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() { call(callbacks.OnFavorite) })
+	redItem := fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() { call(callbacks.OnRed) })
+	greenItem := fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() { call(callbacks.OnGreen) })
+	blueItem := fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() { call(callbacks.OnBlue) })
 	menu := fyne.NewMenu("",
 		favoriteItem,
 		fyne.NewMenuItemSeparator(),
 		redItem, greenItem, blueItem,
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Copy to Clipboard", func() {
-			if callbacks.OnCopyClipboard != nil {
-				callbacks.OnCopyClipboard()
-			}
-		}),
-		fyne.NewMenuItem("Generate Tags", func() {
-			if callbacks.OnTags != nil {
-				callbacks.OnTags()
-			}
-		}),
+		fyne.NewMenuItem("Copy to Clipboard", func() { call(callbacks.OnCopyClipboard) }),
+		fyne.NewMenuItem("Generate Tags", func() { call(callbacks.OnTags) }),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItemWithIcon("Delete", theme.DeleteIcon(), func() {
-			if callbacks.OnDelete != nil {
-				callbacks.OnDelete()
-			}
-		}),
+		fyne.NewMenuItemWithIcon("Delete", theme.DeleteIcon(), func() { call(callbacks.OnDelete) }),
 	)
 	return ContextMenuItems{
 		Menu:     menu,

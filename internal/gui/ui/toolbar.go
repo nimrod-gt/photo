@@ -72,36 +72,12 @@ func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
 }
 
 func (p *ActionPanel) build() {
-	p.favBtn = widget.NewButtonWithIcon("Favorite", iconHeartOutline, func() {
-		if p.callbacks.OnFavorite != nil {
-			p.callbacks.OnFavorite()
-		}
-	})
-	p.redBtn = widget.NewButtonWithIcon("Red", iconRedCircle, func() {
-		if p.callbacks.OnRed != nil {
-			p.callbacks.OnRed()
-		}
-	})
-	p.greenBtn = widget.NewButtonWithIcon("Green", iconGreenCircle, func() {
-		if p.callbacks.OnGreen != nil {
-			p.callbacks.OnGreen()
-		}
-	})
-	p.blueBtn = widget.NewButtonWithIcon("Blue", iconBlueCircle, func() {
-		if p.callbacks.OnBlue != nil {
-			p.callbacks.OnBlue()
-		}
-	})
-	tagsBtn := widget.NewButtonWithIcon("Tags", theme.DocumentCreateIcon(), func() {
-		if p.callbacks.OnTags != nil {
-			p.callbacks.OnTags()
-		}
-	})
-	deleteBtn := widget.NewButtonWithIcon("Delete", theme.DeleteIcon(), func() {
-		if p.callbacks.OnDelete != nil {
-			p.callbacks.OnDelete()
-		}
-	})
+	p.favBtn = iconButton("Favorite", iconHeartOutline, p.callbacks.OnFavorite)
+	p.redBtn = iconButton("Red", iconRedCircle, p.callbacks.OnRed)
+	p.greenBtn = iconButton("Green", iconGreenCircle, p.callbacks.OnGreen)
+	p.blueBtn = iconButton("Blue", iconBlueCircle, p.callbacks.OnBlue)
+	tagsBtn := iconButton("Tags", theme.DocumentCreateIcon(), p.callbacks.OnTags)
+	deleteBtn := iconButton("Delete", theme.DeleteIcon(), p.callbacks.OnDelete)
 
 	p.container = container.NewGridWithColumns(6, p.favBtn, p.redBtn, p.greenBtn, p.blueBtn, tagsBtn, deleteBtn)
 }

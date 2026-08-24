@@ -157,9 +157,7 @@ func (z *zoomWidget) Tapped(_ *fyne.PointEvent) {
 		z.reset()
 		return
 	}
-	if z.callbacks.OnTapped != nil {
-		z.callbacks.OnTapped()
-	}
+	call(z.callbacks.OnTapped)
 }
 
 func (z *zoomWidget) reset() {
