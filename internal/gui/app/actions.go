@@ -735,7 +735,11 @@ func (s *tagsSession) prefill() {
 			if s.saved.IsEmpty() {
 				s.saved = info.Tags
 			}
-			s.taken = info.Taken
+			// A read that failed carries no date, and the session already holds
+			// the one the cache had when the dialog opened.
+			if !info.Taken.IsZero() {
+				s.taken = info.Taken
+			}
 			s.dialog.SetPhotoInfo(info.Tags, info.Taken)
 		})
 	}()

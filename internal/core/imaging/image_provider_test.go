@@ -667,8 +667,10 @@ func TestImageProvider_StoreStockInfoDuringARead(t *testing.T) {
 		})
 
 		var wg sync.WaitGroup
+		var read StockInfo
 		wg.Go(func() {
-			_, err := p.StockInfo(photo)
+			var err error
+			read, err = p.StockInfo(photo)
 			assert.NoError(t, err)
 		})
 		<-started
@@ -679,6 +681,7 @@ func TestImageProvider_StoreStockInfoDuringARead(t *testing.T) {
 		info, ok := p.PeekStockInfo(photo.ImagePath)
 		require.True(t, ok)
 		assert.Equal(t, "generated", info.Tags.Title)
+		assert.Equal(t, "generated", read.Tags.Title, "the overtaken read answered with the file it had already replaced")
 	})
 }
 

@@ -66,10 +66,20 @@ func NewLoader(load LoadFunc) *Loader {
 func (l *Loader) addToCache(path string, entry cachedImage) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
+
+	if old, ok := l.cache.Peek(path); ok {
+		entry.stock = keptStock(entry.stock, old.stock)
+	}
+	l.storeLocked(path, entry)
+}
+
+// Every Add goes through here so the byte budget cannot be sidestepped: a store
+// that leaves the image alone still passes an entry whose image may differ from
+// the one it replaces, and the accounting has to hold either way.
+func (l *Loader) storeLocked(path string, entry cachedImage) {
 	// golang-lru v2 does not fire onEvict when Add replaces an existing key
 	if old, ok := l.cache.Peek(path); ok {
 		l.cacheBytes.Add(-int64(imageBytes(old.img)))
-		entry.stock = keptStock(entry.stock, old.stock)
 	}
 	l.cache.Add(path, entry)
 	l.cacheBytes.Add(int64(imageBytes(entry.img)))
@@ -226,7 +236,7 @@ func (l *Loader) StoreStock(path string, info StockInfo) {
 		stock.Taken = entry.stock.Taken
 	}
 	entry.stock = &stock
-	l.cache.Add(path, entry)
+	l.storeLocked(path, entry)
 }
 
 func (l *Loader) Forget(path string) {
@@ -316,7 +326,7 @@ func (l *Loader) Clear() {
 	l.mu.Unlock()
 }
 
-// LoadImageOriented reads a non-positive budget as "no downscaling", which
+// DownscaleToFit reads a non-positive budget as "no downscaling", which
 // would cache every photo at full resolution and blow the byte budget. Clamping
 // at the entry points keeps the cached image and the size it is cached under
 // from disagreeing.

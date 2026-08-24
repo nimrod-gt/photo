@@ -301,7 +301,18 @@ func writeTestJPEG(t *testing.T, w, h int) string {
 	return path
 }
 
-func TestLoadImageOriented(t *testing.T) {
+// The loader reads through the ExifService, which is where the lock the writers
+// take lives, so the tests load the same way instead of past it.
+func loadWithStock(path string, fit int) (LoadedImage, error) {
+	return NewExifService().LoadImage(path, fit)
+}
+
+func loadOriented(path string, fit int) (image.Image, error) {
+	loaded, err := loadWithStock(path, fit)
+	return loaded.Image, err
+}
+
+func TestLoadImage(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -322,7 +333,7 @@ func TestLoadImageOriented(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(tt.path, 0)
+			img, err := loadOriented(tt.path, 0)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())
@@ -330,7 +341,7 @@ func TestLoadImageOriented(t *testing.T) {
 	}
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := LoadImageOriented("/nonexistent/x.jpg", 0)
+		_, err := loadOriented("/nonexistent/x.jpg", 0)
 		assert.Error(t, err)
 	})
 
@@ -342,7 +353,7 @@ func TestLoadImageOriented(t *testing.T) {
 		require.NoError(t, png.Encode(&buf, makeTestImage(4, 2)))
 		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
 
-		img, err := LoadImageOriented(path, 0)
+		img, err := loadOriented(path, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 4, img.Bounds().Dx())
 		assert.Equal(t, 2, img.Bounds().Dy())
@@ -372,7 +383,7 @@ func TestApplyOrientationSubImage(t *testing.T) {
 	}
 }
 
-func TestLoadImageOrientedDownscales(t *testing.T) {
+func TestLoadImageDownscales(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -399,7 +410,7 @@ func TestLoadImageOrientedDownscales(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			img, err := LoadImageOriented(paths[tt.orientation], tt.fit)
+			img, err := loadOriented(paths[tt.orientation], tt.fit)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantW, img.Bounds().Dx())
 			assert.Equal(t, tt.wantH, img.Bounds().Dy())
@@ -443,7 +454,7 @@ func TestApplyOrientationNonRGBASource(t *testing.T) {
 // image.Decode hands a JPEG to is decided by package initialisation order: the
 // loader has to route JPEGs by itself, and that route is the one that refuses a
 // file which is still being copied.
-func TestLoadImageOrientedTruncated(t *testing.T) {
+func TestLoadImageTruncated(t *testing.T) {
 	t.Parallel()
 
 	full, err := os.ReadFile(writeTestJPEG(t, 64, 48))
@@ -451,7 +462,7 @@ func TestLoadImageOrientedTruncated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "copying.jpg")
 	require.NoError(t, os.WriteFile(path, full[:len(full)*60/100], 0600))
 
-	img, err := LoadImageOriented(path, 1600)
+	img, err := loadOriented(path, 1600)
 
 	require.Error(t, err)
 	assert.Nil(t, img)
@@ -502,7 +513,7 @@ func TestLoadImageWithStock(t *testing.T) {
 			"DateTime": "2026:06:14 08:00:00",
 		}, packet)
 
-		loaded, err := LoadImageWithStock(path, 1600)
+		loaded, err := loadWithStock(path, 1600)
 
 		require.NoError(t, err)
 		require.NotNil(t, loaded.Image)
@@ -517,7 +528,7 @@ func TestLoadImageWithStock(t *testing.T) {
 			"ImageDescription": "From the EXIF.",
 		}, packet)
 
-		loaded, err := LoadImageWithStock(path, 1600)
+		loaded, err := loadWithStock(path, 1600)
 		require.NoError(t, err)
 
 		fromFile, err := jpegStockInfo(path)
@@ -531,7 +542,7 @@ func TestLoadImageWithStock(t *testing.T) {
 			"ImageDescription": "From the EXIF.",
 		}, packet)
 
-		loaded, err := LoadImageWithStock(path, 1600)
+		loaded, err := loadWithStock(path, 1600)
 
 		require.NoError(t, err)
 		require.NoError(t, loaded.StockErr)
@@ -545,7 +556,7 @@ func TestLoadImageWithStock(t *testing.T) {
 		require.NoError(t, png.Encode(&buf, makeTestImage(4, 2)))
 		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
 
-		loaded, err := LoadImageWithStock(path, 1600)
+		loaded, err := loadWithStock(path, 1600)
 
 		require.NoError(t, err)
 		require.NotNil(t, loaded.Image)
@@ -560,7 +571,7 @@ func TestLoadImageWithStock(t *testing.T) {
 			"ImageDescription": "From the EXIF.",
 		}, xmpPacket("<x:xmpmeta><unclosed>", 40))
 
-		loaded, err := LoadImageWithStock(path, 1600)
+		loaded, err := loadWithStock(path, 1600)
 
 		require.NoError(t, err, "the photo is shown whatever its metadata says")
 		require.NotNil(t, loaded.Image)
@@ -572,7 +583,7 @@ func TestLoadImageWithStock(t *testing.T) {
 	t.Run("a file it cannot read yields no image", func(t *testing.T) {
 		t.Parallel()
 
-		loaded, err := LoadImageWithStock(filepath.Join(t.TempDir(), "missing.jpg"), 1600)
+		loaded, err := loadWithStock(filepath.Join(t.TempDir(), "missing.jpg"), 1600)
 
 		require.Error(t, err)
 		assert.Nil(t, loaded.Image)
@@ -583,12 +594,12 @@ func TestLoadImageWithStock(t *testing.T) {
 // Metadata that cannot be read used to travel back as the error of the load
 // itself, and the viewer answered a photo with a broken packet with "Failed to
 // load image" instead of showing it.
-func TestLoadImageOrientedIgnoresTheTagsError(t *testing.T) {
+func TestLoadImageIgnoresTheTagsError(t *testing.T) {
 	t.Parallel()
 
 	path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", nil, xmpPacket("<x:xmpmeta><unclosed>", 40))
 
-	img, err := LoadImageOriented(path, 1600)
+	img, err := loadOriented(path, 1600)
 
 	require.NoError(t, err)
 	assert.NotNil(t, img)

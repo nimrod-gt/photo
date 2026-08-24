@@ -63,11 +63,11 @@ func BenchmarkDecodeJPEG(b *testing.B) {
 	})
 }
 
-func BenchmarkLoadImageOriented(b *testing.B) {
+func BenchmarkLoadImage(b *testing.B) {
 	path := benchJPEGPath(b)
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := LoadImageOriented(path, benchFit); err != nil {
+		if _, err := loadOriented(path, benchFit); err != nil {
 			b.Fatal(err)
 		}
 	}

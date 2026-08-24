@@ -6,7 +6,6 @@ import (
 	"image"
 	"image/draw"
 	_ "image/png"
-	"os"
 
 	xdraw "golang.org/x/image/draw"
 )
@@ -22,23 +21,10 @@ type LoadedImage struct {
 	StockErr error
 }
 
-// fit is a budget on both sides of the returned image.
-func LoadImageOriented(path string, fit int) (image.Image, error) {
-	loaded, err := LoadImageWithStock(path, fit)
-	return loaded.Image, err
-}
-
-// LoadImageWithStock reads the file once and takes both the image and the stock
-// tags out of those bytes, so a photo that is loaded for display does not have
-// to be parsed a second time to answer what its tags are.
-func LoadImageWithStock(path string, fit int) (LoadedImage, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return LoadedImage{}, fmt.Errorf("reading image %s: %w", path, err)
-	}
-	return decodeLoaded(data, fit, path)
-}
-
+// decodeLoaded takes both the image and the stock tags out of the bytes the
+// file was read into, so a photo that is loaded for display does not have to be
+// parsed a second time to answer what its tags are. fit is a budget on both
+// sides of the returned image.
 func decodeLoaded(data []byte, fit int, source string) (LoadedImage, error) {
 	img, err := decodeImage(data, fit, source)
 	if err != nil {

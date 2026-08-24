@@ -94,13 +94,18 @@ func (p *Provider) completeStock(photo model.Photo) (StockInfo, error) {
 
 // A read is kept unless a save or a delete overtook it: the file it parsed is
 // then not the last word on the photo any more, and storing what it found would
-// bring back tags that were replaced or a photo that is gone.
+// bring back tags that were replaced or a photo that is gone. An overtaken read
+// answers with what overtook it, so the caller that asked - and everyone waiting
+// on the same read - is told the same thing the cache holds.
 func (p *Provider) storeRead(path string, info StockInfo) StockInfo {
 	info.complete = true
 
 	p.stockMu.Lock()
 	defer p.stockMu.Unlock()
 	if w, ok := p.stockInflight[path]; ok && w.stale {
+		if newer, ok := p.loader.PeekStock(path); ok {
+			return newer
+		}
 		return info
 	}
 	p.loader.StoreStock(path, info)

@@ -19,7 +19,7 @@ func fakeImage(w, h int) image.Image {
 }
 
 func stubLoader(load func(string) (image.Image, error)) *Loader {
-	l := NewLoader(LoadImageWithStock)
+	l := NewLoader(NewExifService().LoadImage)
 	if load != nil {
 		l.loadImage = stubLoadImage(load)
 	}
@@ -407,6 +407,18 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 
 		assert.Equal(t, 1, l.cache.Len())
 		assert.Equal(t, int64(imageBytes(sizes[2000])), l.cacheBytes.Load())
+	})
+
+	t.Run("storing tags leaves the byte counter alone", func(t *testing.T) {
+		img := fakeImage(10, 10)
+		l := stubLoader(nil)
+
+		l.addToCache("/a.jpg", cachedImage{img: img, size: 100})
+		l.StoreStock("/a.jpg", StockInfo{Tags: model.Tags{Title: "bay"}})
+
+		assert.Equal(t, 1, l.cache.Len())
+		assert.Equal(t, int64(imageBytes(img)), l.cacheBytes.Load())
+		assert.NotNil(t, l.Peek("/a.jpg", 100))
 	})
 
 	t.Run("Clear resets byte counter", func(t *testing.T) {
