@@ -1,5 +1,12 @@
 package app
 
+import (
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/dialog"
+
+	"photo/internal/core/library"
+)
+
 type dialogKind int
 
 const (
@@ -66,4 +73,51 @@ func (m *dialogManager) cancel() {
 	if d != nil {
 		d.Hide()
 	}
+}
+
+// A repeated press of the key that opened a confirm dialog answers it, so the
+// dialog's own kind confirms instead of blocking.
+func (a *Application) dialogBlocked(kind dialogKind) bool {
+	if a.gridMode {
+		return true
+	}
+	if a.dialogs.isOpen(kind) {
+		a.dialogs.confirm()
+		return true
+	}
+	return a.dialogs.anyOpen()
+}
+
+func (a *Application) showConfirm(kind dialogKind, title, confirmText, cancelText string, content fyne.CanvasObject, onConfirm func()) {
+	confirmDialog := dialog.NewCustomConfirm(title, confirmText, cancelText,
+		content,
+		func(confirmed bool) {
+			a.dialogs.closed()
+			if !confirmed {
+				return
+			}
+			onConfirm()
+		},
+		a.mainWindow.Window(),
+	)
+	a.dialogs.open(kind, confirmDialog, nil)
+	confirmDialog.Show()
+}
+
+func (a *Application) showErrorAsync(msg string, err error) {
+	fyne.Do(func() {
+		a.showError(msg, err)
+	})
+}
+
+func (a *Application) copyPreferences() (string, library.CopyMode) {
+	prefs := a.fyneApp.Preferences()
+	return prefs.String("copyDestination"),
+		library.CopyMode(prefs.IntWithFallback("copyMode", int(library.CopyWithRAW)))
+}
+
+func (a *Application) saveCopyPreferences(dest string, mode library.CopyMode) {
+	prefs := a.fyneApp.Preferences()
+	prefs.SetString("copyDestination", dest)
+	prefs.SetInt("copyMode", int(mode))
 }

@@ -7,15 +7,21 @@ import (
 	"slices"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 
-	"photo/internal/core/library"
 	"photo/internal/core/model"
 	"photo/internal/gui/ui"
 )
 
+func pathSet(photos []model.Photo) map[string]bool {
+	paths := make(map[string]bool, len(photos))
+	for _, p := range photos {
+		paths[p.ImagePath] = true
+	}
+	return paths
+}
+
 func (a *Application) handleDeleteAll() {
-	if a.gridMode || a.dialogs.anyOpen() {
+	if a.dialogBlocked(dialogDeleteAll) {
 		return
 	}
 	filtered := a.fileBrowser.FilteredPhotos()
@@ -25,14 +31,9 @@ func (a *Application) handleDeleteAll() {
 
 	content, rawCheck := ui.NewDeleteAllDialogContent(len(filtered))
 
-	deleteAllDialog := dialog.NewCustomConfirm("Delete All",
-		"Delete", "Cancel",
+	a.showConfirm(dialogDeleteAll, "Delete All", "Delete", "Cancel",
 		content,
-		func(confirmed bool) {
-			a.dialogs.closed()
-			if !confirmed {
-				return
-			}
+		func() {
 			includeRAW := rawCheck.Checked
 			go func() {
 				deleted := 0
@@ -55,11 +56,7 @@ func (a *Application) handleDeleteAll() {
 					if colorsErr != nil {
 						a.showError("Failed to remove color labels", colorsErr)
 					}
-					paths := make(map[string]bool, len(deletedPhotos))
-					for _, p := range deletedPhotos {
-						paths[p.ImagePath] = true
-					}
-					a.fileBrowser.RemovePhotos(paths)
+					a.fileBrowser.RemovePhotos(pathSet(deletedPhotos))
 					newFiltered := a.fileBrowser.FilteredPhotos()
 					a.navigator.SetPhotos(newFiltered)
 					if p, navIdx, ok := a.navigator.GoTo(0); ok {
@@ -75,15 +72,11 @@ func (a *Application) handleDeleteAll() {
 					}
 				})
 			}()
-		},
-		a.mainWindow.Window(),
-	)
-	a.dialogs.open(dialogDeleteAll, deleteAllDialog, nil)
-	deleteAllDialog.Show()
+		})
 }
 
 func (a *Application) handleUnselectAll() {
-	if a.gridMode || a.dialogs.anyOpen() {
+	if a.dialogBlocked(dialogUnselectAll) {
 		return
 	}
 	activeColors := a.fileBrowser.ActiveFilterColors()
@@ -105,14 +98,9 @@ func (a *Application) handleUnselectAll() {
 		return
 	}
 
-	unselectDialog := dialog.NewCustomConfirm("Unselect All",
-		"Remove", "Cancel",
+	a.showConfirm(dialogUnselectAll, "Unselect All", "Remove", "Cancel",
 		ui.NewUnselectAllDialogContent(len(affected), activeColors),
-		func(confirmed bool) {
-			a.dialogs.closed()
-			if !confirmed {
-				return
-			}
+		func() {
 			go func() {
 				err := a.colorService.RemoveColorLabels(affected, activeColors)
 				fyne.Do(func() {
@@ -120,11 +108,7 @@ func (a *Application) handleUnselectAll() {
 						a.showError("Failed to remove color labels", err)
 						return
 					}
-					paths := make(map[string]bool, len(affected))
-					for _, p := range affected {
-						paths[p.ImagePath] = true
-					}
-					a.fileBrowser.RemoveColorLabels(paths, activeColors)
+					a.fileBrowser.RemoveColorLabels(pathSet(affected), activeColors)
 					for _, c := range activeColors {
 						a.fileBrowser.ToggleColorFilter(c)
 					}
@@ -133,15 +117,11 @@ func (a *Application) handleUnselectAll() {
 					a.mainWindow.ShowNotification(fmt.Sprintf("Removed color labels from %d photos", len(affected)))
 				})
 			}()
-		},
-		a.mainWindow.Window(),
-	)
-	a.dialogs.open(dialogUnselectAll, unselectDialog, nil)
-	unselectDialog.Show()
+		})
 }
 
 func (a *Application) handleCopyAll() {
-	if a.gridMode || a.dialogs.anyOpen() {
+	if a.dialogBlocked(dialogCopyAll) {
 		return
 	}
 	filtered := a.fileBrowser.FilteredPhotos()
@@ -149,10 +129,7 @@ func (a *Application) handleCopyAll() {
 		return
 	}
 
-	prefs := a.fyneApp.Preferences()
-	destDir := prefs.String("copyDestination")
-	copyMode := library.CopyMode(prefs.IntWithFallback("copyMode", int(library.CopyWithRAW)))
-
+	destDir, copyMode := a.copyPreferences()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var copyAllDialog *ui.CopyAllDialog
@@ -165,8 +142,7 @@ func (a *Application) handleCopyAll() {
 				return
 			}
 			mode := copyAllDialog.CopyMode()
-			prefs.SetString("copyDestination", dest)
-			prefs.SetInt("copyMode", int(mode))
+			a.saveCopyPreferences(dest, mode)
 
 			go func() {
 				total := len(filtered)

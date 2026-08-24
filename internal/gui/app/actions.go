@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
 	"photo/internal/core/clipboard"
@@ -23,9 +22,7 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	}
 	go func() {
 		if err := a.colorService.ToggleColor(photo, color); err != nil {
-			fyne.Do(func() {
-				a.showError("Failed to toggle color", err)
-			})
+			a.showErrorAsync("Failed to toggle color", err)
 			return
 		}
 		fyne.Do(func() {
@@ -45,9 +42,7 @@ func (a *Application) handleFavorite() {
 	go func() {
 		favorite, err := a.exifService.ToggleFavorite(photo.ImagePath)
 		if err != nil {
-			fyne.Do(func() {
-				a.showError("Failed to toggle favorite", err)
-			})
+			a.showErrorAsync("Failed to toggle favorite", err)
 			return
 		}
 		fyne.Do(func() {
@@ -72,17 +67,9 @@ func (a *Application) handleCopyToClipboard() {
 }
 
 func (a *Application) handleDelete() {
-	if a.gridMode {
+	if a.dialogBlocked(dialogDelete) {
 		return
 	}
-	if a.dialogs.isOpen(dialogDelete) {
-		a.dialogs.confirm()
-		return
-	}
-	if a.dialogs.anyOpen() {
-		return
-	}
-
 	photo, ok := a.navigator.Current()
 	if !ok {
 		return
@@ -92,19 +79,12 @@ func (a *Application) handleDelete() {
 	if photo.HasRAW() {
 		message += " This will also delete the RAW pair."
 	}
-	deleteDialog := dialog.NewCustomConfirm("Delete Photo",
-		"Delete (D)", "Cancel (N)",
+	a.showConfirm(dialogDelete, "Delete Photo", "Delete (D)", "Cancel (N)",
 		widget.NewLabel(message),
-		func(confirmed bool) {
-			a.dialogs.closed()
-			if !confirmed {
-				return
-			}
+		func() {
 			go func() {
 				if err := a.deleter.Delete(photo); err != nil {
-					fyne.Do(func() {
-						a.showError("Failed to delete photo", err)
-					})
+					a.showErrorAsync("Failed to delete photo", err)
 					return
 				}
 				if err := a.colorService.RemoveColors(photo); err != nil {
@@ -122,11 +102,7 @@ func (a *Application) handleDelete() {
 					}
 				})
 			}()
-		},
-		a.mainWindow.Window(),
-	)
-	a.dialogs.open(dialogDelete, deleteDialog, nil)
-	deleteDialog.Show()
+		})
 }
 
 func (a *Application) handleHelp() {
@@ -168,46 +144,30 @@ func (a *Application) handleCancel() {
 }
 
 func (a *Application) handleCopy() {
-	if a.gridMode {
+	if a.dialogBlocked(dialogCopy) {
 		return
 	}
-	if a.dialogs.isOpen(dialogCopy) {
-		a.dialogs.confirm()
-		return
-	}
-	if a.dialogs.anyOpen() {
-		return
-	}
-
 	photo, ok := a.navigator.Current()
 	if !ok {
 		return
 	}
 
-	prefs := a.fyneApp.Preferences()
-	destDir := prefs.String("copyDestination")
-	copyMode := library.CopyMode(prefs.IntWithFallback("copyMode", int(library.CopyWithRAW)))
-
+	destDir, copyMode := a.copyPreferences()
 	destEntry := ui.NewDestinationEntry(destDir, a.mainWindow.Window())
 	modeSelect := ui.NewCopyModeSelect(copyMode)
 
 	content := ui.NewCopyDialogContent(photo.Name, destEntry.Container, modeSelect)
 
-	copyDialog := dialog.NewCustomConfirm("Copy Photo", "Copy (C)", "Cancel (N)",
+	a.showConfirm(dialogCopy, "Copy Photo", "Copy (C)", "Cancel (N)",
 		content,
-		func(confirmed bool) {
-			a.dialogs.closed()
-			if !confirmed {
-				return
-			}
+		func() {
 			dest := destEntry.Text()
 			if len(dest) == 0 {
 				a.mainWindow.ShowError("No destination folder selected")
 				return
 			}
 			mode := modeSelect.Mode
-			prefs.SetString("copyDestination", dest)
-			prefs.SetInt("copyMode", int(mode))
+			a.saveCopyPreferences(dest, mode)
 			go func() {
 				err := a.copier.Copy(photo, dest, mode)
 				fyne.Do(func() {
@@ -222,9 +182,5 @@ func (a *Application) handleCopy() {
 					}
 				})
 			}()
-		},
-		a.mainWindow.Window(),
-	)
-	a.dialogs.open(dialogCopy, copyDialog, nil)
-	copyDialog.Show()
+		})
 }
