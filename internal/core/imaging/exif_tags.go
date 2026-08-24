@@ -22,6 +22,11 @@ var dateTagsByPriority = []string{"DateTimeOriginal", "DateTimeDigitized", "Date
 type StockInfo struct {
 	Tags  model.Tags
 	Taken time.Time
+	// complete says the tags need no further reading: the XMP sidecar of a RAW
+	// pair is already folded in, or the app itself is the one that wrote them.
+	// Tags read out of a JPEG alone are not complete, and the sidecar would
+	// otherwise overwrite what was generated for the photo but not saved yet.
+	complete bool
 }
 
 // GetStockInfo reads what the files already carry: the XMP packet and the EXIF

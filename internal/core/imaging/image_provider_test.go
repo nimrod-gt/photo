@@ -1,9 +1,12 @@
 package imaging
 
 import (
+	"errors"
 	"image"
 	"os"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -386,4 +389,281 @@ func TestImageProvider_PeekThumbnailFitBox(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stockProvider(t *testing.T, loaded map[string]StockInfo, read func(model.Photo) (StockInfo, error)) *Provider {
+	t.Helper()
+
+	p := NewProvider(NewExifService())
+	p.loader.loadImage = stubLoadWithStock(func(path string) (LoadedImage, error) {
+		return LoadedImage{Image: fakeImage(50, 50), Stock: loaded[path]}, nil
+	})
+	if read != nil {
+		p.readStock = read
+	}
+	return p
+}
+
+func rawPhoto(t *testing.T, dir, name string, sidecar model.Tags) model.Photo {
+	t.Helper()
+
+	photo := model.Photo{
+		ImagePath: filepath.Join(dir, name+".jpg"),
+		RAWPath:   filepath.Join(dir, name+".ARW"),
+		Name:      name + ".jpg",
+	}
+	require.NoError(t, WriteSidecar(model.SidecarPath(photo.RAWPath), sidecar))
+	return photo
+}
+
+func TestImageProvider_StockInfo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("serves the tags the image was loaded with", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		p := stockProvider(t, map[string]StockInfo{"/photo.jpg": stockOfTitle("bay")},
+			func(model.Photo) (StockInfo, error) {
+				t.Fatal("the files must not be read again")
+				return StockInfo{}, nil
+			})
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	t.Run("reads the files when the image is not cached", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		var reads atomic.Int64
+		p := stockProvider(t, nil, func(model.Photo) (StockInfo, error) {
+			reads.Add(1)
+			return stockOfTitle("bay"), nil
+		})
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "bay", info.Tags.Title)
+
+		info, err = p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "bay", info.Tags.Title)
+		assert.Equal(t, int64(1), reads.Load())
+	})
+
+	t.Run("fills a JPEG without tags from the sidecar", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove", Keywords: []string{"rock"}})
+		p := stockProvider(t, nil, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "cove", info.Tags.Title)
+		assert.Equal(t, []string{"rock"}, info.Tags.Keywords)
+	})
+
+	t.Run("the sidecar beats the tags of the JPEG", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, map[string]StockInfo{
+			filepath.Join(dir, "a.jpg"): {Tags: model.Tags{Title: "bay", Keywords: []string{"sea"}}},
+		}, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "cove", info.Tags.Title)
+		// the JPEG still fills what the sidecar leaves out
+		assert.Equal(t, []string{"sea"}, info.Tags.Keywords)
+	})
+
+	t.Run("the sidecar is read once per entry", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, nil, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		_, err = p.StockInfo(photo)
+		require.NoError(t, err)
+		require.NoError(t, os.Remove(model.SidecarPath(photo.RAWPath)))
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "cove", info.Tags.Title)
+	})
+
+	t.Run("a photo with no RAW pair keeps the tags of the JPEG", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		p := stockProvider(t, map[string]StockInfo{"/photo.jpg": stockOfTitle("bay")}, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	t.Run("concurrent calls read the files once", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		var reads atomic.Int64
+		release := make(chan struct{})
+		p := stockProvider(t, nil, func(model.Photo) (StockInfo, error) {
+			reads.Add(1)
+			<-release
+			return stockOfTitle("bay"), nil
+		})
+
+		var wg sync.WaitGroup
+		titles := make([]string, 4)
+		for i := range titles {
+			wg.Go(func() {
+				info, err := p.StockInfo(photo)
+				assert.NoError(t, err)
+				titles[i] = info.Tags.Title
+			})
+		}
+		time.Sleep(50 * time.Millisecond)
+		close(release)
+		wg.Wait()
+
+		assert.Equal(t, int64(1), reads.Load())
+		for _, title := range titles {
+			assert.Equal(t, "bay", title)
+		}
+	})
+
+	t.Run("a failed read is reported and not cached", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		var reads atomic.Int64
+		p := stockProvider(t, nil, func(model.Photo) (StockInfo, error) {
+			reads.Add(1)
+			return StockInfo{}, errors.New("unreadable")
+		})
+
+		_, err := p.StockInfo(photo)
+		require.Error(t, err)
+
+		_, ok := p.PeekStockInfo(photo.ImagePath)
+		assert.False(t, ok)
+
+		_, err = p.StockInfo(photo)
+		require.Error(t, err)
+		assert.Equal(t, int64(2), reads.Load())
+	})
+}
+
+func TestImageProvider_PeekStockInfo(t *testing.T) {
+	t.Parallel()
+
+	// the tags of a RAW-paired photo are only half read until the sidecar is
+	// folded in, and a caller that cannot wait must not be handed them
+	t.Run("misses tags that are not whole yet", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, map[string]StockInfo{filepath.Join(dir, "a.jpg"): stockOfTitle("bay")}, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		_, ok := p.PeekStockInfo(photo.ImagePath)
+		assert.False(t, ok)
+
+		_, err = p.StockInfo(photo)
+		require.NoError(t, err)
+
+		info, ok := p.PeekStockInfo(photo.ImagePath)
+		require.True(t, ok)
+		assert.Equal(t, "cove", info.Tags.Title)
+	})
+
+	t.Run("misses an unknown path", func(t *testing.T) {
+		p := stockProvider(t, nil, nil)
+
+		_, ok := p.PeekStockInfo("/photo.jpg")
+		assert.False(t, ok)
+	})
+}
+
+func TestImageProvider_StoreStockInfo(t *testing.T) {
+	t.Parallel()
+
+	// tags generated for a photo and not saved anywhere live in the cache
+	// alone, and re-reading the sidecar would overwrite them
+	t.Run("what the app stored is never read over", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, nil, nil)
+
+		p.StoreStockInfo(photo.ImagePath, stockOfTitle("bay"))
+
+		info, ok := p.PeekStockInfo(photo.ImagePath)
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+}
+
+func TestImageProvider_Forget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("drops the image, its tags and its thumbnail", func(t *testing.T) {
+		p := stockProvider(t, map[string]StockInfo{"/photo.jpg": stockOfTitle("bay")}, nil)
+		_, err := p.Get("/photo.jpg", 2000)
+		require.NoError(t, err)
+		p.StoreStockInfo("/photo.jpg", stockOfTitle("bay"))
+		require.NotNil(t, p.Thumbnail("/photo.jpg"))
+
+		p.Forget("/photo.jpg")
+
+		assert.Nil(t, p.Peek("/photo.jpg", 2000))
+		assert.Nil(t, p.Thumbnail("/photo.jpg"))
+		_, ok := p.PeekStockInfo("/photo.jpg")
+		assert.False(t, ok)
+	})
+}
+
+func TestImageProvider_StockInfoAcrossAReload(t *testing.T) {
+	t.Parallel()
+
+	// the bigger image is read from the same JPEG, which knows nothing of the
+	// sidecar: its own title must not speak over the one already folded in
+	t.Run("the sidecar still wins after a reload", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, map[string]StockInfo{filepath.Join(dir, "a.jpg"): stockOfTitle("bay")}, nil)
+		_, err := p.Get(photo.ImagePath, 100)
+		require.NoError(t, err)
+		_, err = p.StockInfo(photo)
+		require.NoError(t, err)
+
+		_, err = p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, ok := p.PeekStockInfo(photo.ImagePath)
+		require.True(t, ok)
+		assert.Equal(t, "cove", info.Tags.Title)
+	})
+
+	t.Run("stored tags survive a reload", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := rawPhoto(t, dir, "a", model.Tags{Title: "cove"})
+		p := stockProvider(t, map[string]StockInfo{filepath.Join(dir, "a.jpg"): stockOfTitle("bay")}, nil)
+		_, err := p.Get(photo.ImagePath, 100)
+		require.NoError(t, err)
+		p.StoreStockInfo(photo.ImagePath, stockOfTitle("reef"))
+
+		_, err = p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "reef", info.Tags.Title)
+	})
 }

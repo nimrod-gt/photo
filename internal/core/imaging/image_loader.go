@@ -81,6 +81,8 @@ func (l *Loader) addToCache(path string, entry cachedImage) {
 // A reload asks for a bigger image, not for the tags again, and tags an entry
 // holds that no file carries - generated and not saved yet - live nowhere else,
 // so whatever the new read did not find is kept from the entry it replaces.
+// Tags already whole outrank the read instead: they carry the XMP sidecar and
+// what the app itself wrote, and the JPEG alone would speak over both.
 func keptStock(fresh, old *StockInfo) *StockInfo {
 	if old == nil {
 		return fresh
@@ -88,12 +90,16 @@ func keptStock(fresh, old *StockInfo) *StockInfo {
 	if fresh == nil {
 		return old
 	}
-	merged := *fresh
-	merged.Tags = fillMissing(merged.Tags, old.Tags)
-	if merged.Taken.IsZero() {
-		merged.Taken = old.Taken
+	kept, filler := *fresh, *old
+	if old.complete {
+		kept, filler = *old, *fresh
 	}
-	return &merged
+	kept.Tags = fillMissing(kept.Tags, filler.Tags)
+	if kept.Taken.IsZero() {
+		kept.Taken = filler.Taken
+	}
+	kept.complete = fresh.complete || old.complete
+	return &kept
 }
 
 func imageBytes(img image.Image) int {
