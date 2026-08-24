@@ -5,7 +5,6 @@ import (
 	"sync/atomic"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -36,19 +35,12 @@ type GridViewer struct {
 	mu               sync.Mutex
 	tileWidth        float32
 	preloadScheduled atomic.Bool
-	items            map[fyne.CanvasObject]*gridItem
-}
-
-type gridItem struct {
-	thumb *canvas.Image
-	name  *widget.Label
 }
 
 func NewGridViewer(imageProvider *imaging.Provider, callbacks GridViewerCallbacks) *GridViewer {
 	gv := &GridViewer{
 		imageProvider: imageProvider,
 		callbacks:     callbacks,
-		items:         make(map[fyne.CanvasObject]*gridItem),
 	}
 	gv.build()
 	return gv
@@ -129,18 +121,7 @@ func (gv *GridViewer) createItem() fyne.CanvasObject {
 	gv.mu.Lock()
 	tw := gv.tileWidth
 	gv.mu.Unlock()
-	thumbH := tw * gridThumbRatio
-	thumb := canvas.NewImageFromImage(nil)
-	thumb.SetMinSize(fyne.NewSize(tw, thumbH))
-	thumb.FillMode = canvas.ImageFillContain
-
-	nameLabel := widget.NewLabel("placeholder")
-	nameLabel.Truncation = fyne.TextTruncateEllipsis
-	nameLabel.Alignment = fyne.TextAlignCenter
-
-	root := container.NewBorder(nil, nameLabel, nil, nil, thumb)
-	gv.items[root] = &gridItem{thumb: thumb, name: nameLabel}
-	return root
+	return newGridItem(tw)
 }
 
 func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject) {
@@ -153,29 +134,17 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	meta := gv.meta[id]
 	gv.mu.Unlock()
 
-	item, ok := gv.items[obj]
+	item, ok := obj.(*gridItem)
 	if !ok {
 		return
 	}
-	thumb := item.thumb
-	nameLabel := item.name
 
-	thumbSize := gv.thumbPixelSize()
-	if img := gv.imageProvider.Peek(photo.ImagePath, thumbSize); img != nil {
-		thumb.Image = img
-		thumb.Show()
-	} else if meta.Thumbnail != nil {
-		thumb.Image = meta.Thumbnail
-		thumb.Show()
-		gv.schedulePreload()
-	} else {
-		thumb.Image = nil
-		thumb.Hide()
+	thumbnail := gv.imageProvider.Peek(photo.ImagePath, gv.thumbPixelSize())
+	if thumbnail == nil {
+		thumbnail = meta.Thumbnail
 		gv.schedulePreload()
 	}
-	thumb.Refresh()
-
-	nameLabel.SetText(photo.Name)
+	item.update(photo.Name, thumbnail)
 
 	gv.mu.Lock()
 	if id < gv.visibleMin || gv.visibleMin == gv.visibleMax {
