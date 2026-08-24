@@ -13,6 +13,20 @@ import (
 )
 
 func (a *Application) handleColorToggle(color model.ColorLabel) {
+	a.toggleCurrentPhoto("Failed to toggle color", false, func(photo model.Photo) (bool, error) {
+		return false, a.colorService.ToggleColor(photo, color)
+	})
+}
+
+func (a *Application) handleFavorite() {
+	a.toggleCurrentPhoto("Failed to toggle favorite", true, func(photo model.Photo) (bool, error) {
+		return a.exifService.ToggleFavorite(photo.ImagePath)
+	})
+}
+
+// A rating toggle writes into the photo's XMP packet, so it only runs where the
+// scan found one; a colour toggle touches nothing but our own JSON file.
+func (a *Application) toggleCurrentPhoto(failure string, ratingWritten bool, toggle func(model.Photo) (bool, error)) {
 	if a.shortcutsBlocked() {
 		return
 	}
@@ -20,33 +34,17 @@ func (a *Application) handleColorToggle(color model.ColorLabel) {
 	if !ok {
 		return
 	}
-	go func() {
-		if err := a.colorService.ToggleColor(photo, color); err != nil {
-			a.showErrorAsync("Failed to toggle color", err)
-			return
-		}
-		fyne.Do(func() {
-			a.photoStateChanged(photo, a.favoriteOf(photo), false)
-		})
-	}()
-}
-
-func (a *Application) handleFavorite() {
-	if a.shortcutsBlocked() {
-		return
-	}
-	photo, ok := a.navigator.Current()
-	if !ok || !a.metaOf(photo).Ratable {
+	if ratingWritten && !a.metaOf(photo).Ratable {
 		return
 	}
 	go func() {
-		favorite, err := a.exifService.ToggleFavorite(photo.ImagePath)
+		favorite, err := toggle(photo)
 		if err != nil {
-			a.showErrorAsync("Failed to toggle favorite", err)
+			a.showErrorAsync(failure, err)
 			return
 		}
 		fyne.Do(func() {
-			a.photoStateChanged(photo, favorite, true)
+			a.refreshChangedPhoto(photo, ratingWritten, favorite)
 		})
 	}()
 }

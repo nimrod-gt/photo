@@ -29,12 +29,6 @@ func (a *Application) clearViewer() {
 	a.clearActionStates()
 }
 
-// The rating is read once per folder, with the thumbnails, and kept in the
-// browser's meta; the file is not opened again for the viewer.
-func (a *Application) favoriteOf(photo model.Photo) bool {
-	return a.metaOf(photo).Favorite
-}
-
 func (a *Application) metaOf(photo model.Photo) model.PhotoMeta {
 	idx := a.navigator.FindIndex(photo.ImagePath)
 	if idx < 0 {
@@ -43,6 +37,8 @@ func (a *Application) metaOf(photo model.Photo) model.PhotoMeta {
 	return a.fileBrowser.GetMeta(idx)
 }
 
+// The rating is read once per folder, with the thumbnails, and kept in the
+// browser's meta; the file is not opened again for the viewer.
 func (a *Application) updateFavoriteButtonStates(photo model.Photo) {
 	meta := a.metaOf(photo)
 	a.setFavoriteButtonStates(meta.Favorite, meta.Ratable)
@@ -87,7 +83,7 @@ func (a *Application) handleMetaLoaded(displayIndex int) {
 // wherever the photo sits, the buttons only while they still describe it. The
 // rating is written into the list only when the app is the one that wrote it
 // into the file, so a colour change does not put a stale one back.
-func (a *Application) photoStateChanged(photo model.Photo, favorite, ratingWritten bool) {
+func (a *Application) refreshChangedPhoto(photo model.Photo, ratingWritten, favorite bool) {
 	idx := a.navigator.FindIndex(photo.ImagePath)
 	colors, err := a.colorService.GetColors(photo)
 	if err != nil {
