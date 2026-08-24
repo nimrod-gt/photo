@@ -148,7 +148,7 @@ func (l *Loader) Get(path string, size int) (image.Image, error) {
 		if claimed {
 			return l.loadAsOwner(path, loadSize, w)
 		}
-		if cached != nil {
+		if w == nil {
 			return cached, nil
 		}
 		<-w.done
@@ -171,7 +171,10 @@ func (l *Loader) claimInflight(path string, size int) (image.Image, *loadWaiter,
 	if w, ok := l.inflight[path]; ok {
 		return nil, w, false
 	}
-	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
+	// Peek, not Get: the caller that reads the cache before claiming has
+	// already moved the entry to the front, and a preload must not reorder the
+	// cache behind the images someone is looking at.
+	if entry, ok := l.cache.Peek(path); ok && entry.size >= size {
 		return entry.img, nil, false
 	}
 	w := &loadWaiter{done: make(chan struct{})}

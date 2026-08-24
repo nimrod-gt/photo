@@ -2,9 +2,7 @@ package ui
 
 import (
 	"log"
-	"maps"
 	"path/filepath"
-	"slices"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -270,7 +268,15 @@ func (fb *FileBrowser) updateFilterButtonStates() {
 }
 
 func HasActiveFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
-	return favorite || slices.Contains(slices.Collect(maps.Values(colors)), true)
+	if favorite {
+		return true
+	}
+	for _, active := range colors {
+		if active {
+			return true
+		}
+	}
+	return false
 }
 
 func setFilterBtnState(btn *widget.Button, active bool) {

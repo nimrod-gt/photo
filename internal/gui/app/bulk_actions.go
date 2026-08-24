@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 
+	"photo/internal/core/library"
 	"photo/internal/core/model"
 	"photo/internal/gui/ui"
 )
@@ -35,44 +36,43 @@ func (a *Application) handleDeleteAll() {
 		content,
 		func() {
 			includeRAW := rawCheck.Checked
-			go func() {
-				deleted := 0
-				skipped := 0
-				var deletedPhotos []model.Photo
-				for _, photo := range filtered {
-					if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
-						log.Printf("Failed to delete %s: %v", photo.Name, err)
-						skipped++
-						continue
-					}
-					deleted++
-					deletedPhotos = append(deletedPhotos, photo)
-				}
-				colorsErr := a.colorService.RemoveMultipleColors(deletedPhotos)
-				for _, photo := range deletedPhotos {
-					a.imageProvider.Forget(photo.ImagePath)
-				}
-				fyne.Do(func() {
-					if colorsErr != nil {
-						a.showError("Failed to remove color labels", colorsErr)
-					}
-					a.fileBrowser.RemovePhotos(pathSet(deletedPhotos))
-					newFiltered := a.fileBrowser.FilteredPhotos()
-					a.navigator.SetPhotos(newFiltered)
-					if p, navIdx, ok := a.navigator.GoTo(0); ok {
-						a.showPhoto(p)
-						a.fileBrowser.SelectIndex(navIdx)
-					} else {
-						a.clearViewer()
-					}
-					if skipped > 0 {
-						a.mainWindow.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", deleted, skipped))
-					} else {
-						a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", deleted))
-					}
-				})
-			}()
+			go a.runBulkDelete(filtered, includeRAW)
 		})
+}
+
+func (a *Application) runBulkDelete(photos []model.Photo, includeRAW bool) {
+	skipped := 0
+	var deleted []model.Photo
+	for _, photo := range photos {
+		if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+			log.Printf("Failed to delete %s: %v", photo.Name, err)
+			skipped++
+			continue
+		}
+		deleted = append(deleted, photo)
+	}
+	colorsErr := a.colorService.RemoveMultipleColors(deleted)
+	for _, photo := range deleted {
+		a.imageProvider.Forget(photo.ImagePath)
+	}
+	fyne.Do(func() {
+		if colorsErr != nil {
+			a.showError("Failed to remove color labels", colorsErr)
+		}
+		a.fileBrowser.RemovePhotos(pathSet(deleted))
+		a.navigator.SetPhotos(a.fileBrowser.FilteredPhotos())
+		if p, navIdx, ok := a.navigator.GoTo(0); ok {
+			a.showPhoto(p)
+			a.fileBrowser.SelectIndex(navIdx)
+		} else {
+			a.clearViewer()
+		}
+		if skipped > 0 {
+			a.mainWindow.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", len(deleted), skipped))
+		} else {
+			a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", len(deleted)))
+		}
+	})
 }
 
 func (a *Application) handleUnselectAll() {
@@ -152,61 +152,80 @@ func (a *Application) handleCopyAll() {
 		closeDialog()
 	}
 	copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, copyMode, a.mainWindow.Window(),
-		func() {
-			dest := copyAllDialog.DestDir()
-			if len(dest) == 0 {
-				cancel()
-				a.mainWindow.ShowError("No destination folder selected")
-				closeDialog()
-				return
-			}
-			mode := copyAllDialog.CopyMode()
-			a.saveCopyPreferences(dest, mode)
-			copyAllDialog.CopyStarted()
-
-			go func() {
-				defer cancel()
-				total := len(filtered)
-				copied := 0
-				skipped := 0
-				for i, photo := range filtered {
-					if err := a.copier.CopyWithContext(ctx, photo, dest, mode); err != nil {
-						if ctx.Err() != nil {
-							fyne.Do(func() {
-								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
-								closeDialog()
-							})
-							return
-						}
-						log.Printf("Failed to copy %s: %v", photo.Name, err)
-						skipped++
-						continue
-					}
-					copied++
-					progress := float64(i+1) / float64(total)
-					fyne.Do(func() {
-						copyAllDialog.SetProgress(progress)
-					})
-				}
-				// read before the deferred cancel can taint it: the fyne.Do
-				// closure runs after this goroutine may already be gone
-				cancelled := ctx.Err() != nil
-				fyne.Do(func() {
-					closeDialog()
-					if cancelled {
-						a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
-						return
-					}
-					if skipped > 0 {
-						a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
-					} else {
-						a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
-					}
-				})
-			}()
-		},
+		func() { a.beginBulkCopy(ctx, cancel, filtered, copyAllDialog, closeDialog) },
 		cancelCopy,
 	)
 	a.dialogs.openSelfClosing(dialogCopyAll, copyAllDialog, cancelCopy)
 	copyAllDialog.Show()
+}
+
+func (a *Application) beginBulkCopy(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	photos []model.Photo,
+	copyAllDialog *ui.CopyAllDialog,
+	closeDialog func(),
+) {
+	dest := copyAllDialog.DestDir()
+	if len(dest) == 0 {
+		cancel()
+		a.mainWindow.ShowError("No destination folder selected")
+		closeDialog()
+		return
+	}
+	mode := copyAllDialog.CopyMode()
+	a.saveCopyPreferences(dest, mode)
+	copyAllDialog.CopyStarted()
+
+	go func() {
+		defer cancel()
+		a.runBulkCopy(ctx, photos, dest, mode, copyAllDialog, closeDialog)
+	}()
+}
+
+func (a *Application) runBulkCopy(
+	ctx context.Context,
+	photos []model.Photo,
+	dest string,
+	mode library.CopyMode,
+	copyAllDialog *ui.CopyAllDialog,
+	closeDialog func(),
+) {
+	total := len(photos)
+	copied := 0
+	skipped := 0
+	for i, photo := range photos {
+		if err := a.copier.CopyWithContext(ctx, photo, dest, mode); err != nil {
+			if ctx.Err() != nil {
+				fyne.Do(func() {
+					a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
+					closeDialog()
+				})
+				return
+			}
+			log.Printf("Failed to copy %s: %v", photo.Name, err)
+			skipped++
+			continue
+		}
+		copied++
+		progress := float64(i+1) / float64(total)
+		fyne.Do(func() {
+			copyAllDialog.SetProgress(progress)
+		})
+	}
+	// read before the deferred cancel can taint it: the fyne.Do closure runs
+	// after this goroutine may already be gone
+	cancelled := ctx.Err() != nil
+	fyne.Do(func() {
+		closeDialog()
+		if cancelled {
+			a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
+			return
+		}
+		if skipped > 0 {
+			a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
+		} else {
+			a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
+		}
+	})
 }
