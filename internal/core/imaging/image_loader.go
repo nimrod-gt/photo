@@ -144,41 +144,61 @@ func (l *Loader) Get(path string, size int) (image.Image, error) {
 			loadSize = max(size, entry.size*3/2)
 		}
 
-		l.mu.Lock()
-		if w, ok := l.inflight[path]; ok {
-			l.mu.Unlock()
-			<-w.done
-			if w.err == nil && w.size >= size {
-				return w.img, nil
-			}
-			continue
+		cached, w, claimed := l.claimInflight(path, size)
+		if claimed {
+			return l.loadAsOwner(path, loadSize, w)
 		}
-
-		if entry, ok := l.cache.Get(path); ok && entry.size >= size {
-			l.mu.Unlock()
-			return entry.img, nil
+		if cached != nil {
+			return cached, nil
 		}
-
-		w := &loadWaiter{done: make(chan struct{})}
-		l.inflight[path] = w
-		l.mu.Unlock()
-
-		return l.loadAsOwner(path, loadSize, w)
+		<-w.done
+		if w.err == nil && w.size >= size {
+			return w.img, nil
+		}
 	}
+}
+
+// Three outcomes: a cached image big enough to answer with, another
+// goroutine's waiter to wait on, or an owned claim. A successful owner fills
+// the cache before it leaves the inflight map, so the cache re-check under the
+// same lock closes the gap between a cache miss and the claim; a failed or
+// superseded owner leaves nothing behind, which is why waiters check w.err and
+// w.size instead of trusting the wait alone.
+func (l *Loader) claimInflight(path string, size int) (image.Image, *loadWaiter, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if w, ok := l.inflight[path]; ok {
+		return nil, w, false
+	}
+	if entry, ok := l.cache.Get(path); ok && entry.size >= size {
+		return entry.img, nil, false
+	}
+	w := &loadWaiter{done: make(chan struct{})}
+	l.inflight[path] = w
+	return nil, w, true
+}
+
+func (l *Loader) runLoad(path string, size int, w *loadWaiter) (LoadedImage, error) {
+	loaded, err := l.loadImage(path, size)
+	w.img = loaded.Image
+	w.size = size
+	w.err = err
+	close(w.done)
+	return loaded, err
+}
+
+func (l *Loader) cacheLoaded(path string, size int, loaded LoadedImage, err error) {
+	if err != nil {
+		return
+	}
+	l.addToCache(path, cachedImage{img: loaded.Image, size: size, stock: stockOf(loaded)})
 }
 
 func (l *Loader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Image, error) {
 	defer l.removeInflight(path)
-	loaded, err := l.loadImage(path, loadSize)
-	w.img = loaded.Image
-	w.size = loadSize
-	w.err = err
-	close(w.done)
-
-	if err == nil {
-		l.addToCache(path, cachedImage{img: loaded.Image, size: loadSize, stock: stockOf(loaded)})
-	}
-
+	loaded, err := l.runLoad(path, loadSize, w)
+	l.cacheLoaded(path, loadSize, loaded, err)
 	return loaded.Image, err
 }
 
@@ -259,15 +279,10 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 			continue
 		}
 
-		l.mu.Lock()
-		if _, ok := l.inflight[p]; ok {
-			l.mu.Unlock()
+		_, w, claimed := l.claimInflight(p, size)
+		if !claimed {
 			continue
 		}
-
-		w := &loadWaiter{done: make(chan struct{})}
-		l.inflight[p] = w
-		l.mu.Unlock()
 
 		path := p
 		go func() {
@@ -280,20 +295,13 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 				return
 			}
 
-			loaded, err := l.loadImage(path, size)
-			w.img = loaded.Image
-			w.size = size
-			w.err = err
-			close(w.done)
+			loaded, err := l.runLoad(path, size, w)
 
 			if gen != l.gen.Load() {
 				return
 			}
 
-			if err == nil {
-				l.addToCache(path, cachedImage{img: loaded.Image, size: size, stock: stockOf(loaded)})
-			}
-
+			l.cacheLoaded(path, size, loaded, err)
 			if onLoaded != nil && err == nil {
 				onLoaded(path)
 			}
