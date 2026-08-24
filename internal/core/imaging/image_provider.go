@@ -82,12 +82,18 @@ func (p *Provider) completeStock(photo model.Photo) (StockInfo, error) {
 		return p.storeRead(photo.ImagePath, info), nil
 	}
 
-	if photo.HasRAW() {
-		sidecar, err := ReadSidecar(model.SidecarPath(photo.RAWPath))
-		if err != nil {
-			return info, err
-		}
-		info.Tags = fillMissing(sidecar, info.Tags)
+	// An entry that turned complete between StockInfo's fast-path peek and the
+	// one above was just stored whole - generated or saved - and merging the
+	// sidecar over it would bring back the older tags it replaced.
+	if info.complete {
+		return info, nil
+	}
+
+	// Only the sidecar is missing from an incomplete entry: the image decode
+	// that stored it already ran withFileDate, so no date is read here.
+	info, err := mergedWithSidecar(info, photo)
+	if err != nil {
+		return info, err
 	}
 	return p.storeRead(photo.ImagePath, info), nil
 }
