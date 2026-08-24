@@ -4,7 +4,9 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"maps"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -112,9 +114,7 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	gen := fb.data.reset(photos)
 
 	fb.loadInitialMeta(photos)
-	fb.data.applyFilter()
-	fb.updateBulkBarVisibility()
-	fb.list.Refresh()
+	fb.refreshRows()
 
 	fb.imageProvider.LoadFolder(photos, func(index int, meta imaging.LoadedMeta) {
 		displayIdx, ok := fb.data.setLoadedMeta(index, meta, gen)
@@ -129,8 +129,7 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 	}, func() {
 		if fb.data.favoriteRefilterNeeded(gen) {
 			fyne.Do(func() {
-				fb.data.applyFilter()
-				fb.list.Refresh()
+				fb.refreshRows()
 				if fb.callbacks.OnFilteredChanged != nil {
 					fb.callbacks.OnFilteredChanged(fb.FilteredPhotos())
 				}
@@ -221,8 +220,12 @@ func (fb *FileBrowser) ClearFilter() {
 }
 
 func (fb *FileBrowser) RefreshFilter() {
-	fb.data.applyFilter()
 	fb.updateFilterButtonStates()
+	fb.refreshRows()
+}
+
+func (fb *FileBrowser) refreshRows() {
+	fb.data.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
@@ -255,16 +258,12 @@ func (fb *FileBrowser) RemovePhoto(imagePath string) {
 	if !fb.data.removePhoto(imagePath) {
 		return
 	}
-	fb.data.applyFilter()
-	fb.updateBulkBarVisibility()
-	fb.list.Refresh()
+	fb.refreshRows()
 }
 
 func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
 	fb.data.removePhotos(paths)
-	fb.data.applyFilter()
-	fb.updateBulkBarVisibility()
-	fb.list.Refresh()
+	fb.refreshRows()
 }
 
 func (fb *FileBrowser) updateBulkBarVisibility() {
@@ -290,15 +289,7 @@ func (fb *FileBrowser) updateFilterButtonStates() {
 }
 
 func HasActiveFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
-	if favorite {
-		return true
-	}
-	for _, v := range colors {
-		if v {
-			return true
-		}
-	}
-	return false
+	return favorite || slices.Contains(slices.Collect(maps.Values(colors)), true)
 }
 
 func setFilterBtnState(btn *widget.Button, active bool) {
@@ -311,24 +302,37 @@ func setFilterBtnState(btn *widget.Button, active bool) {
 }
 
 func (fb *FileBrowser) build() {
+	fb.buildList()
+	fb.buildBulkBar()
+
+	chooseBtn := widget.NewButton("Open Folder...", func() { call(fb.callbacks.OnChooseFolder) })
+	helpBtn := iconButton("", theme.HelpIcon(), fb.callbacks.OnHelp)
+	helpBtn.Importance = widget.LowImportance
+
+	topBars := container.NewVBox(fb.buildSortBar(), fb.buildFilterBar(), fb.bulkBar)
+	treeWithBtn := container.NewBorder(container.NewBorder(nil, nil, helpBtn, nil, chooseBtn), nil, nil, nil, fb.dirTree.Widget())
+	listWithSort := container.NewBorder(topBars, nil, nil, nil, fb.list)
+	split := container.NewVSplit(treeWithBtn, listWithSort)
+	split.SetOffset(0.4)
+
+	fb.container = container.NewStack(split)
+}
+
+func (fb *FileBrowser) buildList() {
 	fb.list = widget.NewList(
 		fb.data.count,
 		fb.createItem,
 		fb.updateItem,
 	)
-
 	fb.list.OnSelected = func(id widget.ListItemID) {
 		photo, ok := fb.data.photoAt(id)
 		if ok && fb.callbacks.OnPhotoSelected != nil {
 			fb.callbacks.OnPhotoSelected(photo)
 		}
 	}
+}
 
-	chooseBtn := widget.NewButton("Open Folder...", func() { call(fb.callbacks.OnChooseFolder) })
-
-	helpBtn := iconButton("", theme.HelpIcon(), fb.callbacks.OnHelp)
-	helpBtn.Importance = widget.LowImportance
-
+func (fb *FileBrowser) buildSortBar() *fyne.Container {
 	fb.nameSortBtn = widget.NewButton("Name ↑", func() {
 		if fb.callbacks.OnSortBy != nil {
 			fb.callbacks.OnSortBy(library.SortByName)
@@ -341,18 +345,24 @@ func (fb *FileBrowser) build() {
 		}
 	})
 	fb.timeSortBtn.Importance = widget.MediumImportance
-	sortBar := container.NewGridWithColumns(2, fb.nameSortBtn, fb.timeSortBtn)
+	return container.NewGridWithColumns(2, fb.nameSortBtn, fb.timeSortBtn)
+}
 
-	fb.filterFavBtn = iconButton("", iconHeartOutline, fb.callbacks.OnFilterFavorite)
-	fb.filterFavBtn.Importance = widget.MediumImportance
-	fb.filterRedBtn = iconButton("", iconRedCircle, fb.callbacks.OnFilterRed)
-	fb.filterRedBtn.Importance = widget.MediumImportance
-	fb.filterGreenBtn = iconButton("", iconGreenCircle, fb.callbacks.OnFilterGreen)
-	fb.filterGreenBtn.Importance = widget.MediumImportance
-	fb.filterBlueBtn = iconButton("", iconBlueCircle, fb.callbacks.OnFilterBlue)
-	fb.filterBlueBtn.Importance = widget.MediumImportance
-	filterBar := container.NewGridWithColumns(4, fb.filterFavBtn, fb.filterRedBtn, fb.filterGreenBtn, fb.filterBlueBtn)
+func (fb *FileBrowser) buildFilterBar() *fyne.Container {
+	fb.filterFavBtn = filterButton(iconHeartOutline, fb.callbacks.OnFilterFavorite)
+	fb.filterRedBtn = filterButton(iconRedCircle, fb.callbacks.OnFilterRed)
+	fb.filterGreenBtn = filterButton(iconGreenCircle, fb.callbacks.OnFilterGreen)
+	fb.filterBlueBtn = filterButton(iconBlueCircle, fb.callbacks.OnFilterBlue)
+	return container.NewGridWithColumns(4, fb.filterFavBtn, fb.filterRedBtn, fb.filterGreenBtn, fb.filterBlueBtn)
+}
 
+func filterButton(icon fyne.Resource, fn func()) *widget.Button {
+	btn := iconButton("", icon, fn)
+	btn.Importance = widget.MediumImportance
+	return btn
+}
+
+func (fb *FileBrowser) buildBulkBar() {
 	fb.deleteAllBtn = iconButton("Delete All", theme.DeleteIcon(), fb.callbacks.OnDeleteAll)
 	fb.deleteAllBtn.Importance = widget.DangerImportance
 	fb.copyAllBtn = iconButton("Copy All", theme.ContentCopyIcon(), fb.callbacks.OnCopyAll)
@@ -362,14 +372,6 @@ func (fb *FileBrowser) build() {
 		fb.unselectAllBtn,
 	)
 	fb.bulkBar.Hide()
-
-	topBars := container.NewVBox(sortBar, filterBar, fb.bulkBar)
-	treeWithBtn := container.NewBorder(container.NewBorder(nil, nil, helpBtn, nil, chooseBtn), nil, nil, nil, fb.dirTree.Widget())
-	listWithSort := container.NewBorder(topBars, nil, nil, nil, fb.list)
-	split := container.NewVSplit(treeWithBtn, listWithSort)
-	split.SetOffset(0.4)
-
-	fb.container = container.NewStack(split)
 }
 
 const (
