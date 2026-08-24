@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"photo/internal/core/model"
 )
 
 func fakeImage(w, h int) image.Image {
@@ -17,7 +19,7 @@ func fakeImage(w, h int) image.Image {
 }
 
 func stubLoader(load func(string) (image.Image, error)) *Loader {
-	l := NewLoader()
+	l := NewLoader(NewExifService().LoadImage)
 	if load != nil {
 		l.loadImage = stubLoadImage(load)
 	}
@@ -26,13 +28,21 @@ func stubLoader(load func(string) (image.Image, error)) *Loader {
 
 // the real loadImage decodes straight to the size it is asked for, so a stub
 // that ignored it would cache images the loader never caches
-func stubLoadImage(load func(string) (image.Image, error)) func(string, int) (image.Image, error) {
-	return func(path string, size int) (image.Image, error) {
+func stubLoadImage(load func(string) (image.Image, error)) LoadFunc {
+	return stubLoadWithStock(func(path string) (LoadedImage, error) {
 		img, err := load(path)
+		return LoadedImage{Image: img}, err
+	})
+}
+
+func stubLoadWithStock(load func(string) (LoadedImage, error)) LoadFunc {
+	return func(path string, size int) (LoadedImage, error) {
+		loaded, err := load(path)
 		if err != nil {
-			return nil, err
+			return LoadedImage{}, err
 		}
-		return DownscaleToFit(img, image.Point{X: size, Y: size}), nil
+		loaded.Image = DownscaleToFit(loaded.Image, image.Point{X: size, Y: size})
+		return loaded, nil
 	}
 }
 
@@ -346,10 +356,7 @@ func TestImageLoader_Clear(t *testing.T) {
 func TestImageLoader_LRU(t *testing.T) {
 	t.Parallel()
 
-	l := NewLoader()
-	l.loadImage = func(string, int) (image.Image, error) {
-		return fakeImage(10, 10), nil
-	}
+	l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
 
 	for i := range cacheMaxEntries + 10 {
 		path := "/photo_" + string(rune('A'+i%26)) + string(rune('0'+i/26)) + ".jpg"
@@ -393,13 +400,25 @@ func TestImageLoader_ByteBudget(t *testing.T) {
 	t.Run("replacing entry accounts bytes correctly", func(t *testing.T) {
 		sizes := map[int]image.Image{100: fakeImage(10, 10), 2000: fakeImage(50, 50)}
 		l := stubLoader(nil)
-		l.loadImage = func(string, int) (image.Image, error) { return fakeImage(10, 10), nil }
+		l.loadImage = stubLoadImage(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
 
 		l.addToCache("/a.jpg", cachedImage{img: sizes[100], size: 100})
 		l.addToCache("/a.jpg", cachedImage{img: sizes[2000], size: 2000})
 
 		assert.Equal(t, 1, l.cache.Len())
 		assert.Equal(t, int64(imageBytes(sizes[2000])), l.cacheBytes.Load())
+	})
+
+	t.Run("storing tags leaves the byte counter alone", func(t *testing.T) {
+		img := fakeImage(10, 10)
+		l := stubLoader(nil)
+
+		l.addToCache("/a.jpg", cachedImage{img: img, size: 100})
+		l.StoreStock("/a.jpg", StockInfo{Tags: model.Tags{Title: "bay"}})
+
+		assert.Equal(t, 1, l.cache.Len())
+		assert.Equal(t, int64(imageBytes(img)), l.cacheBytes.Load())
+		assert.NotNil(t, l.Peek("/a.jpg", 100))
 	})
 
 	t.Run("Clear resets byte counter", func(t *testing.T) {
@@ -460,5 +479,241 @@ func TestImageLoader_ClampsNonPositiveSize(t *testing.T) {
 		entry, ok := l.cache.Peek("/a.jpg")
 		require.True(t, ok)
 		assert.Equal(t, 1, entry.size)
+	})
+}
+
+func stockOfTitle(title string) StockInfo {
+	return StockInfo{Tags: model.Tags{Title: title, Keywords: []string{"sea"}}}
+}
+
+func TestImageLoader_Stock(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Get caches the tags with the image", func(t *testing.T) {
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			return LoadedImage{Image: fakeImage(10, 10), Stock: stockOfTitle("bay")}, nil
+		})
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	t.Run("Preload caches the tags with the image", func(t *testing.T) {
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			return LoadedImage{Image: fakeImage(10, 10), Stock: stockOfTitle("bay")}, nil
+		})
+
+		done := make(chan struct{})
+		l.Preload([]string{"/a.jpg"}, 100, func(string) { close(done) })
+		<-done
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	// the second read asks for a bigger image, and a loader that returned no
+	// tags on it would drop the ones the entry already holds
+	t.Run("a reload at a larger size keeps the tags", func(t *testing.T) {
+		var calls atomic.Int64
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			loaded := LoadedImage{Image: fakeImage(2000, 2000)}
+			if calls.Add(1) == 1 {
+				loaded.Stock = stockOfTitle("bay")
+			}
+			return loaded, nil
+		})
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		_, err = l.Get("/a.jpg", 800)
+		require.NoError(t, err)
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	t.Run("tags that failed to read leave the image cached", func(t *testing.T) {
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			return LoadedImage{Image: fakeImage(10, 10), StockErr: errors.New("broken packet")}, nil
+		})
+
+		img, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		assert.NotNil(t, img)
+		assert.NotNil(t, l.Peek("/a.jpg", 100))
+
+		_, ok := l.PeekStock("/a.jpg")
+		assert.False(t, ok)
+	})
+
+	t.Run("StoreStock updates a cached image", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		l.StoreStock("/a.jpg", stockOfTitle("bay"))
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+		assert.NotNil(t, l.Peek("/a.jpg", 100))
+	})
+
+	t.Run("StoreStock keeps tags for a path with no image", func(t *testing.T) {
+		l := stubLoader(nil)
+
+		l.StoreStock("/a.jpg", stockOfTitle("bay"))
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	// an entry holding tags alone has no image and a size no lookup can ask for
+	t.Run("a tags-only entry is never handed out as an image", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+		l.StoreStock("/a.jpg", stockOfTitle("bay"))
+
+		assert.Nil(t, l.Peek("/a.jpg", 1))
+		assert.Zero(t, l.cacheBytes.Load())
+
+		img, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		assert.NotNil(t, img)
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "bay", info.Tags.Title)
+	})
+
+	t.Run("PeekStock misses an unknown path", func(t *testing.T) {
+		l := stubLoader(nil)
+
+		_, ok := l.PeekStock("/a.jpg")
+		assert.False(t, ok)
+	})
+
+	t.Run("Forget drops the entry", func(t *testing.T) {
+		l := stubLoader(func(string) (image.Image, error) { return fakeImage(10, 10), nil })
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		l.StoreStock("/a.jpg", stockOfTitle("bay"))
+
+		l.Forget("/a.jpg")
+
+		_, ok := l.PeekStock("/a.jpg")
+		assert.False(t, ok)
+		assert.Nil(t, l.Peek("/a.jpg", 100))
+		assert.Zero(t, l.cacheBytes.Load())
+	})
+
+	t.Run("Clear drops the tags", func(t *testing.T) {
+		l := stubLoader(nil)
+		l.StoreStock("/a.jpg", stockOfTitle("bay"))
+
+		l.Clear()
+
+		_, ok := l.PeekStock("/a.jpg")
+		assert.False(t, ok)
+	})
+}
+
+func TestImageLoader_StockOfAReload(t *testing.T) {
+	t.Parallel()
+
+	t.Run("what the file carries wins over the entry", func(t *testing.T) {
+		var calls atomic.Int64
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			title := "bay"
+			if calls.Add(1) > 1 {
+				title = "cove"
+			}
+			return LoadedImage{Image: fakeImage(2000, 2000), Stock: stockOfTitle(title)}, nil
+		})
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+		_, err = l.Get("/a.jpg", 800)
+		require.NoError(t, err)
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, "cove", info.Tags.Title)
+	})
+
+	t.Run("the date of the entry survives a read that has none", func(t *testing.T) {
+		taken := time.Date(2024, time.May, 1, 10, 0, 0, 0, time.UTC)
+		l := stubLoader(nil)
+		l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+			return LoadedImage{Image: fakeImage(10, 10)}, nil
+		})
+		l.StoreStock("/a.jpg", StockInfo{Tags: model.Tags{Title: "bay"}, Taken: taken})
+
+		_, err := l.Get("/a.jpg", 100)
+		require.NoError(t, err)
+
+		info, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, taken, info.Taken)
+	})
+}
+
+func TestImageLoader_StoreStockKeepsTheDate(t *testing.T) {
+	t.Parallel()
+
+	taken := time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)
+	l := stubLoader(nil)
+	l.loadImage = stubLoadWithStock(func(string) (LoadedImage, error) {
+		return LoadedImage{Image: fakeImage(10, 10), Stock: StockInfo{Taken: taken}}, nil
+	})
+	_, err := l.Get("/photo.jpg", 100)
+	require.NoError(t, err)
+
+	l.StoreStock("/photo.jpg", stockOfTitle("bay"))
+
+	info, ok := l.PeekStock("/photo.jpg")
+	require.True(t, ok)
+	assert.Equal(t, "bay", info.Tags.Title)
+	assert.Equal(t, taken, info.Taken)
+}
+
+func TestImageLoader_StockKeywordsAreNotShared(t *testing.T) {
+	t.Parallel()
+
+	t.Run("editing the stored tags leaves the entry alone", func(t *testing.T) {
+		l := stubLoader(nil)
+		info := StockInfo{Tags: model.Tags{Title: "bay", Keywords: []string{"sea"}}}
+
+		l.StoreStock("/a.jpg", info)
+		info.Tags.Keywords[0] = "sky"
+
+		cached, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, []string{"sea"}, cached.Tags.Keywords)
+	})
+
+	t.Run("editing the peeked tags leaves the entry alone", func(t *testing.T) {
+		l := stubLoader(nil)
+		l.StoreStock("/a.jpg", StockInfo{Tags: model.Tags{Keywords: []string{"sea"}}})
+
+		peeked, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		peeked.Tags.Keywords[0] = "sky"
+
+		cached, ok := l.PeekStock("/a.jpg")
+		require.True(t, ok)
+		assert.Equal(t, []string{"sea"}, cached.Tags.Keywords)
 	})
 }

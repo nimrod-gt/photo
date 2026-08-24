@@ -3,6 +3,7 @@ package imaging
 import (
 	"fmt"
 	"image"
+	"os"
 	"sync"
 
 	exif "github.com/dsoprea/go-exif/v3"
@@ -20,6 +21,30 @@ type ExifService struct {
 
 func NewExifService() *ExifService {
 	return &ExifService{}
+}
+
+// The file is read behind the same lock the other readers take: a writer
+// patches the packet in place, and bytes read while it does would carry a
+// packet that is half old and half new. Only the read is held, not the decoding
+// that follows it, so a rating being written waits for a read of the file and
+// not for a photo to be decoded.
+func (s *ExifService) LoadImage(path string, fit int) (LoadedImage, error) {
+	data, err := s.readFile(path)
+	if err != nil {
+		return LoadedImage{}, err
+	}
+	return decodeLoaded(data, fit, path)
+}
+
+func (s *ExifService) readFile(path string) ([]byte, error) {
+	s.access.RLock()
+	defer s.access.RUnlock()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading image %s: %w", path, err)
+	}
+	return data, nil
 }
 
 func segmentsFromFile(jpegPath string) (*jpegstructure.SegmentList, error) {

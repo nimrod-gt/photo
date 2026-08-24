@@ -3,6 +3,7 @@ package imaging
 import (
 	"image"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -17,6 +18,9 @@ const (
 type cachedImage struct {
 	img  image.Image
 	size int
+	// stock is what the file said about itself when it was read; nil when its
+	// tags could not be parsed, so that a later read may still answer them.
+	stock *StockInfo
 }
 
 type loadWaiter struct {
@@ -25,6 +29,8 @@ type loadWaiter struct {
 	err  error
 	done chan struct{}
 }
+
+type LoadFunc func(path string, size int) (LoadedImage, error)
 
 type Loader struct {
 	cache      *lru.Cache[string, cachedImage]
@@ -36,17 +42,17 @@ type Loader struct {
 	gen        atomic.Uint64
 	sem        chan struct{}
 
-	loadImage func(path string, size int) (image.Image, error)
+	loadImage LoadFunc
 }
 
-func NewLoader() *Loader {
+func NewLoader(load LoadFunc) *Loader {
 	workers := max(runtime.NumCPU()-2, 1)
 
 	l := &Loader{
 		byteBudget: cacheByteBudget,
 		inflight:   make(map[string]*loadWaiter),
 		sem:        make(chan struct{}, workers),
-		loadImage:  LoadImageOriented,
+		loadImage:  load,
 	}
 	l.cache = must(lru.NewWithEvict[string, cachedImage](cacheMaxEntries, func(_ string, entry cachedImage) {
 		l.cacheBytes.Add(-int64(imageBytes(entry.img)))
@@ -60,6 +66,17 @@ func NewLoader() *Loader {
 func (l *Loader) addToCache(path string, entry cachedImage) {
 	l.cacheMu.Lock()
 	defer l.cacheMu.Unlock()
+
+	if old, ok := l.cache.Peek(path); ok {
+		entry.stock = keptStock(entry.stock, old.stock)
+	}
+	l.storeLocked(path, entry)
+}
+
+// Every Add goes through here so the byte budget cannot be sidestepped: a store
+// that leaves the image alone still passes an entry whose image may differ from
+// the one it replaces, and the accounting has to hold either way.
+func (l *Loader) storeLocked(path string, entry cachedImage) {
 	// golang-lru v2 does not fire onEvict when Add replaces an existing key
 	if old, ok := l.cache.Peek(path); ok {
 		l.cacheBytes.Add(-int64(imageBytes(old.img)))
@@ -71,7 +88,34 @@ func (l *Loader) addToCache(path string, entry cachedImage) {
 	}
 }
 
+// A reload asks for a bigger image, not for the tags again, and tags an entry
+// holds that no file carries - generated and not saved yet - live nowhere else,
+// so whatever the new read did not find is kept from the entry it replaces.
+// Tags already whole outrank the read instead: they carry the XMP sidecar and
+// what the app itself wrote, and the JPEG alone would speak over both.
+func keptStock(fresh, old *StockInfo) *StockInfo {
+	if old == nil {
+		return fresh
+	}
+	if fresh == nil {
+		return old
+	}
+	kept, filler := *fresh, *old
+	if old.complete {
+		kept, filler = *old, *fresh
+	}
+	kept.Tags = fillMissing(kept.Tags, filler.Tags)
+	if kept.Taken.IsZero() {
+		kept.Taken = filler.Taken
+	}
+	kept.complete = fresh.complete || old.complete
+	return &kept
+}
+
 func imageBytes(img image.Image) int {
+	if img == nil {
+		return 0
+	}
 	switch v := img.(type) {
 	case *image.NRGBA:
 		return len(v.Pix)
@@ -125,17 +169,27 @@ func (l *Loader) Get(path string, size int) (image.Image, error) {
 
 func (l *Loader) loadAsOwner(path string, loadSize int, w *loadWaiter) (image.Image, error) {
 	defer l.removeInflight(path)
-	img, err := l.loadImage(path, loadSize)
-	w.img = img
+	loaded, err := l.loadImage(path, loadSize)
+	w.img = loaded.Image
 	w.size = loadSize
 	w.err = err
 	close(w.done)
 
 	if err == nil {
-		l.addToCache(path, cachedImage{img: img, size: loadSize})
+		l.addToCache(path, cachedImage{img: loaded.Image, size: loadSize, stock: stockOf(loaded)})
 	}
 
-	return img, err
+	return loaded.Image, err
+}
+
+// Tags that could not be read are left out of the entry rather than cached as
+// empty ones: the photo is still shown, and the next reader may do better.
+func stockOf(loaded LoadedImage) *StockInfo {
+	if loaded.StockErr != nil {
+		return nil
+	}
+	stock := loaded.Stock
+	return &stock
 }
 
 func (l *Loader) Peek(path string, size int) image.Image {
@@ -145,6 +199,51 @@ func (l *Loader) Peek(path string, size int) image.Image {
 		return entry.img
 	}
 	return nil
+}
+
+func (l *Loader) PeekStock(path string) (StockInfo, bool) {
+	entry, ok := l.cache.Peek(path)
+	if !ok || entry.stock == nil {
+		return StockInfo{}, false
+	}
+	return clonedStock(*entry.stock), true
+}
+
+// The entry owns its keywords: a caller that stored or read tags may go on
+// editing its own slice, and appending to one shared with the cache would
+// change what the next reader gets.
+func clonedStock(info StockInfo) StockInfo {
+	info.Tags.Keywords = slices.Clone(info.Tags.Keywords)
+	return info
+}
+
+// An entry without an image holds tags alone - the ones generated or saved for
+// a photo that is not in the cache. Its size is zero, which no Get or Peek can
+// ask for, so it is never handed out as an image.
+// The date the photo was taken is read from the file and never written, so a
+// store that carries none keeps the one the entry already learned instead of
+// erasing it: nothing would read the file for it a second time.
+func (l *Loader) StoreStock(path string, info StockInfo) {
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+
+	entry, ok := l.cache.Peek(path)
+	if !ok {
+		entry = cachedImage{}
+	}
+	stock := clonedStock(info)
+	if stock.Taken.IsZero() && entry.stock != nil {
+		stock.Taken = entry.stock.Taken
+	}
+	entry.stock = &stock
+	l.storeLocked(path, entry)
+}
+
+func (l *Loader) Forget(path string) {
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+
+	l.cache.Remove(path)
 }
 
 func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
@@ -181,8 +280,8 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 				return
 			}
 
-			img, err := l.loadImage(path, size)
-			w.img = img
+			loaded, err := l.loadImage(path, size)
+			w.img = loaded.Image
 			w.size = size
 			w.err = err
 			close(w.done)
@@ -192,7 +291,7 @@ func (l *Loader) Preload(paths []string, size int, onLoaded func(string)) {
 			}
 
 			if err == nil {
-				l.addToCache(path, cachedImage{img: img, size: size})
+				l.addToCache(path, cachedImage{img: loaded.Image, size: size, stock: stockOf(loaded)})
 			}
 
 			if onLoaded != nil && err == nil {
@@ -227,7 +326,7 @@ func (l *Loader) Clear() {
 	l.mu.Unlock()
 }
 
-// LoadImageOriented reads a non-positive budget as "no downscaling", which
+// DownscaleToFit reads a non-positive budget as "no downscaling", which
 // would cache every photo at full resolution and blow the byte budget. Clamping
 // at the entry points keeps the cached image and the size it is cached under
 // from disagreeing.

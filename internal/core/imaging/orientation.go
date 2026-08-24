@@ -6,25 +6,46 @@ import (
 	"image"
 	"image/draw"
 	_ "image/png"
-	"os"
 
 	xdraw "golang.org/x/image/draw"
 )
 
 var jpegMagic = []byte{0xff, 0xd8}
 
-// fit is a budget on both sides of the returned image.
-func LoadImageOriented(path string, fit int) (image.Image, error) {
-	data, err := os.ReadFile(path)
+// The tags are kept apart from the image because a photo whose metadata cannot
+// be read is still a photo the viewer must show: only StockErr says the tags
+// are missing, and a caller after the image alone never sees it.
+type LoadedImage struct {
+	Image    image.Image
+	Stock    StockInfo
+	StockErr error
+}
+
+// decodeLoaded takes both the image and the stock tags out of the bytes the
+// file was read into, so a photo that is loaded for display does not have to be
+// parsed a second time to answer what its tags are. fit is a budget on both
+// sides of the returned image.
+func decodeLoaded(data []byte, fit int, source string) (LoadedImage, error) {
+	img, err := decodeImage(data, fit, source)
 	if err != nil {
-		return nil, fmt.Errorf("reading image %s: %w", path, err)
+		return LoadedImage{}, fmt.Errorf("decoding image %s: %w", source, err)
 	}
 
-	img, err := decodeImage(data, fit, path)
-	if err != nil {
-		return nil, fmt.Errorf("decoding image %s: %w", path, err)
+	loaded := LoadedImage{Image: DownscaleToFit(img, image.Point{X: fit, Y: fit})}
+	loaded.Stock, loaded.StockErr = stockInfoFromBytes(data, source)
+	loaded.Stock = withFileDate(loaded.Stock, source)
+	return loaded, nil
+}
+
+func stockInfoFromBytes(data []byte, source string) (StockInfo, error) {
+	if !bytes.HasPrefix(data, jpegMagic) {
+		return StockInfo{}, nil
 	}
-	return DownscaleToFit(img, image.Point{X: fit, Y: fit}), nil
+	sl, err := segmentsFromBytes(data, source)
+	if err != nil {
+		return StockInfo{}, err
+	}
+	return stockInfoFromSegments(sl, source)
 }
 
 // JPEG is routed by its magic bytes rather than by extension, and its EXIF

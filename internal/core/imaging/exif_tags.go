@@ -22,6 +22,21 @@ var dateTagsByPriority = []string{"DateTimeOriginal", "DateTimeDigitized", "Date
 type StockInfo struct {
 	Tags  model.Tags
 	Taken time.Time
+	// complete says the tags need no further reading: the XMP sidecar of a RAW
+	// pair is already folded in, or the app itself is the one that wrote them.
+	// Tags read out of a JPEG alone are not complete, and the sidecar would
+	// otherwise overwrite what was generated for the photo but not saved yet.
+	complete bool
+}
+
+// A photo whose EXIF carries no date is dated by the file it lives in: the time
+// it was created, not the time it was last written, because writing tags into a
+// JPEG rewrites the file and must not move the photo's date.
+func withFileDate(info StockInfo, path string) StockInfo {
+	if info.Taken.IsZero() {
+		info.Taken = fileCreated(path)
+	}
+	return info
 }
 
 // GetStockInfo reads what the files already carry: the XMP packet and the EXIF
@@ -36,6 +51,7 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	if photo.IsJPEG() {
 		info, jpegErr = jpegStockInfo(photo.ImagePath)
 	}
+	info = withFileDate(info, photo.ImagePath)
 	if !photo.HasRAW() {
 		return info, jpegErr
 	}
@@ -61,7 +77,11 @@ func jpegStockInfo(jpegPath string) (StockInfo, error) {
 	if err != nil {
 		return StockInfo{}, err
 	}
-	flat, err := flatExifOf(sl, jpegPath)
+	return stockInfoFromSegments(sl, jpegPath)
+}
+
+func stockInfoFromSegments(sl *jpegstructure.SegmentList, source string) (StockInfo, error) {
+	flat, err := flatExifOf(sl, source)
 	if err != nil {
 		return StockInfo{}, err
 	}
@@ -72,7 +92,7 @@ func jpegStockInfo(jpegPath string) (StockInfo, error) {
 	}
 	parsed, err := parseSidecar(packet)
 	if err != nil {
-		return info, fmt.Errorf("parsing the XMP of %s: %w", jpegPath, err)
+		return info, fmt.Errorf("parsing the XMP of %s: %w", source, err)
 	}
 	info.Tags = fillMissing(parsed.tags(), info.Tags)
 	return info, nil

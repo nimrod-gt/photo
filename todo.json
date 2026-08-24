@@ -1,90 +1,7 @@
 {
   "version": 1,
-  "next_id": 4,
+  "next_id": 6,
   "todos": [
-    {
-      "id": 1,
-      "description": "Move tags into the cache",
-      "context": "Tags today live only in the files: the session writes an XMP sidecar next to the RAW and, on demand, into the JPEG XMP packet, and re-reads them from EXIF/XMP on every dialog open (tagsSession in internal/gui/app/actions.go). The imaging Loader already has an LRU cache pattern to follow.",
-      "docs": [
-        "internal/gui/app/actions.go",
-        "internal/core/tags/tagger.go",
-        "internal/core/imaging/image_loader.go",
-        "CLAUDE.md"
-      ],
-      "depends_on": [],
-      "status": "open",
-      "branch": null,
-      "created_at": "2026-08-23T13:38:01Z",
-      "updated_at": "2026-08-23T13:53:45Z",
-      "plan": {
-        "created_at": "2026-08-23T13:53:45Z",
-        "revised_at": null,
-        "base_commit": "4fce1b4",
-        "summary": "Introduce an in-memory, LRU-backed tags cache in `internal/core/tags` that becomes the single read path for stock tags (title, keywords, shooting date) and the write-through point for the XMP sidecar, then wire it into the Fyne app so the Tags dialog no longer re-parses the JPEG EXIF/XMP packet and the RAW sidecar on every open. The cache follows the pattern of `internal/core/imaging/image_loader.go`: a `github.com/hashicorp/golang-lru/v2` cache guarded by a mutex, an inflight map so concurrent readers of the same path share one file read, injectable function fields (`read`, `writeSidecar`) for tests exactly like `Loader.loadImage` and `Tagger.run`. `Application` gains a `tagsCache` field built from the existing `ExifService`; `tagsSession.prefill` reads through it (and seeds the dialog synchronously on a hit), generation and both save paths update it, deletes forget their entries, and showing a photo warms it in the background so a later dialog open, todo #2 (painting tags over/near the photo) and todo #3 (background generation) can read tags without touching the disk.",
-        "steps": [
-          {
-            "title": "Add the tags cache to internal/core/tags",
-            "details": "New file `internal/core/tags/cache.go` with a `Cache` type modelled on `imaging.Loader`: `entries *lru.Cache[string, imaging.StockInfo]` guarded by a `sync.Mutex`, an `inflight map[string]*infoWaiter` with a `done chan struct{}` so two goroutines asking for the same photo do one file read, and injectable function fields `read func(model.Photo) (imaging.StockInfo, error)` and `writeSidecar func(path string, tags model.Tags) error` (the same stub-for-tests pattern as `Loader.loadImage` and `Tagger.run`/`lookup`). `NewCache(exif *imaging.ExifService) *Cache` wires them to `exif.GetStockInfo` and `imaging.WriteSidecar` and sizes the LRU by entry count only (proposed `cacheMaxEntries = 2048`). API: `Get` read-through, `Peek` non-blocking, `Store` (replaces tags, keeps the already read `Taken` date), `SaveSidecar` (no-op without a RAW, otherwise writes `model.SidecarPath(photo.RAWPath)` and stores only after a successful write), `Forget(paths ...string)` and `Clear()`. Key is `photo.ImagePath`. Errors are returned but not cached, like the loader. The cache mutex is never held across a `read` call. Tests in `internal/core/tags/cache_test.go` (testify, stub funcs, `t.Parallel()` in the style of `image_loader_test.go`): read-through hit, Peek miss/hit, concurrent Get does one read, errors not cached, Store keeps Taken, SaveSidecar writes then stores, failed write leaves the entry untouched, no-RAW writes nothing, Forget/Clear, eviction.",
-            "files": [
-              "internal/core/tags/cache.go",
-              "internal/core/tags/cache_test.go"
-            ]
-          },
-          {
-            "title": "Wire the cache into the app and make the Tags dialog read from it",
-            "details": "In `internal/gui/app/app.go` add a `tagsCache *tags.Cache` field to `Application` and build it in `New()` from the `exifService` already constructed there. In `internal/gui/app/actions.go`: `handleTags` seeds the dialog from `a.tagsCache.Peek(photo)` right after `session.dialog.Show()` when the entry exists (sets `session.saved`, calls `SetPhotoInfo`), so a reopened dialog is filled without a flash; `tagsSession.prefill` keeps its goroutine but calls `s.app.tagsCache.Get(s.photo)` instead of `s.app.exifService.GetStockInfo` and returns early when already seeded; `tagsSession.saveSidecar` calls `s.app.tagsCache.SaveSidecar(s.photo, saved)` in place of the direct `imaging.WriteSidecar`; `tagsSession.generate` calls `Store` on success so generated tags survive the dialog even for a JPEG with no RAW pair; `saveJPEG` calls `Store` after a successful `WriteStockTags`. The `saved` bookkeeping and revert-on-failure stay unchanged. No test here: `internal/gui/app` has no harness for `Application` (only `settings_test.go`).",
-            "files": [
-              "internal/gui/app/app.go",
-              "internal/gui/app/actions.go"
-            ]
-          },
-          {
-            "title": "Forget cached tags for deleted photos",
-            "details": "In `internal/gui/app/actions.go` the delete paths drop their cache entries so a file recreated at the same path is read afresh: `handleDelete` calls `a.tagsCache.Forget(photo.ImagePath)` next to the existing `a.colorService.RemoveColors(photo)`, and `handleDeleteAll` collects the paths it already gathers into `deletedPhotos` and calls `a.tagsCache.Forget(paths...)` beside `RemoveMultipleColors`. Both run on the worker goroutine, which is fine — the cache has its own lock and touches no widget.",
-            "files": [
-              "internal/gui/app/actions.go"
-            ]
-          },
-          {
-            "title": "Warm the cache for the photo on screen",
-            "details": "In `internal/gui/app/navigation.go`, `showPhoto` starts a goroutine that calls `a.tagsCache.Get(photo)` and only logs a failure (`log.Printf`), touching no widget, so no `fyne.Do` wrapping is needed. The tags of the photo being looked at are then in memory by the time `T` is pressed, and todo #2 can paint from `Peek` without I/O on the main goroutine. Only the current photo is warmed, not the 15 neighbours `prefetchAdjacent` preloads: reading tags parses the whole JPEG through `GetStockInfo`.",
-            "files": [
-              "internal/gui/app/navigation.go"
-            ]
-          }
-        ],
-        "questions": [
-          {
-            "question": "Placement: put the cache in `internal/core/tags` (package `tags` then imports `internal/core/imaging` for `StockInfo`/`GetStockInfo`/`WriteSidecar`; there is no cycle, imaging does not import tags). Assume yes unless you would rather have it in `internal/core/imaging` next to the readers, or have a tags-local `Info` struct instead of returning `imaging.StockInfo`. Affects step 1.",
-            "answer": null
-          },
-          {
-            "question": "Should tags that were generated but not yet saved to any file be cached (so closing and reopening the dialog for a JPEG with no RAW pair shows them again)? Assume yes. Affects step 2, and it means a future \"display tags on the photo\" (todo #2) may show tags that are not in the file.",
-            "answer": null
-          },
-          {
-            "question": "Cache lifetime: entries survive a folder change and are never revalidated against file mtime, so tags edited by Lightroom or exiftool while the app runs are not picked up until restart (only an app-side write refreshes them). Assume that is acceptable; the alternative is a mtime check on each `Get` or a `Clear()` in `loadDirectory`. Affects steps 1 and 4.",
-            "answer": null
-          },
-          {
-            "question": "Cache size: 2048 entries, LRU by count, no byte budget. Assume fine unless you want it to cover a whole large folder (10k photos) outright. Affects step 1.",
-            "answer": null
-          },
-          {
-            "question": "Should `Get` cache a partial result that came back with an error (e.g. a JPEG with a broken XMP packet but a readable sidecar)? Assume no, matching `Loader`, at the cost of re-reading such files on every access. Affects step 1.",
-            "answer": null
-          }
-        ],
-        "risks": [
-          "Stale tags: the cache is authoritative for the UI while another program editing the sidecar or the JPEG in the background is invisible to it.",
-          "What is cached after a save is what the app handed to the writer, which may not be byte-identical to what a re-read of the file would return (the XMP/EXIF write path normalizes and can be refused); todo #2 will display those cached values.",
-          "Two locks now sit on the tags read path (the cache's inflight mutex and `ExifService.access`); the plan keeps the cache mutex out of the `read` call to avoid holding one while waiting on the other.",
-          "`internal/gui/app` is effectively untested, so steps 2-4 are only covered by manual runs; keeping the session's `saved`/revert logic unchanged is what limits the blast radius of the sidecar write path.",
-          "Warming on every photo shown adds one full JPEG parse per navigation step on the worker goroutine; on a slow volume that is extra I/O competing with image preloading."
-        ]
-      }
-    },
     {
       "id": 2,
       "description": "Display the tags on the photo",
@@ -313,6 +230,48 @@
           "Overlap with open todos #1 (tag cache) and #2 (display tags): the persistence helper added here is the code #1 would move behind a cache, so expect a merge touch-up in internal/gui/app/tags_background.go."
         ]
       }
+    },
+    {
+      "id": 4,
+      "description": "Try to simplify the code.",
+      "context": "Codebase-wide simplification pass on a Go + Fyne photo viewer (GUI in internal/gui, everything else in internal/core, which may not import Fyne); a /simplify skill and golangci-lint are configured. The densest spots are internal/gui/app/actions.go (711 lines, 29 funcs, holding button-state sync, per-photo actions, three near-parallel bulk flows handleDeleteAll/handleUnselectAll/handleCopyAll that each repeat the gridMode/dialogs.anyOpen guard plus FilteredPhotos progress-dialog scaffolding, and the whole tagsSession lifecycle) and internal/gui/ui/filebrowser.go (530 lines, 38 funcs mixing tree, list, sorting and color filtering); internal/core/imaging is 22 files whose EXIF/XMP/JPEG-segment responsibilities overlap across exif.go, exif_tags.go, exif_write.go, xmp.go, xmp_packet.go and jpeg_file.go. This is separate work from todo #1 and should not be scoped to the tags change.",
+      "docs": [
+        "internal/gui/app/actions.go",
+        "internal/gui/ui/filebrowser.go",
+        "internal/core/imaging/exif.go",
+        "internal/core/imaging/exif_tags.go",
+        "internal/core/imaging/xmp.go",
+        "internal/core/imaging/image_loader.go",
+        "internal/gui/app/app.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T09:12:34Z",
+      "updated_at": "2026-08-24T09:12:34Z",
+      "plan": null
+    },
+    {
+      "id": 5,
+      "description": "Move all OS-dependent code into separate packages under internal",
+      "context": "Per-OS/build-tagged code should be pulled out of feature packages into dedicated single-purpose packages under internal, following the existing internal/core/clipboard and internal/core/proc pattern. The trigger is file_created_{darwin,windows,other}.go, added directly inside internal/core/imaging (fileCreated via syscall Birthtimespec / Win32FileAttributeData.CreationTime / ModTime), called from exif_tags.go. The other OS-split site is internal/gui/ui/maximize_{darwin,windows,unix}.go; internal/core/tags/claude_path.go switches on runtime.GOOS rather than build tags, and CLAUDE.md documents the package layout that must stay in sync.",
+      "docs": [
+        "internal/core/imaging/file_created_darwin.go",
+        "internal/core/imaging/file_created_windows.go",
+        "internal/core/imaging/file_created_other.go",
+        "internal/core/imaging/exif_tags.go",
+        "internal/core/clipboard/clipboard_other.go",
+        "internal/core/proc/hide_other.go",
+        "internal/gui/ui/maximize_darwin.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T10:34:12Z",
+      "updated_at": "2026-08-24T10:34:12Z",
+      "plan": null
     }
   ]
 }
