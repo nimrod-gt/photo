@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
 
 	"github.com/stretchr/testify/assert"
@@ -108,13 +109,13 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("propagates the lookup failure", func(t *testing.T) {
 		tagger := &Tagger{
 			run:     (&fakeRun{}).run,
-			lookup:  func(string) (string, error) { return "", ErrClaudeNotFound },
+			lookup:  func(string) (string, error) { return "", claudebin.ErrNotFound },
 			now:     func() time.Time { return testNow },
 			timeout: time.Minute,
 		}
 
 		_, err := tagger.Generate(t.Context(), testRequest(""))
-		assert.ErrorIs(t, err, ErrClaudeNotFound)
+		assert.ErrorIs(t, err, claudebin.ErrNotFound)
 	})
 
 	t.Run("passes the configured path to the lookup", func(t *testing.T) {
@@ -335,7 +336,7 @@ func TestStockPhotoPrompt(t *testing.T) {
 func TestRunClaude_CancelKillsTheProcess(t *testing.T) {
 	t.Parallel()
 
-	if runtime.GOOS == osWindows {
+	if runtime.GOOS == "windows" {
 		t.Skip("no sleep binary on windows")
 	}
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
 	"photo/internal/core/proc"
 )
@@ -52,7 +53,7 @@ type Tagger struct {
 }
 
 func NewTagger() *Tagger {
-	return &Tagger{run: runClaude, lookup: LookupClaude, now: time.Now, timeout: taggerTimeout}
+	return &Tagger{run: runClaude, lookup: claudebin.Lookup, now: time.Now, timeout: taggerTimeout}
 }
 
 func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) {
@@ -202,7 +203,7 @@ func excerptText(text string) string {
 }
 
 func runClaude(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // binary is resolved by LookupClaude
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // binary is resolved by claudebin.Lookup
 	cmd.Dir = os.TempDir()
 	proc.Hide(cmd)
 

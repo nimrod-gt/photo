@@ -64,6 +64,7 @@ internal/
     imaging/    image loader, jpeg decoding, thumbnail provider, orientation, EXIF/XMP read, in-place XMP packet writes (favorite, stock tags)
     proc/       hidden-window attributes for child processes
     tags/       stock metadata generation via the claude CLI + prompts/
+    claudebin/  claude CLI lookup, per-OS
     clipboard/  per-OS clipboard image copy
   gui/
     app/        wiring, actions, dialog state

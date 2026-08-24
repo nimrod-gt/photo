@@ -12,8 +12,8 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
+	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
-	"photo/internal/core/tags"
 )
 
 const (
@@ -293,7 +293,7 @@ func (d *TagsDialog) showTags(shown model.Tags) {
 
 func (d *TagsDialog) Fail(err error) {
 	d.finishRun()
-	if errors.Is(err, tags.ErrClaudeNotFound) {
+	if errors.Is(err, claudebin.ErrNotFound) {
 		d.pathRow.Show()
 	}
 	d.setStatus(err.Error())

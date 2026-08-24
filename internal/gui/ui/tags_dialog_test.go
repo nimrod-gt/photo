@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
-	"photo/internal/core/tags"
 )
 
 func newTestTagsDialog(t *testing.T, callbacks TagsDialogCallbacks) *TagsDialog {
@@ -170,7 +170,7 @@ func TestTagsDialog(t *testing.T) {
 	t.Run("missing binary reveals the path entry", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
-		d.Fail(fmt.Errorf("looking up: %w", tags.ErrClaudeNotFound))
+		d.Fail(fmt.Errorf("looking up: %w", claudebin.ErrNotFound))
 
 		assert.True(t, d.pathRow.Visible())
 	})
