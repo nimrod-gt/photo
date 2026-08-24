@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 6,
+  "next_id": 8,
   "todos": [
     {
       "id": 2,
@@ -475,6 +475,158 @@
           "Renaming `ErrClaudeNotFound` -> `claudebin.ErrNotFound` touches the GUI (`tags_dialog.go`); the `errors.Is` check must keep pointing at the same sentinel or the \"claude CLI not found\" branch of the tags dialog silently stops matching.",
           "`tagger_test.go` borrows the `osWindows` constant from `claude_path.go`; if the constant leaves the package without that test being updated, the `tags` package stops compiling.",
           "CLAUDE.md documents the package layout and is loaded as project context; leaving it stale is a real (if non-breaking) regression, so each step should update the tree it changes."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "description": "Fix the unbounded widget map leak in the file browser and grid viewer by replacing the identity maps with a custom item widget type carrying its own state",
+      "context": "On branch todo/4-simplify-code a review found that FileBrowser.items (internal/gui/ui/filebrowser.go, populated/read in internal/gui/ui/browseritem.go createItem/updateItem) and GridViewer.items (internal/gui/ui/gridviewer.go) are maps keyed by the root fyne.CanvasObject of each row/tile; since Fyne's List/GridWrap recreates item canvas objects on Refresh, each Refresh leaves a stale entry and the maps grow without bound. The agreed direction is to replace the identity map with a custom list/grid item widget type that carries its own state (thumb, name, star, dots, dateText for the browser; thumb, name for the grid). Row rendering for the file browser already lives in internal/gui/ui/browseritem.go with tests in internal/gui/ui/browseritem_test.go; the grid has no dedicated test file yet.",
+      "docs": [
+        "internal/gui/ui/browseritem.go",
+        "internal/gui/ui/browseritem_test.go",
+        "internal/gui/ui/filebrowser.go",
+        "internal/gui/ui/gridviewer.go",
+        "internal/gui/ui/photolist.go",
+        "internal/gui/ui/photolist_test.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T14:09:07Z",
+      "updated_at": "2026-08-24T14:15:59Z",
+      "plan": {
+        "created_at": "2026-08-24T14:15:59Z",
+        "revised_at": null,
+        "base_commit": "a1d5806",
+        "summary": "Both list-style views keep a `map[fyne.CanvasObject]*item` that is written in `createItem` and never pruned; because Fyne's `listRenderer.Refresh`/`gridWrapRenderer.Refresh` call `CreateItem` again (once for `itemMin`, plus drained item pool), every `Refresh` adds entries that are never removed, so the maps grow without bound and pin canvas objects and their thumbnails alive. The fix is to turn the per-row/per-tile state holders into real Fyne widgets that embed `widget.BaseWidget`, hold their own children, and expose an `update(...)` method; `createItem` then returns the widget itself and `updateItem` recovers the state with a type assertion instead of a map lookup, letting the widget (and its state) be garbage-collected with the canvas object. Step 1 does the file browser row (`browserItem`, `internal/gui/ui/browseritem.go` + `filebrowser.go`), step 2 does the grid tile (`gridItem`, moved out of `gridviewer.go` into a new `griditem.go`). Each step also extends/creates the matching test file so the reuse behaviour (state carried by the widget, stale values cleared when a row is reused for another photo) is covered. Existing free helpers (`updateThumbnail`, `updateStar`, `updateColorDots`, `updateDateText`) stay as functions so the current unit tests keep working.",
+        "steps": [
+          {
+            "title": "Turn the file browser row into a self-contained widget",
+            "details": "In `internal/gui/ui/browseritem.go` change `browserItem` to embed `widget.BaseWidget` and keep its existing children (`thumb`, `name`, `star`, `dots`, `dateText`) plus the assembled `root fyne.CanvasObject`. Add `newBrowserItem() *browserItem` that builds exactly the object tree that `FileBrowser.createItem` builds today (thumb with min size `thumbnailWidth`x`thumbnailHeight` and `ImageFillContain`, truncating name label, hidden star, `newColorDots()`, date text in the padded layout, the border/stack root) and calls `ExtendBaseWidget(item)` before returning; add `func (bi *browserItem) CreateRenderer() fyne.WidgetRenderer { return widget.NewSimpleRenderer(bi.root) }`. Add `func (bi *browserItem) update(photo model.Photo, meta model.PhotoMeta, thumbnail image.Image)` containing the body of the current `updateItem` after the data lookup (updateThumbnail/SetText/updateStar/updateColorDots/updateDateText). Keep the four free helper functions unchanged so the existing tests still compile. Rewrite `FileBrowser.createItem` to `return newBrowserItem()` and `FileBrowser.updateItem` to fetch the data via `fb.data.itemAt(id)`, resolve the thumbnail (`meta.Thumbnail` else `fb.imageProvider.Thumbnail(photo.ImagePath)`), then `item, ok := obj.(*browserItem); if !ok { return }` and `item.update(...)`. In `internal/gui/ui/filebrowser.go` delete the `items map[fyne.CanvasObject]*browserItem` field (line ~54) and its initialisation in `NewFileBrowser` (line ~71). In `internal/gui/ui/browseritem_test.go` add a test (no `t.Parallel`, using `test.NewTempWindow(t, item)` from `fyne.io/fyne/v2/test`, matching the driver-sharing note in `tags_dialog_test.go`) that creates one `browserItem`, calls `update` with a favourite photo carrying two colours and a date, asserts star/dots/date/name, then calls `update` again with a plain photo and asserts the star is hidden, the extra dots are hidden, the date text is empty and the name changed - i.e. the state now travels with the widget and no map is consulted.",
+            "files": [
+              "internal/gui/ui/browseritem.go",
+              "internal/gui/ui/filebrowser.go",
+              "internal/gui/ui/browseritem_test.go"
+            ]
+          },
+          {
+            "title": "Turn the grid tile into a self-contained widget and drop the grid map",
+            "details": "Create `internal/gui/ui/griditem.go` holding `type gridItem struct { widget.BaseWidget; thumb *canvas.Image; name *widget.Label; root fyne.CanvasObject }`, a `newGridItem(tileWidth float32) *gridItem` that reproduces today's `GridViewer.createItem` body (thumb min size `tileWidth` x `tileWidth*gridThumbRatio`, `ImageFillContain`, centred truncating label, `container.NewBorder(nil, name, nil, nil, thumb)`) and calls `ExtendBaseWidget`, a `CreateRenderer` returning `widget.NewSimpleRenderer(gi.root)`, and `func (gi *gridItem) update(name string, img image.Image)` that calls `updateThumbnail(gi.thumb, img)` (the helper in browseritem.go is behaviourally identical to the grid's inline code) and `gi.name.SetText(name)`. In `internal/gui/ui/gridviewer.go` remove the `items` map field and its initialisation in `NewGridViewer`, remove the `gridItem` struct, make `createItem` read `tileWidth` under the mutex and `return newGridItem(tw)`, and rewrite `updateItem` to keep the existing locking and visibleMin/visibleMax bookkeeping but pick the image first (`gv.imageProvider.Peek(...)`, else `meta.Thumbnail` + `gv.schedulePreload()`, else nil + `gv.schedulePreload()`), then `item, ok := obj.(*gridItem); if !ok { return }` and `item.update(photo.Name, img)`; drop the now-unused `canvas` import if nothing else in the file uses it. Add `internal/gui/ui/griditem_test.go` (non-parallel, `test.NewTempWindow(t, item)`) asserting that a single `gridItem` reused for two photos shows the thumbnail and name of the second one and that passing a nil image hides the thumb and clears nothing else - covering the tile reuse path the grid has no test for today.",
+            "files": [
+              "internal/gui/ui/griditem.go",
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/griditem_test.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Should `gridItem` live in a new `internal/gui/ui/griditem.go` (symmetric with `browseritem.go`) or stay inside `gridviewer.go`? Assume the new file unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "The grid tile currently reuses `updateThumbnail` from `browseritem.go`, which is a small overlap with todo #7 (dedup thumbnail loading). Is that acceptable now, or should the grid keep its own inline image code until #7 lands? Assume reuse is fine.",
+            "answer": null
+          },
+          {
+            "question": "The tile thumbnail min size is set only at creation time (a resize relies on `grid.Refresh()` recreating items). Should `gridItem.update` also re-apply the current tile size? Assume no - keep today's behaviour, no functional change in this todo.",
+            "answer": null
+          },
+          {
+            "question": "New tests instantiate real widgets and therefore need the Fyne test driver (`test.NewTempWindow`) and must not use `t.Parallel`, unlike the current pure-helper tests in `browseritem_test.go`. Assume that mixed style is acceptable.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Row/tile sizing: `List`/`GridWrap` derive `itemMin` from `CreateItem().MinSize()`. `widget.NewSimpleRenderer` delegates MinSize to the wrapped root, so sizes should be identical, but a wrong `ExtendBaseWidget` call (missing, or before children are assigned) yields a zero MinSize and collapsed rows - verify visually or via a MinSize assertion in the tests.",
+          "`createItemAndApplyThemeScope` in Fyne wraps the created object for theme scoping; custom widgets are supported, but each created widget now takes an entry in Fyne's internal renderer cache. That cache is expiry-driven and bounded, unlike the maps being removed, so this is a fix rather than a new leak - still worth a quick memory sanity check on a large folder.",
+          "`FileBrowser.updateItem`/`GridViewer.updateItem` silently return when the type assertion fails; if any future caller passes a different object type the row will render stale content with no error, same failure mode as the old map miss.",
+          "Touches files also under change on branch `todo/4-simplify-code` (`browseritem.go`, `filebrowser.go`) and overlaps with the future todo #7, so conflicts are likely if #7 starts before this lands."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "description": "Deduplicate the thumbnail loading logic between the grid viewer and the file browser row updateThumbnail",
+      "context": "During the code-simplification pass on branch todo/4-simplify-code, file-browser row rendering (including the shared updateThumbnail helper that sets/hides a *canvas.Image) was extracted into internal/gui/ui/browseritem.go with tests in browseritem_test.go; review flagged that GridViewer.updateItem in internal/gui/ui/gridviewer.go repeats essentially the same thumbnail resolve-and-apply flow (provider Peek/Thumbnail fallback to meta.Thumbnail, else hide, plus async preload refresh) and the deduplication was deliberately deferred to this todo. Both paths read from the same thumbnail cache in internal/core/imaging/image_provider.go (Peek/Get/Preload/Thumbnail/Gen), but differ in that the grid is size-aware (thumbPixelSize) and schedules preloads while the browser row does not. There are no tests for gridviewer.go or filebrowser.go, so browseritem_test.go is the only existing coverage for the shared helper.",
+      "docs": [
+        "internal/gui/ui/browseritem.go",
+        "internal/gui/ui/browseritem_test.go",
+        "internal/gui/ui/gridviewer.go",
+        "internal/gui/ui/filebrowser.go",
+        "internal/core/imaging/image_provider.go",
+        "internal/core/imaging/image_provider_test.go"
+      ],
+      "depends_on": [
+        4
+      ],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T14:09:07Z",
+      "updated_at": "2026-08-24T14:16:38Z",
+      "plan": {
+        "created_at": "2026-08-24T14:16:38Z",
+        "revised_at": null,
+        "base_commit": "a1d5806",
+        "summary": "GridViewer.updateItem and the file-browser row both resolve a thumbnail out of imaging.Provider and push it onto a *canvas.Image, differing only in that the grid asks for a size-aware image (Peek(path, thumbPixelSize)) and schedules a background preload when the sized image is not cached yet, while the row asks only for the small cached thumbnail (Provider.Thumbnail) and never preloads. The plan extracts one helper into a new internal/gui/ui/thumbnail.go: a narrow thumbnailSource interface (Peek + Thumbnail, satisfied by *imaging.Provider and by a fake in tests), a resolve step that returns the best in-memory image plus a needsLoad flag, and the existing updateThumbnail show/hide/refresh step, wrapped in applyThumbnail(thumb, src, path, embedded, size) (needsLoad bool). The browser passes size <= 0 and ignores the flag; the grid passes thumbPixelSize() and calls schedulePreload() when needsLoad is true, so the preload policy and the size-awareness stay where they belong. Note that Provider.Peek(path, 0) is NOT equivalent to Provider.Thumbnail(path) (loader.Peek clamps size to 1 and would hand back a full-resolution decoded image for a 48x36 row), so the unsized path must keep calling Thumbnail. The only intended behaviour change is that the browser row now prefers the provider's cached thumbnail over meta.Thumbnail, matching the grid; both images are orientation-corrected and at most 160px, so the row looks the same.",
+        "steps": [
+          {
+            "title": "Extract the shared thumbnail resolve-and-apply helper and use it in the browser row",
+            "details": "Create internal/gui/ui/thumbnail.go holding: (1) `type thumbnailSource interface { Peek(path string, size int) image.Image; Thumbnail(path string) image.Image }`, which *imaging.Provider already satisfies; (2) `updateThumbnail(thumb *canvas.Image, img image.Image)` moved verbatim out of browseritem.go (set Image + Show, or nil + Hide, then Refresh); (3) `applyThumbnail(thumb *canvas.Image, src thumbnailSource, path string, embedded image.Image, size int) (needsLoad bool)` which does: if size > 0 and src.Peek(path, size) != nil -> apply it, return false; if size <= 0 and src.Thumbnail(path) != nil -> apply it, return false; otherwise apply `embedded` (may be nil, which hides the widget) and return true. Keep a short comment saying why size <= 0 must not go through Peek: Loader.Peek clamps the size to 1 and would return the full-resolution cached image, which the 48x36 row must never hold. Then change FileBrowser.updateItem in internal/gui/ui/browseritem.go to a single `applyThumbnail(item.thumb, fb.imageProvider, photo.ImagePath, meta.Thumbnail, 0)` call, dropping the local `thumbnail` variable and the direct Provider.Thumbnail call; remove updateThumbnail and the now-unused `image` import from browseritem.go. Add internal/gui/ui/thumbnail_test.go with a fake thumbnailSource (records the sizes it was asked for, returns canned images) covering: sized hit -> that image shown, needsLoad false; sized miss with embedded -> embedded shown, needsLoad true; sized miss without embedded -> Image nil, widget hidden, needsLoad true; unsized -> cached thumbnail wins over embedded and Peek is never called; and the reuse case where a widget that held an image is reset for a photo with none (stays hidden with a nil Image). Follow the existing style of browseritem_test.go (t.Parallel, testify require/assert, no fyne test app needed - canvas.Refresh is a no-op without a running app). Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`.",
+            "files": [
+              "internal/gui/ui/thumbnail.go",
+              "internal/gui/ui/thumbnail_test.go",
+              "internal/gui/ui/browseritem.go"
+            ]
+          },
+          {
+            "title": "Route GridViewer.updateItem through the shared helper",
+            "details": "In internal/gui/ui/gridviewer.go replace the four-branch if/else in updateItem (lines ~163-176) with `if applyThumbnail(item.thumb, gv.imageProvider, photo.ImagePath, meta.Thumbnail, gv.thumbPixelSize()) { gv.schedulePreload() }`, keeping thumbPixelSize() called outside gv.mu as it is today (it takes the mutex itself). Leave the name label update, the visibleMin/visibleMax bookkeeping and schedulePreload untouched. Double-check the preload trigger is unchanged: today a preload is scheduled whenever the sized Peek missed, whether or not the embedded thumbnail filled in - the helper's needsLoad must be true in both of those cases and false only on a Peek hit, otherwise tiles either stay at embedded-thumbnail quality forever or the preload goroutine is re-armed on every visible tile. Extend internal/gui/ui/thumbnail_test.go with an explicit assertion for the grid-shaped contract (size > 0, embedded present, Peek miss -> needsLoad true) if step 1 did not already name that case. Verify the canvas.Image drops its old image when a tile is reused for a photo with nothing cached. Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`; then, if the app can be launched, open a folder and toggle grid view (L) to confirm tiles still sharpen as preloads land and the left-hand rows still show thumbnails.",
+            "files": [
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/thumbnail_test.go"
+            ]
+          },
+          {
+            "title": "Share the thumbnail canvas.Image constructor between the two createItem functions",
+            "details": "Both FileBrowser.createItem (internal/gui/ui/browseritem.go) and GridViewer.createItem (internal/gui/ui/gridviewer.go) build the same widget: canvas.NewImageFromImage(nil) + SetMinSize(w, h) + FillMode = canvas.ImageFillContain. Add `newThumbnailImage(width, height float32) *canvas.Image` to internal/gui/ui/thumbnail.go and call it from both, with the browser passing thumbnailWidth/thumbnailHeight and the grid passing tw and tw*gridThumbRatio. Pure refactor, no behaviour change; a one-line test in thumbnail_test.go asserting the min size and fill mode is enough. Skip this step if the answer to the corresponding question is no. Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`.",
+            "files": [
+              "internal/gui/ui/thumbnail.go",
+              "internal/gui/ui/browseritem.go",
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/thumbnail_test.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "The file-browser row currently prefers meta.Thumbnail and only then the provider cache, while the grid prefers the cache. Unifying on cache-first means a row can show the decoded downscaled thumbnail (<=160px, orientation-corrected) instead of the embedded EXIF one - visually the same at 48x36. Assume cache-first for both unless told otherwise; affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Is a single applyThumbnail with `size <= 0` meaning 'small cached thumbnail only' acceptable, or should there be two named functions (e.g. applySizedThumbnail / applyRowThumbnail)? Assume the single function with the sentinel; affects steps 1 and 2.",
+            "answer": null
+          },
+          {
+            "question": "Should the helper stay in internal/gui/ui behind a small thumbnailSource interface, or should imaging.Provider grow a resolve method (core may not import Fyne, so only the image resolution could move)? Assume it stays in internal/gui/ui; affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Is step 3 (sharing newThumbnailImage between the two createItem functions) in scope for this todo, or should it be left to todo #6, which rewrites both item constructors anyway? Assume in scope unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "browseritem.go exists only on branch todo/4-simplify-code, not on main. Should this todo's branch be cut from todo/4-simplify-code (or should #4 be merged first)? Assume branching from todo/4-simplify-code; affects every step.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Hard prerequisite: internal/gui/ui/browseritem.go and the current shape of updateItem exist only on branch todo/4-simplify-code; branching from main would make every step unbuildable.",
+          "Overlap with todo #6, which replaces the fb.items / gv.items identity maps with item widget types and rewrites the same two updateItem bodies - whichever lands second will have to rebase over the other.",
+          "Getting the needsLoad flag wrong silently breaks the grid: always false means tiles never sharpen past the embedded thumbnail; always true re-arms the preload goroutine on every visible tile (extra CPU and repeated RefreshItem calls).",
+          "Provider.Peek(path, 0) is not a drop-in for Provider.Thumbnail(path) - loader.Peek clamps the size to 1 and returns any cached full-resolution image, so routing the browser row through Peek would put a full-size image into a 48x36 canvas.Image and rescale it on every draw.",
+          "There are no tests for gridviewer.go or filebrowser.go, so the grid change is only covered indirectly through the helper's tests; the preload/refresh behaviour has to be confirmed by running the app."
         ]
       }
     }

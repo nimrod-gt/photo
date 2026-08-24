@@ -2,7 +2,6 @@
 name: todo
 description: Per-project micro-task list stored in todo.json. Subcommands: new (default, keyword optional), list, plan [n], start n, finish n, order, help.
 argument-hint: "[<text> | new <text> | list [full] | plan [n] | start <n> | finish <n> | order | help]"
-disable-model-invocation: true
 allowed-tools: Read, Write, Glob, Grep, Agent, AskUserQuestion, ToolSearch, Bash(date:*), Bash(git rev-parse:*), Bash(git log:*), Bash(git diff:*), Bash(git branch:*), Bash(git status:*), Bash(git checkout:*), Bash(git symbolic-ref:*)
 ---
 
