@@ -249,8 +249,113 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-24T09:12:34Z",
-      "updated_at": "2026-08-24T09:12:34Z",
-      "plan": null
+      "updated_at": "2026-08-24T11:08:17Z",
+      "plan": {
+        "created_at": "2026-08-24T11:08:17Z",
+        "revised_at": null,
+        "base_commit": "4f3a7c9",
+        "summary": "A behaviour-neutral simplification pass over the three densest areas of the codebase, done as small independently reviewable steps. In `internal/gui/app` the 768-line `actions.go` is first split by concern (button-state sync, per-photo actions, bulk flows, tags session) with pure code motion, then the repetition inside it is removed: one helper builds and registers every confirm dialog (`handleDelete`, `handleCopy`, `handleDeleteAll`, `handleUnselectAll` all repeat the same six lines), one helper runs a per-photo toggle off the main goroutine (`handleFavorite`/`handleColorToggle`), and the dead `favorite` argument that `handleColorToggle` computes and `photoStateChanged` ignores is removed. In `internal/gui/ui` the 38 `if callbacks.OnX != nil` guards collapse into a `call`/`iconButton` pair, `filebrowser.go` gets one `refreshRows` helper for the applyFilter+bulkbar+Refresh triple it repeats four times, and the row-rendering half of the file moves into its own file with tests. In `internal/core/imaging` two genuine duplications go: the inflight-waiter load dance shared by `Loader.Get` and `Loader.Preload`, and the \"read the RAW sidecar and fill what the JPEG lacks\" logic that exists in both `ExifService.GetStockInfo` and `Provider.completeStock`. No user-visible behaviour changes anywhere.",
+        "steps": [
+          {
+            "title": "Split internal/gui/app/actions.go by concern (code motion only)",
+            "details": "Move code out of `actions.go` into three new files in the same package, changing nothing else, so the diff is reviewable as pure motion. `action_states.go`: `updateActionStates`, `clearActionStates`, `clearViewer`, `favoriteOf`, `metaOf`, `updateFavoriteButtonStates`, `setFavoriteButtonStates`, `updateColorButtonStates`, `handleMetaLoaded`, `photoStateChanged`. `bulk_actions.go`: `handleDeleteAll`, `handleUnselectAll`, `handleCopyAll`. `tags_action.go`: `handleTags`, the whole `tagsSession` type and its methods (`seed`, `storeStock`, `generate`, `saveSidecar`, `saveJPEG`, `close`, `prefill`), the `rewrittenNote` constant and `Application.saveTags`. `actions.go` keeps the per-photo actions and the guards: `handleColorToggle`, `handleFavorite`, `handleCopyToClipboard`, `handleDelete`, `handleCopy`, `handleHelp`, `handleCancel`, `shortcutsBlocked`, `foreignOverlayOnTop`. Fix the import blocks of each file to what it actually uses; keep every comment attached to the function it explains.",
+            "files": [
+              "internal/gui/app/actions.go",
+              "internal/gui/app/action_states.go",
+              "internal/gui/app/bulk_actions.go",
+              "internal/gui/app/tags_action.go"
+            ]
+          },
+          {
+            "title": "One confirm-dialog helper and shared guards in internal/gui/app",
+            "details": "In `dialogs.go` add `func (a *Application) showConfirm(kind dialogKind, title, confirmText, cancelText string, content fyne.CanvasObject, onConfirm func())` that builds `dialog.NewCustomConfirm`, calls `a.dialogs.closed()` and returns early on cancel, registers with `a.dialogs.open(kind, d, nil)` and shows it. Use it in `handleDelete`, `handleCopy` (actions.go) and `handleDeleteAll`, `handleUnselectAll` (bulk_actions.go) — all four register the same way with a nil onCancel today. Add `func (a *Application) dialogBlocked(kind dialogKind) bool` holding the grid-mode / `isOpen(kind)`->`confirm()` / `anyOpen()` triple that `handleDelete` and `handleCopy` repeat; leave `handleHelp` (cancel-on-repeat, no grid guard) and the bulk handlers (`a.gridMode || a.dialogs.anyOpen()`, no confirm-on-repeat — the bulk dialogs have no keyboard shortcut and giving them one would be a behaviour change) as they are. Add `func pathSet(photos []model.Photo) map[string]bool` used by the two places in bulk_actions.go that build that map inline, `func (a *Application) copyPreferences() (string, library.CopyMode)` plus `saveCopyPreferences(dest string, mode library.CopyMode)` used by `handleCopy` and `handleCopyAll`, and `func (a *Application) showErrorAsync(msg string, err error)` wrapping the `fyne.Do(func(){ a.showError(...) })` pattern that appears in the goroutines of `handleColorToggle`, `handleFavorite` and `handleDelete`.",
+            "files": [
+              "internal/gui/app/dialogs.go",
+              "internal/gui/app/actions.go",
+              "internal/gui/app/bulk_actions.go"
+            ]
+          },
+          {
+            "title": "Collapse the two per-photo toggles and drop the dead favorite argument",
+            "details": "`handleFavorite` and `handleColorToggle` differ only in the toggle they call and in whether the app wrote a rating. Add `func (a *Application) toggleCurrentPhoto(failure string, ratingWritten bool, toggle func(model.Photo) (favorite bool, err error))` in actions.go: it does the `shortcutsBlocked` guard, takes `a.navigator.Current()` on the main goroutine, runs `toggle` in a goroutine and reports back through `fyne.Do`. Keep the extra `metaOf(photo).Ratable` check inside `handleFavorite` before the call. In action_states.go, note that `photoStateChanged`'s `favorite` argument is only read when `ratingWritten` is true (`updateFavoriteButtonStates` re-reads the meta), so the `a.favoriteOf(photo)` that `handleColorToggle` passes today is dead: replace the three-argument method with `photoRatingChanged(photo model.Photo, favorite bool)` and `photoColorsChanged(photo model.Photo)` over a shared unexported core, and delete `favoriteOf`, whose only caller was that dead argument. The colour toggle then passes `false` for the favorite and never reads the navigator or the browser off the main goroutine.",
+            "files": [
+              "internal/gui/app/actions.go",
+              "internal/gui/app/action_states.go"
+            ]
+          },
+          {
+            "title": "Remove the repeated nil-callback guards in internal/gui/ui",
+            "details": "Add `internal/gui/ui/callbacks.go` with `func call(fn func())` (calls fn when non-nil) and `func iconButton(label string, icon fyne.Resource, fn func()) *widget.Button` (a `widget.NewButtonWithIcon` whose handler is `func() { call(fn) }`). Apply to the 34 no-argument guards: `toolbar.go` (6 buttons in `build`), `contextmenu.go` (7 menu items — use `call` directly, `fyne.NewMenuItemWithIcon` has no button helper), `filebrowser.go` (the 10 buttons built in `build` and the two callback invocations in `SetPhotos`/`list.OnSelected`), `tags_dialog.go` (`OnClose`, `OnGenerate`, `OnCopyTitle`, `OnCopyKeywords`, `OnSaveJPEG`, `OnEscape` — leave the `d.saveJPEGBtn != nil` widget check alone), `gridviewer.go` (`OnPhotoTapped`, which takes an int argument, so only its guard is left in place), `viewer.go` (`OnTapped` uses `call`; `OnZoomChanged`/`OnSecondaryTapped` take arguments and stay as they are). No behaviour change and no new tests; `tags_dialog_test.go` already exercises those callbacks and must stay green.",
+            "files": [
+              "internal/gui/ui/callbacks.go",
+              "internal/gui/ui/toolbar.go",
+              "internal/gui/ui/contextmenu.go",
+              "internal/gui/ui/filebrowser.go",
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/viewer.go",
+              "internal/gui/ui/gridviewer.go"
+            ]
+          },
+          {
+            "title": "Factor the repeated refresh and button wiring in filebrowser.go",
+            "details": "Add `func (fb *FileBrowser) refreshRows()` for the `fb.data.applyFilter(); fb.updateBulkBarVisibility(); fb.list.Refresh()` triple repeated in `SetPhotos`, `RefreshFilter` (which additionally calls `updateFilterButtonStates`), `RemovePhoto` and `RemovePhotos`. Split `build()` (95 lines) into `buildList()`, `buildSortBar()`, `buildFilterBar()`, `buildBulkBar()` and the layout assembly; drive the four identical filter buttons from a table of `{icon fyne.Resource, callback func() func(), target **widget.Button}` or an equivalent small loop so the red/green/blue/favorite blocks stop being copy-paste. Simplify `HasActiveFilter` to `favorite || slices.Contains(slices.Collect(maps.Values(colors)), true)` or keep the loop if the linter's `modernize` rule prefers otherwise. `photolist_test.go` covers the data side and must stay green; no behaviour change.",
+            "files": [
+              "internal/gui/ui/filebrowser.go"
+            ]
+          },
+          {
+            "title": "Move the row rendering out of filebrowser.go and test it",
+            "details": "Move `createItem`, `updateItem`, `browserItem`, `updateThumbnail`, `updateStar`, `updateColorDots`, `updateDateText`, the `favoriteMark`/`colorMark` constants, `favoriteColor` and the `thumbnailWidth`/`thumbnailHeight`/`dateFontSize` constants into a new `internal/gui/ui/browseritem.go`, leaving `filebrowser.go` with the widget wiring and the `photoList` delegation. Add `internal/gui/ui/browseritem_test.go` in the style of `photolist_test.go`/`tags_dialog_test.go`: `updateColorDots` shows one dot per active label in `colorOrder` and hides the leftovers when a row is reused for a photo with fewer colours; `updateDateText` clears the text for a zero date; `updateStar` hides and shows. These build `canvas.Text`/`fyne.Container` values directly and need no window.",
+            "files": [
+              "internal/gui/ui/browseritem.go",
+              "internal/gui/ui/browseritem_test.go",
+              "internal/gui/ui/filebrowser.go"
+            ]
+          },
+          {
+            "title": "Share the inflight-load dance between Loader.Get and Loader.Preload",
+            "details": "`loadAsOwner` and the goroutine inside `Preload` both call `l.loadImage`, assign `w.img`/`w.size`/`w.err`, `close(w.done)` and then `addToCache` on success. Extract `func (l *Loader) runLoad(path string, size int, w *loadWaiter) (LoadedImage, error)` that performs the load and fills and closes the waiter, and let each caller keep its own caching rule — `Get` caches unconditionally, `Preload` only while its generation still matches — so the extraction cannot change what is cached after a folder switch. Also extract the `l.mu.Lock(); if _, ok := l.inflight[path]; ok {...}; w := &loadWaiter{done: ...}; l.inflight[path] = w; l.mu.Unlock()` registration both call sites repeat into a small `claimInflight`/`beginLoad` helper. `image_loader_test.go` covers generation bumps, byte budget and concurrent Get/Preload; extend it if any helper gains a case the existing tests do not reach.",
+            "files": [
+              "internal/core/imaging/image_loader.go",
+              "internal/core/imaging/image_loader_test.go"
+            ]
+          },
+          {
+            "title": "One sidecar-merge path in the imaging package",
+            "details": "`ExifService.GetStockInfo` (exif_tags.go) and `Provider.completeStock` (image_provider.go) both implement \"when the photo has a RAW pair, read `model.SidecarPath(photo.RAWPath)` and `fillMissing(sidecar, info.Tags)`\", with only their error handling differing (`GetStockInfo` joins the JPEG error, `completeStock` returns the info it already has). Add `func mergedWithSidecar(info StockInfo, photo model.Photo) (StockInfo, error)` in exif_tags.go that returns `info` untouched for a photo without a RAW pair and otherwise reads and folds in the sidecar, and call it from both places, keeping each caller's error wrapping at the call site. Existing coverage in `exif_tags_test.go` and `image_provider_test.go` (which exercises the cached/uncached and sidecar-wins cases) must stay green; add a case only if the helper introduces one they do not reach.",
+            "files": [
+              "internal/core/imaging/exif_tags.go",
+              "internal/core/imaging/image_provider.go",
+              "internal/core/imaging/image_provider_test.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "The whole pass is meant to be behaviour-neutral - same dialogs, same shortcuts, same files written. Confirm that; in particular I am deliberately NOT giving the bulk dialogs the confirm-on-repeat behaviour that Delete and Copy have, because nothing binds a key to them. Assume behaviour-neutral unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "The imaging file names mislead more than the code does (`xmp.go` is really the XMP sidecar, `exif_tags.go` is the stock-info reader, `exif.go` is the ExifService). Do you want a pure-rename step (`xmp.go`->`sidecar.go`, `xmp_test.go`->`sidecar_test.go`, `exif_tags.go`->`stock_info.go`, `exif.go`->`exif_service.go`)? Assume no, since it costs blame history and would conflict with todos 2 and 3, unless you say yes.",
+            "answer": null
+          },
+          {
+            "question": "`internal/gui/app` has no tests except `settings_test.go`, so steps 1-3 are verified by `go build`, `go tool golangci-lint run` and a manual run only. Is that acceptable, or should step 3 come with the first real test for that package (which needs a Fyne test window and stubs for scanner/colorService/exifService)? Assume acceptable as is.",
+            "answer": null
+          },
+          {
+            "question": "Steps 1-3 rewrite `internal/gui/app/actions.go`, which todos 2 and 3 will also touch. Should this todo be done before those two to avoid conflicts? Assume yes (do this one first) unless the other work has already started.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "`internal/gui/app` is untested, so a slip in the confirm-dialog or toggle helpers (a missing `a.dialogs.closed()`, a guard dropped, work moved out of `fyne.Do`) would only show at runtime. Every helper must keep widget and navigator access on the main goroutine, per the fyne.Do rules in CLAUDE.md.",
+          "The `Loader` inflight/generation logic is subtle: `Get` caches whatever it loaded while `Preload` drops a load whose generation changed. Extracting a helper that unifies the caching rule would silently cache images from a folder the user has left.",
+          "Splitting `actions.go` and moving `filebrowser.go`'s row rendering makes merges with todos 2 (display tags on the photo) and 3 (background tag generation) harder if they are in flight at the same time.",
+          "`git mv`-style file moves lose blame continuity for large blocks; keeping the moves in their own commit (step 1, step 6) limits the damage.",
+          "Dropping `favoriteOf` and the favorite argument of `photoStateChanged` is only safe because `updateFavoriteButtonStates` re-reads the meta; if a future change makes the button state depend on the passed value, the colour path would need it back."
+        ]
+      }
     },
     {
       "id": 5,
@@ -270,8 +375,96 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-24T10:34:12Z",
-      "updated_at": "2026-08-24T10:34:12Z",
-      "plan": null
+      "updated_at": "2026-08-24T11:06:40Z",
+      "plan": {
+        "created_at": "2026-08-24T11:06:40Z",
+        "revised_at": null,
+        "base_commit": "4f3a7c9",
+        "summary": "Pull the remaining per-OS code out of the feature packages into dedicated single-purpose packages under `internal`, matching the `internal/core/clipboard` and `internal/core/proc` pattern. Three sites move: (1) `fileCreated` in `internal/core/imaging/file_created_{darwin,windows,other}.go` becomes a new `internal/core/filedate` package exporting `Created(path) time.Time`, with only the birth-time extraction kept behind build tags and the `os.Stat`/fallback logic shared; `imaging` (exif_tags.go `withFileDate`, plus the tests in exif_tags_test.go and orientation_test.go that call `fileCreated` directly) switches to it. (2) `internal/gui/ui/maximize_{darwin,windows,unix}.go` plus `maximize_darwin.m` move into a new `internal/gui/nativewin` package exporting `Maximize(fyne.Window)`; `screen.go`/`screen_test.go` must move with them because `maximize_unix.go` uses `screenLayout`/`maximizedContentSize`/`primaryVideoMode`, so `MonitorSize` becomes `nativewin.MonitorSize` and `internal/gui/app/app.go` is updated alongside `internal/gui/ui/window.go`. (3) `internal/core/tags/claude_path.go`, which branches on `runtime.GOOS` rather than build tags, moves wholesale into `internal/core/claudebin` as `Lookup`/`ErrNotFound`, keeping the runtime switch so both the Windows and the POSIX branches stay testable from any host. Each step also updates the package-layout tree in CLAUDE.md, which the project requires to stay in sync. Nothing new is imported into `internal/core` from Fyne, and all three steps keep `go build ./...`, the ubuntu CI build (which is what compiles the `!darwin && !windows` branches) and the mingw Windows cross-build working.",
+        "steps": [
+          {
+            "title": "Extract file creation time into internal/core/filedate",
+            "details": "Create `internal/core/filedate` with a shared `created.go`: `Created(path string) time.Time` does the `os.Stat`, returns the zero time on error, calls a per-OS `birthTime(info os.FileInfo) (time.Time, bool)` and falls back to `info.ModTime()` when it reports false. Add `birthtime_darwin.go` (`*syscall.Stat_t` -> `Birthtimespec`), `birthtime_windows.go` (`*syscall.Win32FileAttributeData` -> `CreationTime.Nanoseconds()`) and `birthtime_other.go` (`//go:build !darwin && !windows`, returns false). Keep the existing explanatory comments (the photo keeps the day it was taken, so it is dated by birth time and not by the last write) on `Created`/the per-OS files; the darwin and windows files need no build tag because the filename suffix already constrains them, exactly as today. Move `internal/core/imaging/file_created_test.go` to `internal/core/filedate/created_test.go` (package `filedate`, calling `Created`), keeping both cases (a freshly written file is dated now; a missing file has no date). Delete the three `internal/core/imaging/file_created_*.go` files, make `withFileDate` in `internal/core/imaging/exif_tags.go` call `filedate.Created`, and update the direct `fileCreated(path)` assertions in `internal/core/imaging/exif_tags_test.go` (~line 61) and `internal/core/imaging/orientation_test.go` (~lines 549, 565) to `filedate.Created(path)`. Add the `filedate/` line to the layout tree in CLAUDE.md. Verify with `go build ./...`, `go test ./internal/core/...` and a Windows cross-build (`CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build ./...`).",
+            "files": [
+              "internal/core/filedate/created.go",
+              "internal/core/filedate/birthtime_darwin.go",
+              "internal/core/filedate/birthtime_windows.go",
+              "internal/core/filedate/birthtime_other.go",
+              "internal/core/filedate/created_test.go",
+              "internal/core/imaging/file_created_darwin.go",
+              "internal/core/imaging/file_created_windows.go",
+              "internal/core/imaging/file_created_other.go",
+              "internal/core/imaging/file_created_test.go",
+              "internal/core/imaging/exif_tags.go",
+              "internal/core/imaging/exif_tags_test.go",
+              "internal/core/imaging/orientation_test.go",
+              "CLAUDE.md"
+            ]
+          },
+          {
+            "title": "Extract native window maximizing into internal/gui/nativewin",
+            "details": "Create `internal/gui/nativewin` and move `internal/gui/ui/maximize_darwin.go`, `maximize_darwin.m`, `maximize_windows.go` and `maximize_unix.go` into it unchanged except for the package clause, renaming the entry point `maximizeWindow` -> exported `Maximize(window fyne.Window)` in all three variants. The `.m` file must move together with the darwin `.go` file (it keeps its `//go:build darwin` line) or the cgo call to `maximizeNSWindow` fails to link. `screen.go` and `screen_test.go` move into the same package because `maximize_unix.go` depends on `screenLayout`, `screenMetrics`, `maximizedContentSize` and `primaryVideoMode`; `MonitorSize` stays exported and becomes `nativewin.MonitorSize`, everything else stays unexported. Update `internal/gui/ui/window.go` (`MainWindow.Maximize` calls `nativewin.Maximize(mw.window)`) and `internal/gui/app/app.go` (~line 118, the `fullImageSize` once-value now calls `nativewin.MonitorSize()` and imports `photo/internal/gui/nativewin`). `screen_test.go` moves as is apart from its package clause, so the `maximizedContentSize`/`centrableHeight` table tests keep running. Add the `nativewin/` entry under `gui/` in the CLAUDE.md layout tree. The `!windows && !darwin` variant is only compiled by the ubuntu CI job, so re-read `maximize_unix.go` after the move to confirm every symbol it uses now lives in the same package; check darwin locally with `go build ./...` and `go vet ./...`, and Windows with the mingw cross-build.",
+            "files": [
+              "internal/gui/nativewin/maximize_darwin.go",
+              "internal/gui/nativewin/maximize_darwin.m",
+              "internal/gui/nativewin/maximize_windows.go",
+              "internal/gui/nativewin/maximize_unix.go",
+              "internal/gui/nativewin/screen.go",
+              "internal/gui/nativewin/screen_test.go",
+              "internal/gui/ui/maximize_darwin.go",
+              "internal/gui/ui/maximize_darwin.m",
+              "internal/gui/ui/maximize_windows.go",
+              "internal/gui/ui/maximize_unix.go",
+              "internal/gui/ui/screen.go",
+              "internal/gui/ui/screen_test.go",
+              "internal/gui/ui/window.go",
+              "internal/gui/app/app.go",
+              "CLAUDE.md"
+            ]
+          },
+          {
+            "title": "Extract the claude CLI lookup into internal/core/claudebin",
+            "details": "Move `internal/core/tags/claude_path.go` to `internal/core/claudebin/lookup.go` (package `claudebin`), renaming `LookupClaude` -> `Lookup` and `ErrClaudeNotFound` -> `ErrNotFound` to avoid stutter and keeping the unexported `lookupClaude`, `claudeBinaries`, `claudeDirs`, `claudeCandidates`, `isExecutable` helpers and the `osWindows` constant. Keep the `runtime.GOOS` switches rather than splitting into build-tagged files, so the Windows candidate list stays covered by the tests on a macOS host; the OS knowledge is now confined to one single-purpose package. Move `claude_path_test.go` to `internal/core/claudebin/lookup_test.go` with the renames applied. Update `internal/core/tags/tagger.go` (`NewTagger` uses `claudebin.Lookup`, the `//nolint:gosec` comment on `exec.CommandContext` mentions the new name) and the call sites of the error: `internal/core/tags/tagger_test.go` (~lines 111, 117 use `claudebin.ErrNotFound`; ~line 338 loses the `osWindows` constant and must compare `runtime.GOOS` against the literal `\"windows\"`), `internal/gui/ui/tags_dialog.go` (~line 314) and `internal/gui/ui/tags_dialog_test.go` (~line 173), which now import `photo/internal/core/claudebin` instead of relying on `tags`. Add the `claudebin/` line to the CLAUDE.md layout tree. Run `go test ./...` and `go tool golangci-lint run`.",
+            "files": [
+              "internal/core/claudebin/lookup.go",
+              "internal/core/claudebin/lookup_test.go",
+              "internal/core/tags/claude_path.go",
+              "internal/core/tags/claude_path_test.go",
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/tagger_test.go",
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Package naming: assume `internal/core/filedate` with `filedate.Created(path)`, `internal/gui/nativewin` with `nativewin.Maximize`/`nativewin.MonitorSize`, and `internal/core/claudebin` with `claudebin.Lookup`/`claudebin.ErrNotFound` unless you prefer other names (affects all three steps).",
+            "answer": null
+          },
+          {
+            "question": "Step 1 restructures `fileCreated` into a shared `Created` plus a per-OS `birthTime(info)` instead of three near-identical copies of the stat-and-fallback code. Assume yes; say so if you want a literal 1:1 move of the three files.",
+            "answer": null
+          },
+          {
+            "question": "Step 2 moves `screen.go`/`screen_test.go` out of `internal/gui/ui` as well (they are not OS-specific but `maximize_unix.go` needs them), so `ui.MonitorSize` becomes `nativewin.MonitorSize` and `internal/gui/app/app.go` changes. Assume yes; the alternative is keeping a one-line `ui.MonitorSize` wrapper so `app.go` is untouched.",
+            "answer": null
+          },
+          {
+            "question": "Step 3 keeps `runtime.GOOS` branching inside the new `claudebin` package rather than converting it to `_windows.go`/`_other.go` files, because build tags would make the Windows path untestable on the dev machine and CI (both non-Windows). Assume yes; say so if you want build-tagged files with per-OS tests like `internal/core/proc`.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "The darwin maximize is cgo: `maximize_darwin.m` must move together with `maximize_darwin.go` (and keep its `//go:build darwin` line), otherwise the macOS build fails to link `maximizeNSWindow`.",
+          "The `!darwin && !windows` variants (`birthtime_other.go`, `maximize_unix.go`) are not compiled on the developer's macOS host; only the ubuntu CI job builds them, so a missed symbol in the moved `maximize_unix.go` will only surface in CI.",
+          "The Windows-only files (`birthtime_windows.go`, `maximize_windows.go`) likewise only compile under `GOOS=windows`; the mingw cross-build must be run for each step, and `fyne package --release --os windows` bumps the build number in FyneApp.toml as a side effect, so prefer plain `GOOS=windows go build ./...` for verification.",
+          "Renaming `ErrClaudeNotFound` -> `claudebin.ErrNotFound` touches the GUI (`tags_dialog.go`); the `errors.Is` check must keep pointing at the same sentinel or the \"claude CLI not found\" branch of the tags dialog silently stops matching.",
+          "`tagger_test.go` borrows the `osWindows` constant from `claude_path.go`; if the constant leaves the package without that test being updated, the `tags` package stops compiling.",
+          "CLAUDE.md documents the package layout and is loaded as project context; leaving it stale is a real (if non-breaking) regression, so each step should update the tree it changes."
+        ]
+      }
     }
   ]
 }
