@@ -15,6 +15,7 @@ import (
 	"photo/internal/core/library"
 	"photo/internal/core/model"
 	"photo/internal/core/tags"
+	"photo/internal/gui/nativewin"
 	"photo/internal/gui/ui"
 )
 
@@ -115,7 +116,7 @@ func (a *Application) Run() {
 	})
 
 	a.fullImageSize = sync.OnceValue(func() int {
-		s := ui.MonitorSize()
+		s := nativewin.MonitorSize()
 		return max(s.X, s.Y)
 	})
 

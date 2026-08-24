@@ -1,6 +1,6 @@
 //go:build darwin
 
-package ui
+package nativewin
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -19,7 +19,7 @@ import (
 // Resizing through Fyne sets the size of the content, so the title bar on top of
 // it pushes the window past the visible area and the top of the content ends up
 // underneath. AppKit sizes the whole frame instead.
-func maximizeWindow(window fyne.Window) {
+func Maximize(window fyne.Window) {
 	native, ok := window.(driver.NativeWindow)
 	if !ok {
 		return

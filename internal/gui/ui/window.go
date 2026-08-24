@@ -3,6 +3,8 @@ package ui
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+
+	"photo/internal/gui/nativewin"
 )
 
 const (
@@ -54,7 +56,7 @@ func (mw *MainWindow) ShowNotification(msg string) {
 }
 
 func (mw *MainWindow) Maximize() {
-	maximizeWindow(mw.window)
+	nativewin.Maximize(mw.window)
 }
 
 func (mw *MainWindow) Show() {

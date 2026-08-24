@@ -1,6 +1,6 @@
 //go:build !windows && !darwin
 
-package ui
+package nativewin
 
 import (
 	"log"
@@ -12,7 +12,7 @@ import (
 // window is grown to the largest size that still fits the work area, which is
 // all Fyne can ask for: it sizes the content rather than the frame and can only
 // place a window by centring it on the monitor.
-func maximizeWindow(window fyne.Window) {
+func Maximize(window fyne.Window) {
 	metrics, ok := screenLayout(window.Canvas().Scale())
 	if !ok {
 		return

@@ -67,6 +67,7 @@ internal/
     clipboard/  per-OS clipboard image copy
   gui/
     app/        wiring, actions, dialog state
+    nativewin/  native window maximizing and monitor metrics, per-OS
     ui/         Fyne widgets
 ```
 

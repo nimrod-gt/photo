@@ -1,6 +1,6 @@
 //go:build windows
 
-package ui
+package nativewin
 
 import (
 	"fyne.io/fyne/v2"
@@ -10,7 +10,7 @@ import (
 
 var showWindow = windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow")
 
-func maximizeWindow(window fyne.Window) {
+func Maximize(window fyne.Window) {
 	native, ok := window.(driver.NativeWindow)
 	// A LazyProc panics when it is called and cannot be resolved, and this one
 	// runs on the goroutine the driver loop lives on.
