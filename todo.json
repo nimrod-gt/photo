@@ -1,68 +1,66 @@
 {
   "version": 1,
-  "next_id": 9,
+  "next_id": 10,
   "todos": [
     {
       "id": 2,
       "description": "Display the tags on the photo",
-      "context": "The center panel is a zoomable image widget (ui.Viewer, wrapped by MainWindow into a Border with the ActionPanel on top and stacked with the grid viewer), and today nothing is painted over the photo: per the standing UI Layout decision in CLAUDE.md, favorite/color state is surfaced only through the toolbar buttons, the context menu and the file list, all driven from Application.showPhoto -> updateActionStates. Tags (title + keywords) are visible only inside the modal Tags dialog, which re-reads them per photo through exifService.GetStockInfo from the XMP sidecar/JPEG packet; there is no in-memory tag cache yet (todo #1). Where the tags go relative to the \"nothing over the photo\" rule is not decided yet.",
+      "context": "The center panel is a zoomable image widget (ui.Viewer) stacked by MainWindow inside a Border with the ActionPanel on top and the notifier layer above it; stock tags are visible only inside the modal Tags dialog today. Since the plan was first written the tag cache landed, so tags come in with the image decode and are served by imaging.Provider.PeekStockInfo/StockInfo instead of a fresh exifService read. The user chose an overlay over the photo, which scopes the standing CLAUDE.md rule to favorite/color state.",
       "docs": [
-        "internal/gui/ui/viewer.go",
         "internal/gui/ui/window.go",
+        "internal/gui/ui/notifier.go",
+        "internal/gui/ui/viewer.go",
         "internal/gui/app/navigation.go",
-        "internal/gui/app/actions.go",
-        "internal/gui/ui/toolbar.go",
-        "internal/gui/ui/tags_dialog.go",
-        "internal/core/imaging/exif_tags.go",
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/action_states.go",
+        "internal/core/imaging/image_provider.go",
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/2-photo-tag-overlay",
       "created_at": "2026-08-23T13:45:33Z",
-      "updated_at": "2026-08-23T13:53:45Z",
+      "updated_at": "2026-08-24T18:56:58Z",
       "plan": {
         "created_at": "2026-08-23T13:53:45Z",
-        "revised_at": null,
-        "base_commit": "4fce1b4",
-        "summary": "Surface the current photo's stock tags (title + keywords) in the center panel without breaking the standing \"nothing is drawn over the photo\" rule: add a new `ui.TagBar` strip that MainWindow places in the bottom slot of the center Border (below the zoomable viewer), fed from `Application.showPhoto` by an asynchronous, debounced `exifService.GetStockInfo` read that is applied only while the photo it was started for is still the current one. The bar collapses to zero height when the photo has no tags, is suppressed in grid mode, stays in sync with edits made in the Tags dialog (generate / save / close), and can be toggled off with a new `I` shortcut whose state is remembered in preferences. No core package changes are needed: `GetStockInfo` already returns exactly the data required and is safe to call from a worker goroutine (it takes the service RLock); every widget touch is wrapped in `fyne.Do` per the project's threading rules. The work is independent of todo #1 (the tag cache), which would later only replace the read behind `loadTagsFor` with a cache lookup.",
+        "revised_at": "2026-08-24T18:56:58Z",
+        "base_commit": "e9fe02f",
+        "summary": "Show the current photo's stock tags as a translucent two-line overlay in the bottom-left of the viewer: a new `ui.TagBar`, built like `Notifier`, that MainWindow stacks over the view stack so it covers the image only. The tags are read from the image cache - `Provider.PeekStockInfo` synchronously, with an async `Provider.StockInfo` fallback guarded by a generation counter - so no debounce is needed and the overlay never describes the previous photo. It collapses when the photo has no tags, is suppressed in grid mode, follows every change the Tags dialog persists through `tagsSession.storeStock`, and is toggled with a new `I` shortcut remembered in preferences. No core package changes; every widget touch from a worker goroutine goes through `fyne.Do`. CLAUDE.md's 'nothing is drawn over the photo' rule is scoped to favorite/color state.",
         "steps": [
           {
-            "title": "Add the TagBar widget",
-            "details": "New `ui.TagBar` in `internal/gui/ui/tagbar.go`, modelled on the small composite widgets already in the package (Notifier, ActionPanel): `NewTagBar() *TagBar`, `Container() *fyne.Container`, `SetTags(model.Tags)`, `Clear()`, `SetEnabled(bool)` (user toggle) and `SetSuppressed(bool)` (grid mode). Internals: a padded VBox with a bold title `widget.Label` and a keywords `widget.Label`, both `Truncation = fyne.TextTruncateEllipsis` so the strip keeps a fixed two-line height whatever the tags are; keywords rendered via `model.Tags.KeywordLine()`. Visibility is derived, not set directly: the container shows only when `enabled && !suppressed && !tags.IsEmpty()`; a single `refresh()` recomputes it after every setter. Empty title or empty keyword list hides just that label. Tests in `internal/gui/ui/tagbar_test.go` following `tags_dialog_test.go` (fyne `test.NewTempWindow`, testify, non-parallel): tags shown, empty tags hide the bar, `Clear` hides it, disabled bar stays hidden after `SetTags`, re-enabling brings it back, suppression wins over enabled.",
+            "title": "Add the TagBar overlay widget",
+            "details": "New `ui.TagBar` in `internal/gui/ui/tagbar.go`, modelled on `Notifier` in `notifier.go` (translucent rounded rectangle behind text): `NewTagBar() *TagBar`, `Container() *fyne.Container`, `SetTags(model.Tags)`, `Clear()`, `SetEnabled(bool)` (user toggle, default true) and `SetSuppressed(bool)` (grid mode). Internals: a bold title `widget.Label` and a keywords `widget.Label`, both `Truncation = fyne.TextTruncateEllipsis`, in a padded VBox stacked over a `canvas.Rectangle` with `CornerRadius: 6`; keywords come from `model.Tags.KeywordLine()`. `widget.Label` rather than `canvas.Text` because only the widget truncates. Visibility is derived, never set directly: one `refresh()` shows the content only when `enabled && !suppressed && !tags.IsEmpty()`, and an empty title or keyword list hides just that label. Layout is a new `bottomLeftLayout` in the same file, mirroring `bottomRightLayout` in `notifier.go` but pinned left and clamping the child width to `containerSize.Width - 2*margin`, without which a truncating Label reports its full text width and overflows the panel. Tests in `internal/gui/ui/tagbar_test.go` following `griditem_test.go` (fyne `test.NewTempWindow`, testify, non-parallel): tags shown, empty tags hide it, Clear hides it, disabled stays hidden after SetTags, re-enabling brings it back, suppression beats enabled, a long title stays within the container width.",
             "files": [
               "internal/gui/ui/tagbar.go",
               "internal/gui/ui/tagbar_test.go"
             ]
           },
           {
-            "title": "Place the bar under the photo in MainWindow",
-            "details": "Extend `NewMainWindow` with a `*TagBar` parameter, store it on `MainWindow`, and in `build()` change the center panel to `container.NewBorder(mw.actionPanel.Container(), mw.tagBar.Container(), nil, nil, mw.viewStack)` so the strip sits below the viewer and never overlaps the image (the notifier stack stays as it is). In `SetGridMode` call `mw.tagBar.SetSuppressed(grid)` next to the existing action panel show/hide. Add thin forwarders used by the app layer: `SetPhotoTags(model.Tags)`, `ClearPhotoTags()`, `SetTagsVisible(bool)`. Update the single construction site in `internal/gui/app/app.go` (`ui.NewTagBar()` built next to `ui.NewNotifier()` and passed in).",
+            "title": "Put the overlay over the photo in MainWindow",
+            "details": "`internal/gui/ui/window.go`: `MainWindow` gains a `tagBar *TagBar` field built inside `build()` - deliberately not a seventh `NewMainWindow` parameter, since nothing outside the window needs the widget and the signature is already long. In `build()` the Border centre becomes `container.NewStack(mw.viewStack, mw.tagBar.Container())`, so the overlay covers the image area only, never the action panel, and sits under the notifier layer one level up. `SetGridMode` calls `mw.tagBar.SetSuppressed(grid)` next to the existing action-panel show/hide. Thin forwarders for the app layer: `SetPhotoTags(model.Tags)`, `ClearPhotoTags()`, `SetTagsVisible(bool)`. No change to `internal/gui/app/app.go` in this step.",
             "files": [
-              "internal/gui/ui/window.go",
-              "internal/gui/app/app.go"
+              "internal/gui/ui/window.go"
             ]
           },
           {
-            "title": "Load and show the tags of the current photo",
-            "details": "New `internal/gui/app/tags_view.go` holding the read path. `Application` gains two fields (`tagGeneration int`, `tagTimer *time.Timer`). `showTagsFor(photo model.Photo)`: increments the generation, clears the bar immediately (the strip must never describe the previous photo, same reasoning as `clearActionStates`), stops any pending timer and starts `time.AfterFunc(tagReadDelay, ...)` with ~200ms so arrow-key scrolling does not open every skipped JPEG; the timer goroutine calls `a.exifService.GetStockInfo(photo)` and then `fyne.Do` to check `a.tagGeneration == captured` plus `navigator.Current().ImagePath == photo.ImagePath` before `a.mainWindow.SetPhotoTags(info.Tags)` (stale results dropped, read errors only logged). `clearTags()` bumps the generation, stops the timer and clears the bar. Call `showTagsFor` from `Application.showPhoto` in `internal/gui/app/navigation.go` (both on the success and the load-failure branch, next to `updateActionStates`) and `clearTags` from `clearViewer` in `internal/gui/app/actions.go`. Grid mode needs nothing extra.",
+            "title": "Show the tags of the current photo",
+            "details": "New `internal/gui/app/tags_view.go`. `Application` gains one field, `tagGeneration int`, mutated only on the UI goroutine, which alone is enough to drop stale results - no extra path check. `showTagsFor(photo model.Photo)` bumps the generation, tries `a.imageProvider.PeekStockInfo(photo.ImagePath)` first and sets the bar straight away on a hit (the common case: `showPhoto` has just decoded the image), otherwise clears the bar - it must never describe the previous photo, the reasoning behind `clearActionStates` - and reads `a.imageProvider.StockInfo(photo)` on a goroutine, applying the result inside `fyne.Do` only while the generation still matches; a read error is logged only. `clearTags()` bumps the generation and clears the bar. `setTagsIfCurrent(path string, tags model.Tags)` bumps the generation and sets the bar only while `navigator.Current()` is still that photo. Call `showTagsFor` from `showPhoto` in `internal/gui/app/navigation.go` next to `updateActionStates` (both branches), and `clearTags` from `clearViewer` in `internal/gui/app/action_states.go`. Grid mode needs nothing extra. No debounce: the tag cache serves the read, and `showPhoto` already blocks on a full image decode.",
             "files": [
               "internal/gui/app/tags_view.go",
               "internal/gui/app/navigation.go",
-              "internal/gui/app/actions.go"
+              "internal/gui/app/action_states.go"
             ]
           },
           {
-            "title": "Keep the bar in sync with the Tags dialog",
-            "details": "In `internal/gui/app/actions.go` push the dialog's tags into the bar instead of re-reading the file: add `setTagsIfCurrent(photo model.Photo, tags model.Tags)` to `internal/gui/app/tags_view.go` (bumps the generation so an in-flight read cannot overwrite the newer tags, then sets the bar only while `navigator.Current()` is still that photo) and call it from `tagsSession.generate` right after `s.dialog.SetTags(generated)`, from `tagsSession.saveJPEG`/`saveSidecar` success and from `tagsSession.close` after the final `saveSidecar`, so an edit made in the dialog — including clearing both fields — is visible under the photo the moment the dialog goes away. `prefill` also calls it, which gives the bar the freshly read tags when the dialog was opened before the debounced read finished.",
+            "title": "Keep the overlay in sync with the Tags dialog",
+            "details": "`internal/gui/app/tags_action.go`: `tagsSession.storeStock` is already the single funnel through which every persisted or generated change reaches the cache - it is called from `generate`, `saveSidecar` and `saveJPEG`. Add one line there: `s.app.setTagsIfCurrent(s.photo.ImagePath, written)`. Narrower than four separate call sites on purpose: edits the user typed but never saved, such as a JPEG-only photo where `saveSidecar` returns early, never reach `storeStock` and must not reach the overlay either, because the overlay describes what is stored, not what is typed.",
             "files": [
-              "internal/gui/app/actions.go",
-              "internal/gui/app/tags_view.go"
+              "internal/gui/app/tags_action.go"
             ]
           },
           {
-            "title": "Toggle shortcut, help entry and documentation",
-            "details": "Add `OnToggleTags` to `ui.ShortcutCallbacks` and bind it to `glfw.KeyI` in the scancode map in `internal/gui/ui/shortcuts.go` (I is free: F R G B D C N S 1-4 H Y L Z T are taken). Wire it in `internal/gui/app/app.go` to a handler in `internal/gui/app/tags_view.go` that flips `a.showTags`, calls `a.mainWindow.SetTagsVisible(...)` and persists the flag; guard it with the existing `shortcutsBlocked()`. Persist through `internal/gui/app/settings.go` with a `showTagsKey = \"showTags\"` constant, restored by a new `restoreTagVisibility` called from `Run` before the first directory load, default true. Add `{\"I\", \"Toggle tag strip\"}` to `helpLeft` in `internal/gui/ui/help.go`. Update `CLAUDE.md`: the UI Layout section gets a line saying the tag strip sits below the photo (the favorite/color rule is unchanged), and the Keyboard Shortcuts list gets `I`.",
+            "title": "Toggle shortcut, preference, help and documentation",
+            "details": "`internal/gui/ui/shortcuts.go`: add `OnToggleTags` to `ShortcutCallbacks` and bind `glfw.GetKeyScancode(glfw.KeyI)` in `scanActions` (I is free: F R G B D C N S 1-4 H Y L Z T are taken). `internal/gui/app/tags_view.go`: `handleToggleTags` flips `a.showTags`, calls `a.mainWindow.SetTagsVisible(...)` and persists the flag, guarded by the existing `shortcutsBlocked()`. `internal/gui/app/settings.go`: `showTagsKey = \"showTags\"` plus `restoreTagVisibility` following `restoreSortOrder` (default true), called from `Run` before `loadInitialDirectory`. `internal/gui/app/app.go`: pass `OnToggleTags: a.handleToggleTags`. `internal/gui/ui/help.go`: `{\"I\", \"Toggle tag overlay\"}` in `helpLeft`. `CLAUDE.md`: scope the standing rule so \"nothing is drawn over the photo\" applies to favorite/color state alone, record the tag overlay (translucent two lines bottom-left, hidden in grid view, toggled with I) and add `I` to the Keyboard Shortcuts list.",
             "files": [
               "internal/gui/ui/shortcuts.go",
               "internal/gui/app/tags_view.go",
@@ -75,32 +73,37 @@
         ],
         "questions": [
           {
-            "question": "Placement: assume a strip below the photo (inside the center panel, image never covered) unless you want the tags painted over the bottom of the image the way the notifier toast is — which would need the CLAUDE.md 'nothing is drawn over the photo' rule amended. Affects steps 1-2.",
-            "answer": null
+            "question": "Placement: a strip below the photo, or the tags painted over the bottom of the image the way the notifier toast is - which needs the CLAUDE.md 'nothing is drawn over the photo' rule amended?",
+            "answer": "Overlay on the photo. The rule is scoped to favorite/color state instead."
           },
           {
-            "question": "Content: assume one truncated line for the title and one truncated line for the keywords (fixed height, full text stays in the Tags dialog). Do you instead want the keywords word-wrapped over several lines, or the keyword count only? Affects step 1.",
-            "answer": null
+            "question": "Content: one truncated line for the title and one for the keywords, keywords word-wrapped over several lines, or the keyword count only?",
+            "answer": "Two truncated lines: title, then the keyword line, both ellipsised - fixed height."
           },
           {
-            "question": "Toggle: assume the strip can be hidden with `I` and that the choice is remembered between launches, default on. Is `I` acceptable, or should the strip always be on? Affects step 5.",
-            "answer": null
+            "question": "Toggle: can the overlay be hidden with `I`, remembered between launches, default on?",
+            "answer": "Yes - `I` toggles it, remembered between launches, default on, with a help entry."
           },
           {
-            "question": "Photos with no tags: assume the strip collapses completely (no 'no tags' placeholder), so the viewer keeps the full height for untagged folders. Affects step 1.",
-            "answer": null
+            "question": "Photos with no tags: does the overlay collapse completely, or keep a placeholder?",
+            "answer": "Collapses completely - hidden, no placeholder."
           },
           {
-            "question": "Read cost: assume a ~200ms debounce before reading tags during navigation, and that a read error is only logged, not shown as an error toast. Affects step 3.",
-            "answer": null
+            "question": "Corner: where on the photo does the overlay sit, given the notifier toast owns bottom-right?",
+            "answer": "Bottom-left, 8px margin."
+          },
+          {
+            "question": "Read cost: keep the planned ~200ms debounce now that the tag cache (todo #1) landed and tags come in with the image decode?",
+            "answer": "Drop the debounce: cache peek first, async fallback guarded by a generation counter, read errors logged only."
           }
         ],
         "risks": [
-          "Every navigation step reads the XMP/EXIF of a file until todo #1 lands a tag cache; the debounce limits it, but a slow network volume can still make the strip lag behind the photo.",
-          "The strip appearing and disappearing changes the viewer's height, so a zoomed-in photo is re-laid out (pan is clamped in `zoomWidget.clampPan`, so nothing breaks, but the view shifts). Fixed strip height keeps the shift constant.",
-          "`NewMainWindow`'s signature changes; it has one caller (`internal/gui/app/app.go`) but is already six parameters long and grows to seven.",
-          "Stale-result handling depends on the generation counter plus the current-path check; getting either wrong shows one photo's tags under another.",
-          "`GetStockInfo` returns empty tags and no error for a PNG or a JPEG without EXIF, which is indistinguishable from 'no tags' — acceptable, but it means the strip cannot report an unreadable file."
+          "The overlay covers part of the photo - the very thing the CLAUDE.md rule forbade for favorite and colour state. It is opt-out via `I`, and the rule is amended rather than silently broken.",
+          "A long title on a narrow window depends on the layout clamping the child width; without the clamp a truncating Label reports its full width and overflows. Covered by a test.",
+          "`PeekStockInfo` answers false until the sidecar of a RAW pair has been merged once, so the first view of such a photo takes the async path - a brief empty overlay before the tags appear.",
+          "`Provider.StockInfo` answers empty tags and no error for a photo with no metadata, which is indistinguishable from 'no tags', so the overlay cannot report an unreadable file.",
+          "Stale-result handling rests on the generation counter alone; getting it wrong shows one photo's tags over another.",
+          "Memory `viewer-no-state-overlays.md` records the old rule and needs updating once this lands."
         ]
       }
     },
@@ -249,6 +252,27 @@
       "branch": null,
       "created_at": "2026-08-24T16:20:17Z",
       "updated_at": "2026-08-24T16:20:17Z",
+      "plan": null
+    },
+    {
+      "id": 9,
+      "description": "Check what else can be passed to Lightroom",
+      "context": "The app already hands Lightroom-readable metadata to files: xmp:Rating (5/0 for favorite) rewritten in place inside the JPEG's embedded XMP packet, and stock tags (dc:title, dc:description, dc:subject keywords) written into that same packet and into an XMP sidecar beside the RAW/.ARW pair. Colour labels are the notable gap: model.ColorLabel is red/green/blue only and is persisted solely in the app's per-folder .photo-colors.json, so Lightroom never sees them, while xmp:Label is the natural XMP carrier. The task is a survey: enumerate which fields the app holds today (model.PhotoMeta: Date, Colors, Favorite, Ratable; model.Tags) or could hold, and which of them could be conveyed via the XMP packet/sidecar.",
+      "docs": [
+        "internal/core/imaging/xmp_packet.go",
+        "internal/core/imaging/sidecar.go",
+        "internal/core/imaging/stock_info.go",
+        "internal/core/imaging/favorite.go",
+        "internal/core/imaging/exif_service.go",
+        "internal/core/model/color.go",
+        "internal/core/model/photo_meta.go",
+        "internal/core/library/colors.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-24T19:00:59Z",
+      "updated_at": "2026-08-24T19:00:59Z",
       "plan": null
     }
   ]
