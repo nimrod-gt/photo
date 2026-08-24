@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 8,
+  "next_id": 9,
   "todos": [
     {
       "id": 2,
@@ -232,88 +232,24 @@
       }
     },
     {
-      "id": 7,
-      "description": "Deduplicate the thumbnail loading logic between the grid viewer and the file browser row updateThumbnail",
-      "context": "During the code-simplification pass on branch todo/4-simplify-code, file-browser row rendering (including the shared updateThumbnail helper that sets/hides a *canvas.Image) was extracted into internal/gui/ui/browseritem.go with tests in browseritem_test.go; review flagged that GridViewer.updateItem in internal/gui/ui/gridviewer.go repeats essentially the same thumbnail resolve-and-apply flow (provider Peek/Thumbnail fallback to meta.Thumbnail, else hide, plus async preload refresh) and the deduplication was deliberately deferred to this todo. Both paths read from the same thumbnail cache in internal/core/imaging/image_provider.go (Peek/Get/Preload/Thumbnail/Gen), but differ in that the grid is size-aware (thumbPixelSize) and schedules preloads while the browser row does not. There are no tests for gridviewer.go or filebrowser.go, so browseritem_test.go is the only existing coverage for the shared helper.",
+      "id": 8,
+      "description": "Check the preload behaviour in grid view",
+      "context": "On branch todo/7-shared-thumbnail-loading, GridViewer.updateItem (internal/gui/ui/gridviewer.go:127-156) now resolves its tile image through the shared resolveThumbnail helper in internal/gui/ui/thumbnail.go and calls gv.schedulePreload() when needsLoad is true, which is meant to reproduce exactly the old condition (the sized Provider.Peek missed). The preload path itself (gridviewer.go:158-199) is guarded by an atomic preloadScheduled CAS, a visibleMin/visibleMax window widened by gridPreloadBuffer (50), a Provider.Gen() generation check and fyne.Do(grid.RefreshItem) callbacks; Provider.Peek/Preload/Thumbnail semantics live in internal/core/imaging/image_provider.go, where peekThumbnail only serves sizes <= maxThumbnailDim (160). The task exists because gridviewer.go has no automated tests, and todo #7 records the risk that a wrong trigger either leaves tiles stuck at embedded EXIF quality or re-arms the preload goroutine from every visible tile.",
       "docs": [
-        "internal/gui/ui/browseritem.go",
-        "internal/gui/ui/browseritem_test.go",
         "internal/gui/ui/gridviewer.go",
-        "internal/gui/ui/filebrowser.go",
+        "internal/gui/ui/thumbnail.go",
+        "internal/gui/ui/thumbnail_test.go",
+        "internal/gui/ui/griditem.go",
+        "internal/gui/ui/griditem_test.go",
         "internal/core/imaging/image_provider.go",
-        "internal/core/imaging/image_provider_test.go"
+        "CLAUDE.md"
       ],
-      "depends_on": [
-        4
-      ],
+      "depends_on": [],
       "status": "open",
       "branch": null,
-      "created_at": "2026-08-24T14:09:07Z",
-      "updated_at": "2026-08-24T14:16:38Z",
-      "plan": {
-        "created_at": "2026-08-24T14:16:38Z",
-        "revised_at": null,
-        "base_commit": "a1d5806",
-        "summary": "GridViewer.updateItem and the file-browser row both resolve a thumbnail out of imaging.Provider and push it onto a *canvas.Image, differing only in that the grid asks for a size-aware image (Peek(path, thumbPixelSize)) and schedules a background preload when the sized image is not cached yet, while the row asks only for the small cached thumbnail (Provider.Thumbnail) and never preloads. The plan extracts one helper into a new internal/gui/ui/thumbnail.go: a narrow thumbnailSource interface (Peek + Thumbnail, satisfied by *imaging.Provider and by a fake in tests), a resolve step that returns the best in-memory image plus a needsLoad flag, and the existing updateThumbnail show/hide/refresh step, wrapped in applyThumbnail(thumb, src, path, embedded, size) (needsLoad bool). The browser passes size <= 0 and ignores the flag; the grid passes thumbPixelSize() and calls schedulePreload() when needsLoad is true, so the preload policy and the size-awareness stay where they belong. Note that Provider.Peek(path, 0) is NOT equivalent to Provider.Thumbnail(path) (loader.Peek clamps size to 1 and would hand back a full-resolution decoded image for a 48x36 row), so the unsized path must keep calling Thumbnail. The only intended behaviour change is that the browser row now prefers the provider's cached thumbnail over meta.Thumbnail, matching the grid; both images are orientation-corrected and at most 160px, so the row looks the same.",
-        "steps": [
-          {
-            "title": "Extract the shared thumbnail resolve-and-apply helper and use it in the browser row",
-            "details": "Create internal/gui/ui/thumbnail.go holding: (1) `type thumbnailSource interface { Peek(path string, size int) image.Image; Thumbnail(path string) image.Image }`, which *imaging.Provider already satisfies; (2) `updateThumbnail(thumb *canvas.Image, img image.Image)` moved verbatim out of browseritem.go (set Image + Show, or nil + Hide, then Refresh); (3) `applyThumbnail(thumb *canvas.Image, src thumbnailSource, path string, embedded image.Image, size int) (needsLoad bool)` which does: if size > 0 and src.Peek(path, size) != nil -> apply it, return false; if size <= 0 and src.Thumbnail(path) != nil -> apply it, return false; otherwise apply `embedded` (may be nil, which hides the widget) and return true. Keep a short comment saying why size <= 0 must not go through Peek: Loader.Peek clamps the size to 1 and would return the full-resolution cached image, which the 48x36 row must never hold. Then change FileBrowser.updateItem in internal/gui/ui/browseritem.go to a single `applyThumbnail(item.thumb, fb.imageProvider, photo.ImagePath, meta.Thumbnail, 0)` call, dropping the local `thumbnail` variable and the direct Provider.Thumbnail call; remove updateThumbnail and the now-unused `image` import from browseritem.go. Add internal/gui/ui/thumbnail_test.go with a fake thumbnailSource (records the sizes it was asked for, returns canned images) covering: sized hit -> that image shown, needsLoad false; sized miss with embedded -> embedded shown, needsLoad true; sized miss without embedded -> Image nil, widget hidden, needsLoad true; unsized -> cached thumbnail wins over embedded and Peek is never called; and the reuse case where a widget that held an image is reset for a photo with none (stays hidden with a nil Image). Follow the existing style of browseritem_test.go (t.Parallel, testify require/assert, no fyne test app needed - canvas.Refresh is a no-op without a running app). Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`.",
-            "files": [
-              "internal/gui/ui/thumbnail.go",
-              "internal/gui/ui/thumbnail_test.go",
-              "internal/gui/ui/browseritem.go"
-            ]
-          },
-          {
-            "title": "Route GridViewer.updateItem through the shared helper",
-            "details": "In internal/gui/ui/gridviewer.go replace the four-branch if/else in updateItem (lines ~163-176) with `if applyThumbnail(item.thumb, gv.imageProvider, photo.ImagePath, meta.Thumbnail, gv.thumbPixelSize()) { gv.schedulePreload() }`, keeping thumbPixelSize() called outside gv.mu as it is today (it takes the mutex itself). Leave the name label update, the visibleMin/visibleMax bookkeeping and schedulePreload untouched. Double-check the preload trigger is unchanged: today a preload is scheduled whenever the sized Peek missed, whether or not the embedded thumbnail filled in - the helper's needsLoad must be true in both of those cases and false only on a Peek hit, otherwise tiles either stay at embedded-thumbnail quality forever or the preload goroutine is re-armed on every visible tile. Extend internal/gui/ui/thumbnail_test.go with an explicit assertion for the grid-shaped contract (size > 0, embedded present, Peek miss -> needsLoad true) if step 1 did not already name that case. Verify the canvas.Image drops its old image when a tile is reused for a photo with nothing cached. Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`; then, if the app can be launched, open a folder and toggle grid view (L) to confirm tiles still sharpen as preloads land and the left-hand rows still show thumbnails.",
-            "files": [
-              "internal/gui/ui/gridviewer.go",
-              "internal/gui/ui/thumbnail_test.go"
-            ]
-          },
-          {
-            "title": "Share the thumbnail canvas.Image constructor between the two createItem functions",
-            "details": "Both FileBrowser.createItem (internal/gui/ui/browseritem.go) and GridViewer.createItem (internal/gui/ui/gridviewer.go) build the same widget: canvas.NewImageFromImage(nil) + SetMinSize(w, h) + FillMode = canvas.ImageFillContain. Add `newThumbnailImage(width, height float32) *canvas.Image` to internal/gui/ui/thumbnail.go and call it from both, with the browser passing thumbnailWidth/thumbnailHeight and the grid passing tw and tw*gridThumbRatio. Pure refactor, no behaviour change; a one-line test in thumbnail_test.go asserting the min size and fill mode is enough. Skip this step if the answer to the corresponding question is no. Run `go test ./internal/gui/ui/...` and `go tool golangci-lint run`.",
-            "files": [
-              "internal/gui/ui/thumbnail.go",
-              "internal/gui/ui/browseritem.go",
-              "internal/gui/ui/gridviewer.go",
-              "internal/gui/ui/thumbnail_test.go"
-            ]
-          }
-        ],
-        "questions": [
-          {
-            "question": "The file-browser row currently prefers meta.Thumbnail and only then the provider cache, while the grid prefers the cache. Unifying on cache-first means a row can show the decoded downscaled thumbnail (<=160px, orientation-corrected) instead of the embedded EXIF one - visually the same at 48x36. Assume cache-first for both unless told otherwise; affects step 1.",
-            "answer": null
-          },
-          {
-            "question": "Is a single applyThumbnail with `size <= 0` meaning 'small cached thumbnail only' acceptable, or should there be two named functions (e.g. applySizedThumbnail / applyRowThumbnail)? Assume the single function with the sentinel; affects steps 1 and 2.",
-            "answer": null
-          },
-          {
-            "question": "Should the helper stay in internal/gui/ui behind a small thumbnailSource interface, or should imaging.Provider grow a resolve method (core may not import Fyne, so only the image resolution could move)? Assume it stays in internal/gui/ui; affects step 1.",
-            "answer": null
-          },
-          {
-            "question": "Is step 3 (sharing newThumbnailImage between the two createItem functions) in scope for this todo, or should it be left to todo #6, which rewrites both item constructors anyway? Assume in scope unless told otherwise.",
-            "answer": null
-          },
-          {
-            "question": "browseritem.go exists only on branch todo/4-simplify-code, not on main. Should this todo's branch be cut from todo/4-simplify-code (or should #4 be merged first)? Assume branching from todo/4-simplify-code; affects every step.",
-            "answer": null
-          }
-        ],
-        "risks": [
-          "Hard prerequisite: internal/gui/ui/browseritem.go and the current shape of updateItem exist only on branch todo/4-simplify-code; branching from main would make every step unbuildable.",
-          "Overlap with todo #6, which replaces the fb.items / gv.items identity maps with item widget types and rewrites the same two updateItem bodies - whichever lands second will have to rebase over the other.",
-          "Getting the needsLoad flag wrong silently breaks the grid: always false means tiles never sharpen past the embedded thumbnail; always true re-arms the preload goroutine on every visible tile (extra CPU and repeated RefreshItem calls).",
-          "Provider.Peek(path, 0) is not a drop-in for Provider.Thumbnail(path) - loader.Peek clamps the size to 1 and returns any cached full-resolution image, so routing the browser row through Peek would put a full-size image into a 48x36 canvas.Image and rescale it on every draw.",
-          "There are no tests for gridviewer.go or filebrowser.go, so the grid change is only covered indirectly through the helper's tests; the preload/refresh behaviour has to be confirmed by running the app."
-        ]
-      }
+      "created_at": "2026-08-24T16:20:17Z",
+      "updated_at": "2026-08-24T16:20:17Z",
+      "plan": null
     }
   ]
 }

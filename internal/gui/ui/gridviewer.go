@@ -139,9 +139,8 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 		return
 	}
 
-	thumbnail := gv.imageProvider.Peek(photo.ImagePath, gv.thumbPixelSize())
-	if thumbnail == nil {
-		thumbnail = meta.Thumbnail
+	thumbnail, needsLoad := resolveThumbnail(gv.imageProvider, photo.ImagePath, meta.Thumbnail, gv.thumbPixelSize())
+	if needsLoad {
 		gv.schedulePreload()
 	}
 	item.update(photo.Name, thumbnail)

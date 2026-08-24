@@ -17,9 +17,7 @@ type gridItem struct {
 }
 
 func newGridItem(tileWidth float32) *gridItem {
-	thumb := canvas.NewImageFromImage(nil)
-	thumb.SetMinSize(fyne.NewSize(tileWidth, tileWidth*gridThumbRatio))
-	thumb.FillMode = canvas.ImageFillContain
+	thumb := newThumbnailImage(tileWidth, tileWidth*gridThumbRatio)
 
 	nameLabel := widget.NewLabel("placeholder")
 	nameLabel.Truncation = fyne.TextTruncateEllipsis

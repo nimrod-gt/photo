@@ -39,9 +39,7 @@ type browserItem struct {
 }
 
 func newBrowserItem() *browserItem {
-	thumb := canvas.NewImageFromImage(nil)
-	thumb.SetMinSize(fyne.NewSize(thumbnailWidth, thumbnailHeight))
-	thumb.FillMode = canvas.ImageFillContain
+	thumb := newThumbnailImage(thumbnailWidth, thumbnailHeight)
 
 	nameLabel := widget.NewLabel("placeholder")
 	nameLabel.Truncation = fyne.TextTruncateEllipsis
@@ -102,10 +100,7 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 		return
 	}
 
-	thumbnail := meta.Thumbnail
-	if thumbnail == nil {
-		thumbnail = fb.imageProvider.Thumbnail(photo.ImagePath)
-	}
+	thumbnail, _ := resolveThumbnail(fb.imageProvider, photo.ImagePath, meta.Thumbnail, 0)
 	item.update(photo, meta, thumbnail)
 }
 
@@ -118,22 +113,6 @@ func newColorDots() *fyne.Container {
 		dots[i] = dot
 	}
 	return container.NewHBox(dots...)
-}
-
-// Fyne refreshes every visible row on any list refresh, and both Image and Label
-// refreshes are expensive (texture upload, text shaping), so skip unchanged ones.
-func updateThumbnail(thumb *canvas.Image, img image.Image) {
-	if thumb.Image == img && thumb.Visible() == (img != nil) {
-		return
-	}
-	if img != nil {
-		thumb.Image = img
-		thumb.Show()
-	} else {
-		thumb.Image = nil
-		thumb.Hide()
-	}
-	thumb.Refresh()
 }
 
 func updateName(label *widget.Label, name string) {
