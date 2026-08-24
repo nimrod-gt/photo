@@ -25,21 +25,32 @@ type hideable interface {
 }
 
 type dialogManager struct {
-	kind     dialogKind
-	dialog   hideable
-	onCancel func()
+	kind      dialogKind
+	dialog    hideable
+	onCancel  func()
+	ownsClose bool
 }
 
 func (m *dialogManager) open(kind dialogKind, d hideable, onCancel func()) {
 	m.kind = kind
 	m.dialog = d
 	m.onCancel = onCancel
+	m.ownsClose = false
+}
+
+// openSelfClosing hands cancelling over to onCancel whole: the dialog decides
+// when it unregisters and hides, so Escape only signals it. A running bulk
+// copy keeps its window up until the copy goroutine stops.
+func (m *dialogManager) openSelfClosing(kind dialogKind, d hideable, onCancel func()) {
+	m.open(kind, d, onCancel)
+	m.ownsClose = true
 }
 
 func (m *dialogManager) closed() {
 	m.kind = dialogNone
 	m.dialog = nil
 	m.onCancel = nil
+	m.ownsClose = false
 }
 
 func (m *dialogManager) isOpen(kind dialogKind) bool {
@@ -60,15 +71,14 @@ func (m *dialogManager) confirm() {
 	}
 }
 
-// A dialog with its own Cancel decides when it closes: a running bulk copy
-// keeps its window up until the copy goroutine stops, so Escape must not
-// unregister and hide it here.
 func (m *dialogManager) cancel() {
 	if m.kind == dialogNone {
 		return
 	}
-	if c, ok := m.dialog.(interface{ Cancel() }); ok {
-		c.Cancel()
+	if m.ownsClose {
+		if m.onCancel != nil {
+			m.onCancel()
+		}
 		return
 	}
 	d := m.dialog

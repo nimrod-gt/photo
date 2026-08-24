@@ -11,6 +11,7 @@ import (
 
 type DestinationEntry struct {
 	entry     *widget.Entry
+	browseBtn *widget.Button
 	Container *fyne.Container
 }
 
@@ -30,12 +31,18 @@ func NewDestinationEntry(initialPath string, window fyne.Window) *DestinationEnt
 
 	return &DestinationEntry{
 		entry:     entry,
+		browseBtn: browseBtn,
 		Container: container.NewBorder(nil, nil, nil, browseBtn, entry),
 	}
 }
 
 func (d *DestinationEntry) Text() string {
 	return d.entry.Text
+}
+
+func (d *DestinationEntry) Disable() {
+	d.entry.Disable()
+	d.browseBtn.Disable()
 }
 
 var copyModeLabels = []string{"Photo", "Photo + RAW", "RAW"}

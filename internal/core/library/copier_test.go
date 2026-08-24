@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,6 +230,20 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		data, err = os.ReadFile(filepath.Join(destDir, "photo.ARW"))
 		require.NoError(t, err)
 		assert.Equal(t, rawContent, data)
+	})
+
+	t.Run("cancellation stops a copy between chunks", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		reader := cancellableReader{ctx: ctx, r: strings.NewReader("data")}
+
+		buf := make([]byte, 2)
+		n, err := reader.Read(buf)
+		require.NoError(t, err)
+		assert.Equal(t, 2, n)
+
+		cancel()
+		_, err = reader.Read(buf)
+		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	t.Run("without RAW option", func(t *testing.T) {

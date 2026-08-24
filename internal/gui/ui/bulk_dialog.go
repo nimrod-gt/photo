@@ -47,6 +47,7 @@ type CopyAllDialog struct {
 	onCopy     func()
 	onCancel   func()
 	closed     bool
+	copying    bool
 }
 
 func NewCopyAllDialog(count int, destDir string, copyMode library.CopyMode, window fyne.Window, onCopy func(), onCancel func()) *CopyAllDialog {
@@ -116,18 +117,22 @@ func (d *CopyAllDialog) SetProgress(value float64) {
 	d.progress.SetValue(value)
 }
 
-func (d *CopyAllDialog) Cancel() {
-	if d.onCancel != nil {
-		d.onCancel()
-	}
+// CopyStarted freezes what the running copy already captured: destination and
+// mode edits would silently be ignored, and a folder picker opened mid-copy
+// would be torn down with the dialog when the goroutine closes it.
+func (d *CopyAllDialog) CopyStarted() {
+	d.copying = true
+	d.destEntry.Disable()
+	d.modeSelect.radio.Disable()
+}
+
+func (d *CopyAllDialog) Copying() bool {
+	return d.copying
 }
 
 func (d *CopyAllDialog) Cancelling() {
+	d.cancelBtn.SetText("Cancelling...")
 	d.cancelBtn.Disable()
-}
-
-func (d *CopyAllDialog) Finish() {
-	d.Hide()
 }
 
 func (d *CopyAllDialog) DestDir() string {
