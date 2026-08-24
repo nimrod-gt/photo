@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"photo/internal/core/filedate"
 	"photo/internal/core/model"
 )
 
@@ -58,7 +59,7 @@ func TestExifService_GetStockInfo(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, model.Tags{}, info.Tags)
-		assert.Equal(t, fileCreated(path), info.Taken)
+		assert.Equal(t, filedate.Created(path), info.Taken)
 	})
 
 	t.Run("reads the tags and the shooting date", func(t *testing.T) {

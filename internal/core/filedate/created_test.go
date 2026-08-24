@@ -1,4 +1,4 @@
-package imaging
+package filedate
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFileCreated(t *testing.T) {
+func TestCreated(t *testing.T) {
 	t.Parallel()
 
 	t.Run("a file just written is dated now", func(t *testing.T) {
@@ -18,7 +18,7 @@ func TestFileCreated(t *testing.T) {
 		before := time.Now().Add(-time.Minute)
 		require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
 
-		created := fileCreated(path)
+		created := Created(path)
 
 		assert.False(t, created.IsZero())
 		assert.True(t, created.After(before), "created %v is not after %v", created, before)
@@ -26,6 +26,6 @@ func TestFileCreated(t *testing.T) {
 	})
 
 	t.Run("a missing file has no date", func(t *testing.T) {
-		assert.True(t, fileCreated(filepath.Join(t.TempDir(), "gone.jpg")).IsZero())
+		assert.True(t, Created(filepath.Join(t.TempDir(), "gone.jpg")).IsZero())
 	})
 }

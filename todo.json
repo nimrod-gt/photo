@@ -246,19 +246,19 @@
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/5-split-os-packages",
       "created_at": "2026-08-24T10:34:12Z",
-      "updated_at": "2026-08-24T11:06:40Z",
+      "updated_at": "2026-08-24T15:44:13Z",
       "plan": {
         "created_at": "2026-08-24T11:06:40Z",
-        "revised_at": null,
-        "base_commit": "4f3a7c9",
-        "summary": "Pull the remaining per-OS code out of the feature packages into dedicated single-purpose packages under `internal`, matching the `internal/core/clipboard` and `internal/core/proc` pattern. Three sites move: (1) `fileCreated` in `internal/core/imaging/file_created_{darwin,windows,other}.go` becomes a new `internal/core/filedate` package exporting `Created(path) time.Time`, with only the birth-time extraction kept behind build tags and the `os.Stat`/fallback logic shared; `imaging` (exif_tags.go `withFileDate`, plus the tests in exif_tags_test.go and orientation_test.go that call `fileCreated` directly) switches to it. (2) `internal/gui/ui/maximize_{darwin,windows,unix}.go` plus `maximize_darwin.m` move into a new `internal/gui/nativewin` package exporting `Maximize(fyne.Window)`; `screen.go`/`screen_test.go` must move with them because `maximize_unix.go` uses `screenLayout`/`maximizedContentSize`/`primaryVideoMode`, so `MonitorSize` becomes `nativewin.MonitorSize` and `internal/gui/app/app.go` is updated alongside `internal/gui/ui/window.go`. (3) `internal/core/tags/claude_path.go`, which branches on `runtime.GOOS` rather than build tags, moves wholesale into `internal/core/claudebin` as `Lookup`/`ErrNotFound`, keeping the runtime switch so both the Windows and the POSIX branches stay testable from any host. Each step also updates the package-layout tree in CLAUDE.md, which the project requires to stay in sync. Nothing new is imported into `internal/core` from Fyne, and all three steps keep `go build ./...`, the ubuntu CI build (which is what compiles the `!darwin && !windows` branches) and the mingw Windows cross-build working.",
+        "revised_at": "2026-08-24T15:44:13Z",
+        "base_commit": "0f7ce12",
+        "summary": "Pull the remaining per-OS code out of the feature packages into dedicated single-purpose packages under `internal`, matching the `internal/core/clipboard` and `internal/core/proc` pattern, where every variant carries an explicit `//go:build` line. Three sites move: (1) `fileCreated` in `internal/core/imaging/file_created_{darwin,windows,other}.go` becomes a new `internal/core/filedate` package exporting `Created(path) time.Time`, with only the birth-time extraction kept per OS behind a `birthTime(os.FileInfo) (time.Time, bool)` and the `os.Stat`/`ModTime` fallback shared; `imaging` (`stock_info.go` `withFileDate`, plus the direct assertions in `stock_info_test.go` and `orientation_test.go`) switches to it. (2) `internal/gui/ui/maximize_{darwin,windows,unix}.go` plus `maximize_darwin.m` move into a new `internal/gui/nativewin` package exporting `Maximize(fyne.Window)`; `screen.go`/`screen_test.go` move with them because `maximize_unix.go` uses `screenLayout`/`maximizedContentSize`/`primaryVideoMode`, so `MonitorSize` becomes `nativewin.MonitorSize` and `internal/gui/app/app.go` is updated alongside `internal/gui/ui/window.go`. (3) `internal/core/tags/claude_path.go` moves into `internal/core/claudebin` as `Lookup`/`ErrNotFound` and its `runtime.GOOS` switches are converted to build-tagged `lookup_windows.go`/`lookup_other.go` files with build-tagged tests, dropping the `osWindows` constant. Each step also updates the package-layout tree in CLAUDE.md. Nothing new is imported into `internal/core` from Fyne, and all three steps keep `go build ./...`, the ubuntu CI build (which compiles the `!darwin && !windows` branches) and the mingw Windows cross-build working.",
         "steps": [
           {
             "title": "Extract file creation time into internal/core/filedate",
-            "details": "Create `internal/core/filedate` with a shared `created.go`: `Created(path string) time.Time` does the `os.Stat`, returns the zero time on error, calls a per-OS `birthTime(info os.FileInfo) (time.Time, bool)` and falls back to `info.ModTime()` when it reports false. Add `birthtime_darwin.go` (`*syscall.Stat_t` -> `Birthtimespec`), `birthtime_windows.go` (`*syscall.Win32FileAttributeData` -> `CreationTime.Nanoseconds()`) and `birthtime_other.go` (`//go:build !darwin && !windows`, returns false). Keep the existing explanatory comments (the photo keeps the day it was taken, so it is dated by birth time and not by the last write) on `Created`/the per-OS files; the darwin and windows files need no build tag because the filename suffix already constrains them, exactly as today. Move `internal/core/imaging/file_created_test.go` to `internal/core/filedate/created_test.go` (package `filedate`, calling `Created`), keeping both cases (a freshly written file is dated now; a missing file has no date). Delete the three `internal/core/imaging/file_created_*.go` files, make `withFileDate` in `internal/core/imaging/exif_tags.go` call `filedate.Created`, and update the direct `fileCreated(path)` assertions in `internal/core/imaging/exif_tags_test.go` (~line 61) and `internal/core/imaging/orientation_test.go` (~lines 549, 565) to `filedate.Created(path)`. Add the `filedate/` line to the layout tree in CLAUDE.md. Verify with `go build ./...`, `go test ./internal/core/...` and a Windows cross-build (`CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build ./...`).",
+            "details": "Create `internal/core/filedate` with a shared `created.go`: `Created(path string) time.Time` does the `os.Stat`, returns the zero time on error, calls a per-OS `birthTime(info os.FileInfo) (time.Time, bool)` and falls back to `info.ModTime()` when it reports false. Add `birthtime_darwin.go` (`//go:build darwin`, `*syscall.Stat_t` -> `Birthtimespec`), `birthtime_windows.go` (`//go:build windows`, `*syscall.Win32FileAttributeData` -> `CreationTime.Nanoseconds()`) and `birthtime_other.go` (`//go:build !darwin && !windows`, returns false). Every variant carries an explicit build tag even where the filename suffix already constrains it, as in `internal/core/clipboard`. Keep the existing explanatory comments (the photo keeps the day it was taken, so it is dated by birth time and not by the last write). Move `internal/core/imaging/file_created_test.go` to `internal/core/filedate/created_test.go` (package `filedate`, calling `Created`), keeping both cases (a freshly written file is dated now; a missing file has no date). Delete the three `internal/core/imaging/file_created_*.go` files, make `withFileDate` in `internal/core/imaging/stock_info.go` (~line 37) call `filedate.Created`, and update the direct `fileCreated(path)` assertions in `internal/core/imaging/stock_info_test.go` (~line 61) and `internal/core/imaging/orientation_test.go` (~lines 549, 565). Add the `filedate/` line to the layout tree in CLAUDE.md. Verify with `go build ./...`, `go test ./internal/core/...` and a Windows cross-build (`CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build ./...`).",
             "files": [
               "internal/core/filedate/created.go",
               "internal/core/filedate/birthtime_darwin.go",
@@ -269,8 +269,8 @@
               "internal/core/imaging/file_created_windows.go",
               "internal/core/imaging/file_created_other.go",
               "internal/core/imaging/file_created_test.go",
-              "internal/core/imaging/exif_tags.go",
-              "internal/core/imaging/exif_tags_test.go",
+              "internal/core/imaging/stock_info.go",
+              "internal/core/imaging/stock_info_test.go",
               "internal/core/imaging/orientation_test.go",
               "CLAUDE.md"
             ]
@@ -298,10 +298,14 @@
           },
           {
             "title": "Extract the claude CLI lookup into internal/core/claudebin",
-            "details": "Move `internal/core/tags/claude_path.go` to `internal/core/claudebin/lookup.go` (package `claudebin`), renaming `LookupClaude` -> `Lookup` and `ErrClaudeNotFound` -> `ErrNotFound` to avoid stutter and keeping the unexported `lookupClaude`, `claudeBinaries`, `claudeDirs`, `claudeCandidates`, `isExecutable` helpers and the `osWindows` constant. Keep the `runtime.GOOS` switches rather than splitting into build-tagged files, so the Windows candidate list stays covered by the tests on a macOS host; the OS knowledge is now confined to one single-purpose package. Move `claude_path_test.go` to `internal/core/claudebin/lookup_test.go` with the renames applied. Update `internal/core/tags/tagger.go` (`NewTagger` uses `claudebin.Lookup`, the `//nolint:gosec` comment on `exec.CommandContext` mentions the new name) and the call sites of the error: `internal/core/tags/tagger_test.go` (~lines 111, 117 use `claudebin.ErrNotFound`; ~line 338 loses the `osWindows` constant and must compare `runtime.GOOS` against the literal `\"windows\"`), `internal/gui/ui/tags_dialog.go` (~line 314) and `internal/gui/ui/tags_dialog_test.go` (~line 173), which now import `photo/internal/core/claudebin` instead of relying on `tags`. Add the `claudebin/` line to the CLAUDE.md layout tree. Run `go test ./...` and `go tool golangci-lint run`.",
+            "details": "Move `internal/core/tags/claude_path.go` to `internal/core/claudebin` (package `claudebin`), renaming `LookupClaude` -> `Lookup` and `ErrClaudeNotFound` -> `ErrNotFound` to avoid stutter. Split the `runtime.GOOS` switches into build-tagged files instead of keeping them: `lookup.go` (no tag) holds `ErrNotFound`, `Lookup`, the unexported `lookupClaude` with its injected `lookPath`/`executable`/`candidates`, `claudeCandidates()` = `dirs()` x `binaries()`, `isExecutable(path)` (stat, reject directories, then delegate to the per-OS predicate) and the shared `homeDirs()` (`~/.local/bin`, `~/.claude/local`); `lookup_windows.go` (`//go:build windows`) has `binaries()` = claude.exe/.cmd/.bat, `dirs()` = homeDirs plus `%APPDATA%\\npm` and `%LOCALAPPDATA%\\Programs\\claude` (and not the POSIX dirs, exactly as today) and an executable predicate that accepts any regular file; `lookup_other.go` (`//go:build !windows`) has `binaries()` = claude, `dirs()` = homeDirs plus `/opt/homebrew/bin` and `/usr/local/bin`, and checks `info.Mode().Perm()&0o111 != 0`. The `osWindows` constant disappears with the switches. Tests split the same way: `lookup_test.go` keeps the OS-independent cases (the `lookupClaude` table, the `claudeCandidates` invariants, `isExecutable` on a directory and a missing path), `lookup_windows_test.go` (`//go:build windows`) asserts the .exe/.cmd binaries and `lookup_other_test.go` (`//go:build !windows`) asserts `claude` plus `/usr/local/bin` and `/opt/homebrew/bin`. Update `internal/core/tags/tagger.go` (~line 55 `NewTagger` uses `claudebin.Lookup`; the `//nolint:gosec` comment ~line 205 names it) and the call sites of the error: `internal/core/tags/tagger_test.go` (~lines 111, 117 use `claudebin.ErrNotFound`; ~line 338 loses the `osWindows` constant and compares `runtime.GOOS` against the literal \"windows\"), `internal/gui/ui/tags_dialog.go` (~line 296) and `internal/gui/ui/tags_dialog_test.go` (~line 173), which now import `photo/internal/core/claudebin`. Add the `claudebin/` line to the CLAUDE.md layout tree. Run `go test ./...`, `go tool golangci-lint run` and the mingw cross-build (the only thing that compiles the Windows variant at all).",
             "files": [
               "internal/core/claudebin/lookup.go",
+              "internal/core/claudebin/lookup_windows.go",
+              "internal/core/claudebin/lookup_other.go",
               "internal/core/claudebin/lookup_test.go",
+              "internal/core/claudebin/lookup_windows_test.go",
+              "internal/core/claudebin/lookup_other_test.go",
               "internal/core/tags/claude_path.go",
               "internal/core/tags/claude_path_test.go",
               "internal/core/tags/tagger.go",
@@ -315,19 +319,19 @@
         "questions": [
           {
             "question": "Package naming: assume `internal/core/filedate` with `filedate.Created(path)`, `internal/gui/nativewin` with `nativewin.Maximize`/`nativewin.MonitorSize`, and `internal/core/claudebin` with `claudebin.Lookup`/`claudebin.ErrNotFound` unless you prefer other names (affects all three steps).",
-            "answer": null
+            "answer": "Yes: internal/core/filedate with filedate.Created(path), internal/gui/nativewin with nativewin.Maximize/nativewin.MonitorSize, internal/core/claudebin with claudebin.Lookup/claudebin.ErrNotFound."
           },
           {
             "question": "Step 1 restructures `fileCreated` into a shared `Created` plus a per-OS `birthTime(info)` instead of three near-identical copies of the stat-and-fallback code. Assume yes; say so if you want a literal 1:1 move of the three files.",
-            "answer": null
+            "answer": "Yes: a shared Created plus a per-OS birthTime(info), not three copies of the stat-and-fallback code."
           },
           {
             "question": "Step 2 moves `screen.go`/`screen_test.go` out of `internal/gui/ui` as well (they are not OS-specific but `maximize_unix.go` needs them), so `ui.MonitorSize` becomes `nativewin.MonitorSize` and `internal/gui/app/app.go` changes. Assume yes; the alternative is keeping a one-line `ui.MonitorSize` wrapper so `app.go` is untouched.",
-            "answer": null
+            "answer": "Yes: screen.go and screen_test.go move into nativewin, ui.MonitorSize becomes nativewin.MonitorSize and internal/gui/app/app.go is updated. No wrapper left behind in ui."
           },
           {
             "question": "Step 3 keeps `runtime.GOOS` branching inside the new `claudebin` package rather than converting it to `_windows.go`/`_other.go` files, because build tags would make the Windows path untestable on the dev machine and CI (both non-Windows). Assume yes; say so if you want build-tagged files with per-OS tests like `internal/core/proc`.",
-            "answer": null
+            "answer": "No: always use build tags. The runtime.GOOS switches are split into lookup_windows.go / lookup_other.go with matching build-tagged tests, accepting that the Windows branch is then compiled but not run on the macOS host or the ubuntu-only CI."
           }
         ],
         "risks": [
@@ -336,7 +340,8 @@
           "The Windows-only files (`birthtime_windows.go`, `maximize_windows.go`) likewise only compile under `GOOS=windows`; the mingw cross-build must be run for each step, and `fyne package --release --os windows` bumps the build number in FyneApp.toml as a side effect, so prefer plain `GOOS=windows go build ./...` for verification.",
           "Renaming `ErrClaudeNotFound` -> `claudebin.ErrNotFound` touches the GUI (`tags_dialog.go`); the `errors.Is` check must keep pointing at the same sentinel or the \"claude CLI not found\" branch of the tags dialog silently stops matching.",
           "`tagger_test.go` borrows the `osWindows` constant from `claude_path.go`; if the constant leaves the package without that test being updated, the `tags` package stops compiling.",
-          "CLAUDE.md documents the package layout and is loaded as project context; leaving it stale is a real (if non-breaking) regression, so each step should update the tree it changes."
+          "CLAUDE.md documents the package layout and is loaded as project context; leaving it stale is a real (if non-breaking) regression, so each step should update the tree it changes.",
+          "Splitting `claudebin` by build tags leaves the Windows lookup compiled but never executed: CI is ubuntu-only (.github/workflows/ci.yml) and the dev host is macOS, so `lookup_windows_test.go` runs nowhere and the .exe/.cmd/%APPDATA% logic is covered by the compiler alone. Accepted cost of the build-tag decision; the mingw cross-build at least keeps it compiling."
         ]
       }
     },

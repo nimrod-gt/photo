@@ -1,21 +1,19 @@
-package imaging
+package filedate
 
 import (
 	"os"
-	"syscall"
 	"time"
 )
 
 // A photo the camera wrote and the app later rewrote keeps the day it was
 // taken, so the file is dated by its birth time and not by its last write.
-func fileCreated(path string) time.Time {
+func Created(path string) time.Time {
 	info, err := os.Stat(path)
 	if err != nil {
 		return time.Time{}
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return info.ModTime()
+	if birth, ok := birthTime(info); ok {
+		return birth
 	}
-	return time.Unix(st.Birthtimespec.Sec, st.Birthtimespec.Nsec)
+	return info.ModTime()
 }

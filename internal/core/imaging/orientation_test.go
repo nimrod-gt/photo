@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"photo/internal/core/filedate"
 	"photo/internal/core/model"
 )
 
@@ -546,7 +547,7 @@ func TestLoadImageWithStock(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NoError(t, loaded.StockErr)
-		assert.Equal(t, fileCreated(path), loaded.Stock.Taken)
+		assert.Equal(t, filedate.Created(path), loaded.Stock.Taken)
 	})
 
 	t.Run("a format that carries no tags loads without any", func(t *testing.T) {
@@ -562,7 +563,7 @@ func TestLoadImageWithStock(t *testing.T) {
 		require.NotNil(t, loaded.Image)
 		require.NoError(t, loaded.StockErr)
 		assert.Equal(t, model.Tags{}, loaded.Stock.Tags)
-		assert.Equal(t, fileCreated(path), loaded.Stock.Taken)
+		assert.Equal(t, filedate.Created(path), loaded.Stock.Taken)
 	})
 
 	t.Run("a packet it cannot parse still yields the image", func(t *testing.T) {

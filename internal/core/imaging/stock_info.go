@@ -12,6 +12,7 @@ import (
 	exif "github.com/dsoprea/go-exif/v3"
 	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 
+	"photo/internal/core/filedate"
 	"photo/internal/core/model"
 )
 
@@ -34,7 +35,7 @@ type StockInfo struct {
 // JPEG rewrites the file and must not move the photo's date.
 func withFileDate(info StockInfo, path string) StockInfo {
 	if info.Taken.IsZero() {
-		info.Taken = fileCreated(path)
+		info.Taken = filedate.Created(path)
 	}
 	return info
 }
