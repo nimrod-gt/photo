@@ -10,9 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"photo/internal/core/model"
 )
 
 func makeTestImage(w, h int) *image.NRGBA {
@@ -484,4 +487,115 @@ func TestHasEOI(t *testing.T) {
 		data := append(append([]byte{markerStart, markerSOI}, segment...), full[2:len(full)*60/100]...)
 		assert.False(t, hasEOI(data))
 	})
+}
+
+func TestLoadImageWithStock(t *testing.T) {
+	t.Parallel()
+
+	tags := model.Tags{Title: "From the packet.", Keywords: []string{"lisbon", "tram"}}
+	packet, ok := packetWithTags(sonyPacket(2000), tags)
+	require.True(t, ok)
+
+	t.Run("takes the image and the tags out of one read", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tagged.jpg", map[string]any{
+			"DateTime": "2026:06:14 08:00:00",
+		}, packet)
+
+		loaded, err := LoadImageWithStock(path, 1600)
+
+		require.NoError(t, err)
+		require.NotNil(t, loaded.Image)
+		require.NoError(t, loaded.StockErr)
+		assert.Equal(t, tags, loaded.Stock.Tags)
+		assert.Equal(t, time.Date(2026, time.June, 14, 8, 0, 0, 0, time.UTC), loaded.Stock.Taken)
+	})
+
+	t.Run("reads the same tags as a parse of the file", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "same.jpg", map[string]any{
+			"ImageDescription": "From the EXIF.",
+		}, packet)
+
+		loaded, err := LoadImageWithStock(path, 1600)
+		require.NoError(t, err)
+
+		fromFile, err := jpegStockInfo(path)
+		require.NoError(t, err)
+		assert.Equal(t, fromFile, loaded.Stock)
+	})
+
+	t.Run("a format that carries no tags loads without any", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "plain.png")
+		var buf bytes.Buffer
+		require.NoError(t, png.Encode(&buf, makeTestImage(4, 2)))
+		require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
+
+		loaded, err := LoadImageWithStock(path, 1600)
+
+		require.NoError(t, err)
+		require.NotNil(t, loaded.Image)
+		require.NoError(t, loaded.StockErr)
+		assert.Equal(t, StockInfo{}, loaded.Stock)
+	})
+
+	t.Run("a packet it cannot parse still yields the image", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", map[string]any{
+			"ImageDescription": "From the EXIF.",
+		}, xmpPacket("<x:xmpmeta><unclosed>", 40))
+
+		loaded, err := LoadImageWithStock(path, 1600)
+
+		require.NoError(t, err, "the photo is shown whatever its metadata says")
+		require.NotNil(t, loaded.Image)
+		require.Error(t, loaded.StockErr)
+		assert.Contains(t, loaded.StockErr.Error(), "XMP")
+		assert.Equal(t, "From the EXIF.", loaded.Stock.Tags.Title)
+	})
+
+	t.Run("a file it cannot read yields no image", func(t *testing.T) {
+		t.Parallel()
+
+		loaded, err := LoadImageWithStock(filepath.Join(t.TempDir(), "missing.jpg"), 1600)
+
+		require.Error(t, err)
+		assert.Nil(t, loaded.Image)
+		assert.Equal(t, StockInfo{}, loaded.Stock)
+	})
+}
+
+// Metadata that cannot be read used to travel back as the error of the load
+// itself, and the viewer answered a photo with a broken packet with "Failed to
+// load image" instead of showing it.
+func TestLoadImageOrientedIgnoresTheTagsError(t *testing.T) {
+	t.Parallel()
+
+	path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", nil, xmpPacket("<x:xmpmeta><unclosed>", 40))
+
+	img, err := LoadImageOriented(path, 1600)
+
+	require.NoError(t, err)
+	assert.NotNil(t, img)
+}
+
+func TestExifServiceLoadImage(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	tags := model.Tags{Title: "Read under the lock."}
+	packet, ok := packetWithTags(sonyPacket(2000), tags)
+	require.True(t, ok)
+	path := writeJPEGWithPacket(t, t.TempDir(), "locked.jpg", nil, packet)
+
+	loaded, err := svc.LoadImage(path, 1600)
+
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Image)
+	require.NoError(t, loaded.StockErr)
+	assert.Equal(t, tags, loaded.Stock.Tags)
+
+	_, err = svc.LoadImage(filepath.Join(t.TempDir(), "missing.jpg"), 1600)
+	require.Error(t, err)
 }

@@ -61,7 +61,11 @@ func jpegStockInfo(jpegPath string) (StockInfo, error) {
 	if err != nil {
 		return StockInfo{}, err
 	}
-	flat, err := flatExifOf(sl, jpegPath)
+	return stockInfoFromSegments(sl, jpegPath)
+}
+
+func stockInfoFromSegments(sl *jpegstructure.SegmentList, source string) (StockInfo, error) {
+	flat, err := flatExifOf(sl, source)
 	if err != nil {
 		return StockInfo{}, err
 	}
@@ -72,7 +76,7 @@ func jpegStockInfo(jpegPath string) (StockInfo, error) {
 	}
 	parsed, err := parseSidecar(packet)
 	if err != nil {
-		return info, fmt.Errorf("parsing the XMP of %s: %w", jpegPath, err)
+		return info, fmt.Errorf("parsing the XMP of %s: %w", source, err)
 	}
 	info.Tags = fillMissing(parsed.tags(), info.Tags)
 	return info, nil
