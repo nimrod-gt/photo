@@ -60,8 +60,15 @@ func (m *dialogManager) confirm() {
 	}
 }
 
+// A dialog with its own Cancel decides when it closes: a running bulk copy
+// keeps its window up until the copy goroutine stops, so Escape must not
+// unregister and hide it here.
 func (m *dialogManager) cancel() {
 	if m.kind == dialogNone {
+		return
+	}
+	if c, ok := m.dialog.(interface{ Cancel() }); ok {
+		c.Cancel()
 		return
 	}
 	d := m.dialog

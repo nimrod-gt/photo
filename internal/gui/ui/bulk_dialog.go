@@ -116,6 +116,16 @@ func (d *CopyAllDialog) SetProgress(value float64) {
 	d.progress.SetValue(value)
 }
 
+func (d *CopyAllDialog) Cancel() {
+	if d.onCancel != nil {
+		d.onCancel()
+	}
+}
+
+func (d *CopyAllDialog) Cancelling() {
+	d.cancelBtn.Disable()
+}
+
 func (d *CopyAllDialog) Finish() {
 	d.Hide()
 }

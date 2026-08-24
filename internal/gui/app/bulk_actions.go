@@ -131,18 +131,28 @@ func (a *Application) handleCopyAll() {
 
 	destDir, copyMode := a.copyPreferences()
 	ctx, cancel := context.WithCancel(context.Background())
+	copying := false
 
 	var copyAllDialog *ui.CopyAllDialog
+	closeDialog := func() {
+		a.dialogs.closed()
+		copyAllDialog.Hide()
+	}
+	// Once the copy runs, the dialog stays open and registered until the
+	// goroutine stops: cancelling only signals the context, and the goroutine
+	// closes the dialog itself. Closing it early would let a second Copy All
+	// open while the first one still copies.
 	copyAllDialog = ui.NewCopyAllDialog(len(filtered), destDir, copyMode, a.mainWindow.Window(),
 		func() {
 			dest := copyAllDialog.DestDir()
 			if len(dest) == 0 {
 				a.mainWindow.ShowError("No destination folder selected")
-				copyAllDialog.Finish()
+				closeDialog()
 				return
 			}
 			mode := copyAllDialog.CopyMode()
 			a.saveCopyPreferences(dest, mode)
+			copying = true
 
 			go func() {
 				total := len(filtered)
@@ -153,10 +163,7 @@ func (a *Application) handleCopyAll() {
 						if ctx.Err() != nil {
 							fyne.Do(func() {
 								a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
-								if a.dialogs.isOpen(dialogCopyAll) {
-									a.dialogs.closed()
-									copyAllDialog.Hide()
-								}
+								closeDialog()
 							})
 							return
 						}
@@ -167,16 +174,11 @@ func (a *Application) handleCopyAll() {
 					copied++
 					progress := float64(i+1) / float64(total)
 					fyne.Do(func() {
-						if a.dialogs.isOpen(dialogCopyAll) {
-							copyAllDialog.SetProgress(progress)
-						}
+						copyAllDialog.SetProgress(progress)
 					})
 				}
 				fyne.Do(func() {
-					if a.dialogs.isOpen(dialogCopyAll) {
-						a.dialogs.closed()
-						copyAllDialog.Finish()
-					}
+					closeDialog()
 					if skipped > 0 {
 						a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
 					} else {
@@ -187,12 +189,13 @@ func (a *Application) handleCopyAll() {
 		},
 		func() {
 			cancel()
-			if a.dialogs.isOpen(dialogCopyAll) {
-				a.dialogs.closed()
+			if copying {
+				copyAllDialog.Cancelling()
+				return
 			}
-			copyAllDialog.Hide()
+			closeDialog()
 		},
 	)
-	a.dialogs.open(dialogCopyAll, copyAllDialog, cancel)
+	a.dialogs.open(dialogCopyAll, copyAllDialog, nil)
 	copyAllDialog.Show()
 }
