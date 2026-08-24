@@ -29,14 +29,16 @@ const (
 var favoriteColor = color.NRGBA{R: 255, G: 215, B: 0, A: 255}
 
 type browserItem struct {
+	widget.BaseWidget
 	thumb    *canvas.Image
 	name     *widget.Label
 	star     *canvas.Text
 	dots     *fyne.Container
 	dateText *canvas.Text
+	root     fyne.CanvasObject
 }
 
-func (fb *FileBrowser) createItem() fyne.CanvasObject {
+func newBrowserItem() *browserItem {
 	thumb := canvas.NewImageFromImage(nil)
 	thumb.SetMinSize(fyne.NewSize(thumbnailWidth, thumbnailHeight))
 	thumb.FillMode = canvas.ImageFillContain
@@ -59,17 +61,34 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 
 	textBox := container.NewVBox(topRow, dateRow)
 
-	root := container.NewBorder(nil, nil, thumb, nil,
-		container.New(layout.NewStackLayout(), textBox),
-	)
-	fb.items[root] = &browserItem{
+	item := &browserItem{
 		thumb:    thumb,
 		name:     nameLabel,
 		star:     star,
 		dots:     dotsContainer,
 		dateText: dateText,
+		root: container.NewBorder(nil, nil, thumb, nil,
+			container.New(layout.NewStackLayout(), textBox),
+		),
 	}
-	return root
+	item.ExtendBaseWidget(item)
+	return item
+}
+
+func (bi *browserItem) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(bi.root)
+}
+
+func (bi *browserItem) update(photo model.Photo, meta model.PhotoMeta, thumbnail image.Image) {
+	updateThumbnail(bi.thumb, thumbnail)
+	bi.name.SetText(photo.Name)
+	updateStar(bi.star, meta.Favorite)
+	updateColorDots(bi.dots, meta.Colors)
+	updateDateText(bi.dateText, meta.Date)
+}
+
+func (fb *FileBrowser) createItem() fyne.CanvasObject {
+	return newBrowserItem()
 }
 
 func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
@@ -78,7 +97,7 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 		return
 	}
 
-	item, ok := fb.items[obj]
+	item, ok := obj.(*browserItem)
 	if !ok {
 		return
 	}
@@ -87,11 +106,7 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 	if thumbnail == nil {
 		thumbnail = fb.imageProvider.Thumbnail(photo.ImagePath)
 	}
-	updateThumbnail(item.thumb, thumbnail)
-	item.name.SetText(photo.Name)
-	updateStar(item.star, meta.Favorite)
-	updateColorDots(item.dots, meta.Colors)
-	updateDateText(item.dateText, meta.Date)
+	item.update(photo, meta, thumbnail)
 }
 
 func newColorDots() *fyne.Container {

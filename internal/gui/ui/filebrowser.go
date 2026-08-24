@@ -49,7 +49,6 @@ type FileBrowser struct {
 	unselectAllBtn *widget.Button
 
 	data          *photoList
-	items         map[fyne.CanvasObject]*browserItem
 	imageProvider *imaging.Provider
 	colors        *library.ColorService
 	callbacks     FileBrowserCallbacks
@@ -66,7 +65,6 @@ func NewFileBrowser(
 		colors:        colors,
 		callbacks:     callbacks,
 		data:          newPhotoList(),
-		items:         make(map[fyne.CanvasObject]*browserItem),
 	}
 	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
 	fb.build()

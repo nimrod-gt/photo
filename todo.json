@@ -353,14 +353,14 @@
         "internal/gui/ui/photolist_test.go"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/6-widget-map-leak",
       "created_at": "2026-08-24T14:09:07Z",
-      "updated_at": "2026-08-24T14:15:59Z",
+      "updated_at": "2026-08-24T14:51:57Z",
       "plan": {
         "created_at": "2026-08-24T14:15:59Z",
-        "revised_at": null,
-        "base_commit": "a1d5806",
+        "revised_at": "2026-08-24T14:51:57Z",
+        "base_commit": "1e8b56f",
         "summary": "Both list-style views keep a `map[fyne.CanvasObject]*item` that is written in `createItem` and never pruned; because Fyne's `listRenderer.Refresh`/`gridWrapRenderer.Refresh` call `CreateItem` again (once for `itemMin`, plus drained item pool), every `Refresh` adds entries that are never removed, so the maps grow without bound and pin canvas objects and their thumbnails alive. The fix is to turn the per-row/per-tile state holders into real Fyne widgets that embed `widget.BaseWidget`, hold their own children, and expose an `update(...)` method; `createItem` then returns the widget itself and `updateItem` recovers the state with a type assertion instead of a map lookup, letting the widget (and its state) be garbage-collected with the canvas object. Step 1 does the file browser row (`browserItem`, `internal/gui/ui/browseritem.go` + `filebrowser.go`), step 2 does the grid tile (`gridItem`, moved out of `gridviewer.go` into a new `griditem.go`). Each step also extends/creates the matching test file so the reuse behaviour (state carried by the widget, stale values cleared when a row is reused for another photo) is covered. Existing free helpers (`updateThumbnail`, `updateStar`, `updateColorDots`, `updateDateText`) stay as functions so the current unit tests keep working.",
         "steps": [
           {
@@ -385,19 +385,19 @@
         "questions": [
           {
             "question": "Should `gridItem` live in a new `internal/gui/ui/griditem.go` (symmetric with `browseritem.go`) or stay inside `gridviewer.go`? Assume the new file unless told otherwise.",
-            "answer": null
+            "answer": "New internal/gui/ui/griditem.go, symmetric with browseritem.go."
           },
           {
             "question": "The grid tile currently reuses `updateThumbnail` from `browseritem.go`, which is a small overlap with todo #7 (dedup thumbnail loading). Is that acceptable now, or should the grid keep its own inline image code until #7 lands? Assume reuse is fine.",
-            "answer": null
+            "answer": "Reuse updateThumbnail now; the small overlap with todo #7 is acceptable."
           },
           {
             "question": "The tile thumbnail min size is set only at creation time (a resize relies on `grid.Refresh()` recreating items). Should `gridItem.update` also re-apply the current tile size? Assume no - keep today's behaviour, no functional change in this todo.",
-            "answer": null
+            "answer": "No - keep today's behaviour, no functional change in this todo."
           },
           {
             "question": "New tests instantiate real widgets and therefore need the Fyne test driver (`test.NewTempWindow`) and must not use `t.Parallel`, unlike the current pure-helper tests in `browseritem_test.go`. Assume that mixed style is acceptable.",
-            "answer": null
+            "answer": "Yes - mixed style in the same file is acceptable, as in tags_dialog_test.go."
           }
         ],
         "risks": [
