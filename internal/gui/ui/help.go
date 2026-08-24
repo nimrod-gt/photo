@@ -32,6 +32,7 @@ var helpLeft = []shortcutSection{
 			{"L", "Toggle grid view"},
 			{"Z", "Reset zoom"},
 			{"T", "Generate stock tags"},
+			{"I", "Toggle tag overlay"},
 			{"H", "Toggle this help"},
 		},
 	},

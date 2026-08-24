@@ -27,6 +27,7 @@ type ShortcutCallbacks struct {
 	OnZoomIn         func()
 	OnZoomOut        func()
 	OnTags           func()
+	OnToggleTags     func()
 }
 
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
@@ -48,6 +49,7 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		glfw.GetKeyScancode(glfw.KeyL): callbacks.OnToggleGrid,
 		glfw.GetKeyScancode(glfw.KeyZ): callbacks.OnZoomReset,
 		glfw.GetKeyScancode(glfw.KeyT): callbacks.OnTags,
+		glfw.GetKeyScancode(glfw.KeyI): callbacks.OnToggleTags,
 	}
 
 	keyActions := map[fyne.KeyName]func(){

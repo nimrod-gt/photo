@@ -13,7 +13,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 ### UI Layout
 
 - **Left panel**: File browser with directory tree (GoLand-style). Shows only non-RAW files. Sorting by name/time. "Today" button. Color indicators displayed before filenames.
-- **Center**: Photo viewer. Favorite and color state is shown only by the top bar buttons and the file list, nothing is drawn over the photo.
+- **Center**: Photo viewer. Favorite and color state is shown only by the top bar buttons and the file list, never drawn over the photo. The stock tags are the one exception: title and keyword line as a translucent two-plate overlay in the bottom-left of the image, hidden in grid view and toggled with `I`.
 - **Top bar**: Action buttons — Favorite, Red, Green, Blue, Tags, Delete.
 - **Right-click context menu** on photo: same actions as top bar.
 
@@ -23,7 +23,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
 - **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
 - **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
-- **Settings**: Sort order and direction are remembered between launches. The window always opens maximized.
+- **Settings**: Sort order and direction, and whether the tag overlay is shown, are remembered between launches. The window always opens maximized.
 - **Navigation**: Arrow keys (Right/Down = next, Left/Up = previous) and left mouse click on photo = next. Stays on last/first photo at boundaries.
 
 ### Keyboard Shortcuts (layout-independent)
@@ -39,6 +39,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `+`/`-` — zoom in/out
 - `L` — toggle grid view
 - `T` — generate stock tags for the current photo
+- `I` — toggle the tag overlay
 - Arrow keys — navigate photos
 
 ### Tech Stack

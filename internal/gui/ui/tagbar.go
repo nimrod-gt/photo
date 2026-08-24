@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
@@ -19,7 +20,9 @@ const (
 	tagBarRowGap        = float32(4)
 	tagBarBgAlpha       = 190
 	tagBarMaxWidthPct   = 0.6
-	tagBarTitleWidthPct = 0.3
+	tagBarTitleWidthPct = 0.275
+	tagBarTextPadX      = float32(6)
+	tagBarTextPadY      = float32(2)
 )
 
 type tagRow struct {
@@ -34,7 +37,16 @@ func newTagRow(label *widget.Label, widthPct float32) *tagRow {
 	bg := canvas.NewRectangle(color.NRGBA{R: 20, G: 20, B: 20, A: tagBarBgAlpha})
 	bg.CornerRadius = 6
 
-	content := container.NewStack(bg, container.NewPadded(label))
+	// A Label reserves theme.InnerPadding around its text and cannot be told
+	// otherwise, so the plate is pulled back in by that much and given the
+	// padding it should have. Negative values are what CustomPaddedLayout takes
+	// for it.
+	inset := theme.InnerPadding()
+	text := container.New(
+		layout.NewCustomPaddedLayout(tagBarTextPadY-inset, tagBarTextPadY-inset, tagBarTextPadX-inset, tagBarTextPadX-inset),
+		label,
+	)
+	content := container.NewStack(bg, text)
 	content.Hide()
 
 	return &tagRow{label: label, content: content, widthPct: widthPct}
@@ -44,8 +56,7 @@ func newTagRow(label *widget.Label, widthPct float32) *tagRow {
 // MinSize is the width of the ellipsis alone, so a row sized from it would be a
 // stub showing nothing else.
 func (r *tagRow) textWidth() float32 {
-	return fyne.MeasureText(r.label.Text, theme.TextSize(), r.label.TextStyle).Width +
-		2*theme.InnerPadding() + 2*theme.Padding()
+	return fyne.MeasureText(r.label.Text, theme.TextSize(), r.label.TextStyle).Width + 2*tagBarTextPadX
 }
 
 type TagBar struct {

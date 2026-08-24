@@ -7,6 +7,7 @@ import (
 const (
 	sortOrderKey      = "sortOrder"
 	sortDescendingKey = "sortDescending"
+	showTagsKey       = "showTags"
 )
 
 func normalizeSortOrder(value int) library.SortOrder {
@@ -23,6 +24,15 @@ func (a *Application) restoreSortOrder() {
 	a.sortOrder = normalizeSortOrder(prefs.IntWithFallback(sortOrderKey, int(library.SortByName)))
 	a.sortDescending = prefs.BoolWithFallback(sortDescendingKey, false)
 	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
+}
+
+func (a *Application) restoreTagVisibility() {
+	a.showTags = a.fyneApp.Preferences().BoolWithFallback(showTagsKey, true)
+	a.mainWindow.SetTagsVisible(a.showTags)
+}
+
+func (a *Application) saveTagVisibility() {
+	a.fyneApp.Preferences().SetBool(showTagsKey, a.showTags)
 }
 
 func (a *Application) saveSortOrder() {

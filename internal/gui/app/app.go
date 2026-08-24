@@ -42,6 +42,7 @@ type Application struct {
 	sortOrder        library.SortOrder
 	sortDescending   bool
 	gridMode         bool
+	showTags         bool
 	tagGeneration    int
 }
 
@@ -164,9 +165,11 @@ func (a *Application) Run() {
 		OnZoomIn:         a.handleZoomIn,
 		OnZoomOut:        a.handleZoomOut,
 		OnTags:           a.handleTags,
+		OnToggleTags:     a.handleToggleTags,
 	})
 
 	a.restoreSortOrder()
+	a.restoreTagVisibility()
 	a.loadInitialDirectory()
 
 	if prefs := fyneApp.Preferences(); !prefs.BoolWithFallback("helpShown", false) {

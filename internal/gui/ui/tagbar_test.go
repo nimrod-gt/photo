@@ -108,7 +108,7 @@ func TestTagBar(t *testing.T) {
 		assert.Less(t, bar.title.content.Size().Width, bar.keywords.content.Size().Width)
 
 		expected := fyne.MeasureText("Boat", theme.TextSize(), bar.title.label.TextStyle).Width
-		assert.InDelta(t, expected, bar.title.content.Size().Width, float64(2*theme.InnerPadding()+2*theme.Padding()))
+		assert.InDelta(t, expected+2*tagBarTextPadX, bar.title.content.Size().Width, 0.01)
 	})
 
 	t.Run("the rows sit one above the other with a gap", func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestTagBar(t *testing.T) {
 		assert.Equal(t, viewerHeight-tagBarMargin, keywords.Position().Y+keywords.Size().Height)
 	})
 
-	t.Run("the title is capped at a third and the keywords wider", func(t *testing.T) {
+	t.Run("the title is capped narrower than the keywords", func(t *testing.T) {
 		bar := newTestTagBar(t)
 		long := strings.Repeat("a very long line ", 40)
 		bar.SetTags(model.Tags{Title: long, Keywords: []string{long}})

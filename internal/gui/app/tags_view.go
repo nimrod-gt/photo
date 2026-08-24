@@ -53,3 +53,15 @@ func (a *Application) setTagsIfCurrent(path string, tags model.Tags) {
 		}
 	})
 }
+
+// Not shortcutsBlocked: this is a display preference, not an action on the
+// photo, and grid mode is a place the user may well decide from. The overlay is
+// suppressed there either way, so the choice simply takes effect on the way out.
+func (a *Application) handleToggleTags() {
+	if a.dialogs.anyOpen() {
+		return
+	}
+	a.showTags = !a.showTags
+	a.mainWindow.SetTagsVisible(a.showTags)
+	a.saveTagVisibility()
+}
