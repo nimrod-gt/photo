@@ -246,15 +246,15 @@
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/4-simplify-code",
       "created_at": "2026-08-24T09:12:34Z",
-      "updated_at": "2026-08-24T11:08:17Z",
+      "updated_at": "2026-08-24T11:17:48Z",
       "plan": {
         "created_at": "2026-08-24T11:08:17Z",
-        "revised_at": null,
-        "base_commit": "4f3a7c9",
-        "summary": "A behaviour-neutral simplification pass over the three densest areas of the codebase, done as small independently reviewable steps. In `internal/gui/app` the 768-line `actions.go` is first split by concern (button-state sync, per-photo actions, bulk flows, tags session) with pure code motion, then the repetition inside it is removed: one helper builds and registers every confirm dialog (`handleDelete`, `handleCopy`, `handleDeleteAll`, `handleUnselectAll` all repeat the same six lines), one helper runs a per-photo toggle off the main goroutine (`handleFavorite`/`handleColorToggle`), and the dead `favorite` argument that `handleColorToggle` computes and `photoStateChanged` ignores is removed. In `internal/gui/ui` the 38 `if callbacks.OnX != nil` guards collapse into a `call`/`iconButton` pair, `filebrowser.go` gets one `refreshRows` helper for the applyFilter+bulkbar+Refresh triple it repeats four times, and the row-rendering half of the file moves into its own file with tests. In `internal/core/imaging` two genuine duplications go: the inflight-waiter load dance shared by `Loader.Get` and `Loader.Preload`, and the \"read the RAW sidecar and fill what the JPEG lacks\" logic that exists in both `ExifService.GetStockInfo` and `Provider.completeStock`. No user-visible behaviour changes anywhere.",
+        "revised_at": "2026-08-24T11:17:48Z",
+        "base_commit": "38a12e0",
+        "summary": "A behaviour-neutral simplification pass over the three densest areas of the codebase, done as small independently reviewable steps. In `internal/gui/app` the 768-line `actions.go` is first split by concern (button-state sync, per-photo actions, bulk flows, tags session) with pure code motion, then the repetition inside it is removed: one helper builds and registers every confirm dialog (`handleDelete`, `handleCopy`, `handleDeleteAll`, `handleUnselectAll` all repeat the same six lines), one helper runs a per-photo toggle off the main goroutine (`handleFavorite`/`handleColorToggle`), and the dead `favorite` argument that `handleColorToggle` computes and `photoStateChanged` ignores is removed. In `internal/gui/ui` the 38 `if callbacks.OnX != nil` guards collapse into a `call`/`iconButton` pair, `filebrowser.go` gets one `refreshRows` helper for the applyFilter+bulkbar+Refresh triple it repeats four times, and the row-rendering half of the file moves into its own file with tests. In `internal/core/imaging` two genuine duplications go: the inflight-waiter load dance shared by `Loader.Get` and `Loader.Preload`, and the \"read the RAW sidecar and fill what the JPEG lacks\" logic that exists in both `ExifService.GetStockInfo` and `Provider.completeStock`. The only approved deviations from strict behaviour-neutrality are the bulk-dialog guard unification and a final pure-rename step for the misleading imaging file names.",
         "steps": [
           {
             "title": "Split internal/gui/app/actions.go by concern (code motion only)",
@@ -268,7 +268,7 @@
           },
           {
             "title": "One confirm-dialog helper and shared guards in internal/gui/app",
-            "details": "In `dialogs.go` add `func (a *Application) showConfirm(kind dialogKind, title, confirmText, cancelText string, content fyne.CanvasObject, onConfirm func())` that builds `dialog.NewCustomConfirm`, calls `a.dialogs.closed()` and returns early on cancel, registers with `a.dialogs.open(kind, d, nil)` and shows it. Use it in `handleDelete`, `handleCopy` (actions.go) and `handleDeleteAll`, `handleUnselectAll` (bulk_actions.go) — all four register the same way with a nil onCancel today. Add `func (a *Application) dialogBlocked(kind dialogKind) bool` holding the grid-mode / `isOpen(kind)`->`confirm()` / `anyOpen()` triple that `handleDelete` and `handleCopy` repeat; leave `handleHelp` (cancel-on-repeat, no grid guard) and the bulk handlers (`a.gridMode || a.dialogs.anyOpen()`, no confirm-on-repeat — the bulk dialogs have no keyboard shortcut and giving them one would be a behaviour change) as they are. Add `func pathSet(photos []model.Photo) map[string]bool` used by the two places in bulk_actions.go that build that map inline, `func (a *Application) copyPreferences() (string, library.CopyMode)` plus `saveCopyPreferences(dest string, mode library.CopyMode)` used by `handleCopy` and `handleCopyAll`, and `func (a *Application) showErrorAsync(msg string, err error)` wrapping the `fyne.Do(func(){ a.showError(...) })` pattern that appears in the goroutines of `handleColorToggle`, `handleFavorite` and `handleDelete`.",
+            "details": "In `dialogs.go` add `func (a *Application) showConfirm(kind dialogKind, title, confirmText, cancelText string, content fyne.CanvasObject, onConfirm func())` that builds `dialog.NewCustomConfirm`, calls `a.dialogs.closed()` and returns early on cancel, registers with `a.dialogs.open(kind, d, nil)` and shows it. Use it in `handleDelete`, `handleCopy` (actions.go) and `handleDeleteAll`, `handleUnselectAll` (bulk_actions.go) — all four register the same way with a nil onCancel today. Add `func (a *Application) dialogBlocked(kind dialogKind) bool` holding the grid-mode / `isOpen(kind)`->`confirm()` / `anyOpen()` triple that `handleDelete` and `handleCopy` repeat, and use it in the three bulk handlers as well (per the resolved question they gain the confirm-on-repeat guard, unreachable today since no key binds them); leave `handleHelp` (cancel-on-repeat, no grid guard) as it is. Add `func pathSet(photos []model.Photo) map[string]bool` used by the two places in bulk_actions.go that build that map inline, `func (a *Application) copyPreferences() (string, library.CopyMode)` plus `saveCopyPreferences(dest string, mode library.CopyMode)` used by `handleCopy` and `handleCopyAll`, and `func (a *Application) showErrorAsync(msg string, err error)` wrapping the `fyne.Do(func(){ a.showError(...) })` pattern that appears in the goroutines of `handleColorToggle`, `handleFavorite` and `handleDelete`.",
             "files": [
               "internal/gui/app/dialogs.go",
               "internal/gui/app/actions.go",
@@ -328,24 +328,36 @@
               "internal/core/imaging/image_provider.go",
               "internal/core/imaging/image_provider_test.go"
             ]
+          },
+          {
+            "title": "Rename the misleading imaging files (pure git mv)",
+            "details": "Pure-rename commit, no content edits: `git mv` `internal/core/imaging/exif.go` -> `exif_service.go`, `exif_test.go` -> `exif_service_test.go`, `exif_tags.go` -> `stock_info.go`, `exif_tags_test.go` -> `stock_info_test.go`, `xmp.go` -> `sidecar.go`, `xmp_test.go` -> `sidecar_test.go`. Done last so the content steps diff against the familiar names; `file_created_*.go` is left for todo #5.",
+            "files": [
+              "internal/core/imaging/exif.go",
+              "internal/core/imaging/exif_test.go",
+              "internal/core/imaging/exif_tags.go",
+              "internal/core/imaging/exif_tags_test.go",
+              "internal/core/imaging/xmp.go",
+              "internal/core/imaging/xmp_test.go"
+            ]
           }
         ],
         "questions": [
           {
             "question": "The whole pass is meant to be behaviour-neutral - same dialogs, same shortcuts, same files written. Confirm that; in particular I am deliberately NOT giving the bulk dialogs the confirm-on-repeat behaviour that Delete and Copy have, because nothing binds a key to them. Assume behaviour-neutral unless told otherwise.",
-            "answer": null
+            "answer": "Also unify bulk dialogs: give Delete All / Unselect All / Copy All the same confirm-on-repeat guard pattern as Delete and Copy."
           },
           {
             "question": "The imaging file names mislead more than the code does (`xmp.go` is really the XMP sidecar, `exif_tags.go` is the stock-info reader, `exif.go` is the ExifService). Do you want a pure-rename step (`xmp.go`->`sidecar.go`, `xmp_test.go`->`sidecar_test.go`, `exif_tags.go`->`stock_info.go`, `exif.go`->`exif_service.go`)? Assume no, since it costs blame history and would conflict with todos 2 and 3, unless you say yes.",
-            "answer": null
+            "answer": "Yes, rename the files (pure git mv step at the end, including the matching test files)."
           },
           {
             "question": "`internal/gui/app` has no tests except `settings_test.go`, so steps 1-3 are verified by `go build`, `go tool golangci-lint run` and a manual run only. Is that acceptable, or should step 3 come with the first real test for that package (which needs a Fyne test window and stubs for scanner/colorService/exifService)? Assume acceptable as is.",
-            "answer": null
+            "answer": "Build + lint + manual run only; no new test scaffolding for internal/gui/app."
           },
           {
             "question": "Steps 1-3 rewrite `internal/gui/app/actions.go`, which todos 2 and 3 will also touch. Should this todo be done before those two to avoid conflicts? Assume yes (do this one first) unless the other work has already started.",
-            "answer": null
+            "answer": "Yes, do this todo first, before todos #2 and #3."
           }
         ],
         "risks": [
