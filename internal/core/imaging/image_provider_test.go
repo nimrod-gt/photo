@@ -610,6 +610,34 @@ func TestImageProvider_StoreStockInfo(t *testing.T) {
 	})
 }
 
+func TestImageProvider_StoreStockInfoDuringARead(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a read that finishes after the save does not overwrite it", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		started, release := make(chan struct{}), make(chan struct{})
+		p := stockProvider(t, nil, func(model.Photo) (StockInfo, error) {
+			close(started)
+			<-release
+			return stockOfTitle("file"), nil
+		})
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, err := p.StockInfo(photo)
+			assert.NoError(t, err)
+		})
+		<-started
+		p.StoreStockInfo(photo.ImagePath, stockOfTitle("generated"))
+		close(release)
+		wg.Wait()
+
+		info, ok := p.PeekStockInfo(photo.ImagePath)
+		require.True(t, ok)
+		assert.Equal(t, "generated", info.Tags.Title)
+	})
+}
+
 func TestImageProvider_Forget(t *testing.T) {
 	t.Parallel()
 
@@ -625,6 +653,29 @@ func TestImageProvider_Forget(t *testing.T) {
 		assert.Nil(t, p.Peek("/photo.jpg", 2000))
 		assert.Nil(t, p.Thumbnail("/photo.jpg"))
 		_, ok := p.PeekStockInfo("/photo.jpg")
+		assert.False(t, ok)
+	})
+
+	t.Run("a read that finishes after the delete adds nothing back", func(t *testing.T) {
+		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
+		started, release := make(chan struct{}), make(chan struct{})
+		p := stockProvider(t, nil, func(model.Photo) (StockInfo, error) {
+			close(started)
+			<-release
+			return stockOfTitle("bay"), nil
+		})
+
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, err := p.StockInfo(photo)
+			assert.NoError(t, err)
+		})
+		<-started
+		p.Forget(photo.ImagePath)
+		close(release)
+		wg.Wait()
+
+		_, ok := p.PeekStockInfo(photo.ImagePath)
 		assert.False(t, ok)
 	})
 }

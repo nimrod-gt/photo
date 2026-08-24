@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -227,6 +228,7 @@ func (a *Application) handleDelete() {
 				if err := a.colorService.RemoveColors(photo); err != nil {
 					log.Println("Failed to remove color labels:", err)
 				}
+				a.imageProvider.Forget(photo.ImagePath)
 				fyne.Do(func() {
 					nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
 					a.fileBrowser.RemovePhoto(photo.ImagePath)
@@ -379,6 +381,9 @@ func (a *Application) handleDeleteAll() {
 					deletedPhotos = append(deletedPhotos, photo)
 				}
 				colorsErr := a.colorService.RemoveMultipleColors(deletedPhotos)
+				for _, photo := range deletedPhotos {
+					a.imageProvider.Forget(photo.ImagePath)
+				}
 				fyne.Do(func() {
 					if colorsErr != nil {
 						a.showError("Failed to remove color labels", colorsErr)
@@ -584,6 +589,7 @@ func (a *Application) handleTags() {
 
 	a.dialogs.open(dialogTags, session.dialog, func() { session.close(cancel) })
 	session.dialog.Show()
+	session.seed()
 	session.prefill()
 }
 
@@ -593,6 +599,34 @@ type tagsSession struct {
 	prefs  fyne.Preferences
 	dialog *ui.TagsDialog
 	saved  model.Tags
+	taken  time.Time
+	seeded bool
+}
+
+// Tags whole enough to show are already in the cache whenever the photo was
+// loaded, so the dialog opens filled instead of blank until a read lands.
+func (s *tagsSession) seed() {
+	info, ok := s.app.imageProvider.PeekStockInfo(s.photo.ImagePath)
+	if !ok {
+		return
+	}
+	s.seeded = true
+	s.saved = info.Tags
+	s.taken = info.Taken
+	s.dialog.SetPhotoInfo(info.Tags, info.Taken)
+}
+
+// The shooting date is read from the file and never edited here, so what was
+// read for the photo is kept beside the tags the app itself wrote. A save that
+// beat the read to it has no date of its own and takes whatever the cache
+// learned meanwhile, because a stored entry is not read over again.
+func (s *tagsSession) storeStock(written model.Tags, taken time.Time) {
+	if taken.IsZero() {
+		if info, ok := s.app.imageProvider.PeekStockInfo(s.photo.ImagePath); ok {
+			taken = info.Taken
+		}
+	}
+	s.app.imageProvider.StoreStockInfo(s.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
 }
 
 func (s *tagsSession) generate(ctx context.Context) {
@@ -614,6 +648,7 @@ func (s *tagsSession) generate(ctx context.Context) {
 			// for the binary, so a typo saved eagerly would disable it for good.
 			s.prefs.SetString("claudePath", req.ClaudePath)
 			s.dialog.SetTags(generated)
+			s.storeStock(generated, s.taken)
 			s.saveSidecar(generated)
 		})
 	}()
@@ -634,9 +669,14 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	}
 	previous := s.saved
 	s.saved = written
+	taken := s.taken
 	path := model.SidecarPath(s.photo.RAWPath)
 	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
-		return "", imaging.WriteSidecar(path, saved)
+		if err := imaging.WriteSidecar(path, saved); err != nil {
+			return "", err
+		}
+		s.storeStock(saved, taken)
+		return "", nil
 	}, func() { s.saved = previous })
 }
 
@@ -647,10 +687,15 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
 func (s *tagsSession) saveJPEG() {
+	taken := s.taken
 	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) (string, error) {
 		rewritten, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
-		if err != nil || !rewritten {
+		if err != nil {
 			return "", err
+		}
+		s.storeStock(saved, taken)
+		if !rewritten {
+			return "", nil
 		}
 		return rewrittenNote, nil
 	}, nil)
@@ -671,8 +716,11 @@ func (s *tagsSession) close(cancel context.CancelFunc) {
 // A run that finished before this read - the file may sit on a slow volume -
 // already wrote what the sidecar holds, so its tags are the ones kept.
 func (s *tagsSession) prefill() {
+	if s.seeded {
+		return
+	}
 	go func() {
-		info, err := s.app.exifService.GetStockInfo(s.photo)
+		info, err := s.app.imageProvider.StockInfo(s.photo)
 		if err != nil {
 			log.Printf("Failed to read tags of %s: %v", s.photo.Name, err)
 		}
@@ -683,6 +731,7 @@ func (s *tagsSession) prefill() {
 			if s.saved.IsEmpty() {
 				s.saved = info.Tags
 			}
+			s.taken = info.Taken
 			s.dialog.SetPhotoInfo(info.Tags, info.Taken)
 		})
 	}()

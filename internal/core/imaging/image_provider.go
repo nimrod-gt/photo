@@ -21,6 +21,9 @@ type stockWaiter struct {
 	info StockInfo
 	err  error
 	done chan struct{}
+	// stale says the photo was saved or deleted while this read ran, so what
+	// the read found is older than what the cache already holds.
+	stale bool
 }
 
 type Provider struct {
@@ -75,7 +78,7 @@ func (p *Provider) completeStock(photo model.Photo) (StockInfo, error) {
 		if err != nil {
 			return info, err
 		}
-		return p.storeStock(photo.ImagePath, info), nil
+		return p.storeRead(photo.ImagePath, info), nil
 	}
 
 	if photo.HasRAW() {
@@ -85,13 +88,30 @@ func (p *Provider) completeStock(photo model.Photo) (StockInfo, error) {
 		}
 		info.Tags = fillMissing(sidecar, info.Tags)
 	}
-	return p.storeStock(photo.ImagePath, info), nil
+	return p.storeRead(photo.ImagePath, info), nil
 }
 
-func (p *Provider) storeStock(path string, info StockInfo) StockInfo {
+// A read is kept unless a save or a delete overtook it: the file it parsed is
+// then not the last word on the photo any more, and storing what it found would
+// bring back tags that were replaced or a photo that is gone.
+func (p *Provider) storeRead(path string, info StockInfo) StockInfo {
 	info.complete = true
+
+	p.stockMu.Lock()
+	defer p.stockMu.Unlock()
+	if w, ok := p.stockInflight[path]; ok && w.stale {
+		return info
+	}
 	p.loader.StoreStock(path, info)
 	return info
+}
+
+func (p *Provider) markStockStale(paths ...string) {
+	for _, path := range paths {
+		if w, ok := p.stockInflight[path]; ok {
+			w.stale = true
+		}
+	}
 }
 
 func (p *Provider) removeStockInflight(path string) {
@@ -113,10 +133,19 @@ func (p *Provider) PeekStockInfo(path string) (StockInfo, bool) {
 // StoreStockInfo takes what the app itself wrote or generated. It is the whole
 // truth for that photo, sidecar included, so nothing is merged into it later.
 func (p *Provider) StoreStockInfo(path string, info StockInfo) {
-	p.storeStock(path, info)
+	info.complete = true
+
+	p.stockMu.Lock()
+	defer p.stockMu.Unlock()
+	p.markStockStale(path)
+	p.loader.StoreStock(path, info)
 }
 
 func (p *Provider) Forget(paths ...string) {
+	p.stockMu.Lock()
+	p.markStockStale(paths...)
+	p.stockMu.Unlock()
+
 	for _, path := range paths {
 		p.loader.Forget(path)
 		p.thumbnails.Delete(path)
