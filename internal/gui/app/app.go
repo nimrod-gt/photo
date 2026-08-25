@@ -31,7 +31,8 @@ type Application struct {
 	navigator        *library.Navigator
 	exifService      *imaging.ExifService
 	imageProvider    *imaging.Provider
-	tagger           *tags.Tagger
+	tagger           tagGenerator
+	tagRuns          *tagRunner
 	actionPanel      *ui.ActionPanel
 	fileBrowser      *ui.FileBrowser
 	viewer           *ui.Viewer
@@ -48,7 +49,7 @@ type Application struct {
 
 func New() *Application {
 	exifService := imaging.NewExifService()
-	return &Application{
+	a := &Application{
 		scanner:       library.NewScanner(),
 		colorService:  library.NewColorService(),
 		deleter:       library.NewDeleter(),
@@ -58,6 +59,8 @@ func New() *Application {
 		imageProvider: imaging.NewProvider(exifService),
 		tagger:        tags.NewTagger(),
 	}
+	a.tagRuns = newTagRunner(a)
+	return a
 }
 
 // FyneApp.toml carries the same declaration, and a packaged build carries it in
@@ -147,7 +150,7 @@ func (a *Application) Run() {
 		OnFavorite:       a.handleFavorite,
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
+		OnBlue:           a.handleBlue,
 		OnDelete:         a.handleDelete,
 		OnCopy:           a.handleCopy,
 		OnCancel:         a.handleCancel,
@@ -178,6 +181,9 @@ func (a *Application) Run() {
 	}
 
 	a.mainWindow.Show()
+	// ShowAndRun comes back once the window is gone, which is the last moment a
+	// generation that is still running can be stopped.
+	a.tagRuns.stopAll()
 }
 
 func (a *Application) showError(msg string, err error) {

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"log"
 	"path/filepath"
 	"time"
@@ -24,7 +23,6 @@ func (a *Application) handleTags() {
 	}
 
 	prefs := a.fyneApp.Preferences()
-	ctx, cancel := context.WithCancel(context.Background())
 	// The date the photo was taken is settled when its image is read, so the
 	// dialog is built with it and never shows another one first.
 	taken, _ := a.imageProvider.PeekStockDate(photo.ImagePath)
@@ -36,8 +34,10 @@ func (a *Application) handleTags() {
 		Date:       taken,
 		IsJPEG:     photo.IsJPEG(),
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
-		OnEscape:   a.handleCancel,
-		OnGenerate: func() { session.generate(ctx) },
+		OnEscape:     a.handleCancel,
+		OnGenerate:   session.generate,
+		OnCancelRun:  session.cancelRun,
+		OnBackground: session.background,
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)
 			a.mainWindow.ShowNotification("Title copied to clipboard")
@@ -47,12 +47,18 @@ func (a *Application) handleTags() {
 			a.mainWindow.ShowNotification("Keywords copied to clipboard")
 		},
 		OnSaveJPEG: session.saveJPEG,
-		OnClose:    func() { session.close(cancel) },
+		OnClose:    session.close,
 	})
 
-	a.dialogs.open(dialogTags, session.dialog, func() { session.close(cancel) })
+	a.dialogs.open(dialogTags, session.dialog, session.cancelRun)
 	session.dialog.Show()
 	session.seed()
+	// A run that is still going fills the fields itself, and a read landing
+	// afterwards would have nothing to add and a status line to overwrite.
+	if a.tagRuns.attach(session) {
+		session.dialog.Generating()
+		return
+	}
 	session.prefill()
 }
 
@@ -88,29 +94,47 @@ func (s *tagsSession) storeStock(written model.Tags, taken time.Time) {
 	s.app.setTagsIfCurrent(s.photo.ImagePath, written)
 }
 
-func (s *tagsSession) generate(ctx context.Context) {
-	req := tags.Request{Photo: s.photo, Notes: s.dialog.Notes(), ClaudePath: s.dialog.ClaudePath()}
+func (s *tagsSession) generate() {
+	s.app.tagRuns.start(s, tags.Request{
+		Photo:      s.photo,
+		Notes:      s.dialog.Notes(),
+		ClaudePath: s.dialog.ClaudePath(),
+	})
+}
 
-	go func() {
-		generated, err := s.app.tagger.Generate(ctx, req)
-		fyne.Do(func() {
-			if !s.app.dialogs.isCurrent(s.dialog) {
-				return
-			}
-			if err != nil {
-				log.Println("Failed to generate tags:", err)
-				s.dialog.Fail(err)
-				return
-			}
-			// Only a path that produced tags is remembered, and an empty one
-			// clears the preference: a stored path short-circuits the search
-			// for the binary, so a typo saved eagerly would disable it for good.
-			s.prefs.SetString("claudePath", req.ClaudePath)
-			s.dialog.SetTags(generated)
-			s.storeStock(generated, s.taken)
-			s.saveSidecar(generated)
-		})
-	}()
+// Reached only while this dialog is still the one on screen; a run that lost it
+// reports itself instead, sidecar included.
+func (s *tagsSession) runFinished(generated model.Tags, err error) {
+	if err != nil {
+		s.dialog.Fail(err)
+		return
+	}
+	s.dialog.SetTags(generated)
+	s.storeStock(generated, s.taken)
+	s.saveSidecar(generated)
+}
+
+// Escape means cancel throughout the app, so it does here what the Cancel
+// button does: the run dies with the dialog. Background is the way to keep one.
+func (s *tagsSession) cancelRun() {
+	s.app.tagRuns.cancel(s.photo.ImagePath)
+	s.close()
+}
+
+func (s *tagsSession) background() {
+	s.app.tagRuns.background(s.photo.ImagePath)
+	s.close()
+}
+
+// B is the Blue label everywhere else, and a dialog on screen blocks that
+// anyway; over a running generation it is the Background button instead, so the
+// key and the button say the same thing.
+func (a *Application) handleBlue() {
+	if session, ok := a.tagRuns.visible(); ok {
+		session.background()
+		return
+	}
+	a.handleColorToggle(model.ColorBlue)
 }
 
 // The sidecar belongs to us alone, so it is written without asking - right
@@ -166,8 +190,7 @@ func (s *tagsSession) saveJPEG() {
 	}, nil)
 }
 
-func (s *tagsSession) close(cancel context.CancelFunc) {
-	cancel()
+func (s *tagsSession) close() {
 	s.saveSidecar(s.dialog.Tags())
 	if s.app.dialogs.isCurrent(s.dialog) {
 		s.app.dialogs.closed()

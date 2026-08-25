@@ -29,6 +29,8 @@ const (
 type TagsDialogCallbacks struct {
 	OnEscape       func()
 	OnGenerate     func()
+	OnCancelRun    func()
+	OnBackground   func()
 	OnCopyTitle    func()
 	OnCopyKeywords func()
 	OnSaveJPEG     func()
@@ -44,6 +46,7 @@ type TagsDialogOptions struct {
 
 type TagsDialog struct {
 	dialog          *dialog.CustomDialog
+	window          fyne.Window
 	callbacks       TagsDialogCallbacks
 	concept         *escapeEntry
 	location        *escapeEntry
@@ -63,11 +66,15 @@ type TagsDialog struct {
 	copyKeywordsBtn *widget.Button
 	saveJPEGBtn     *widget.Button
 	closeBtn        *widget.Button
+	cancelRunBtn    *widget.Button
+	backgroundBtn   *widget.Button
+	buttons         *fyne.Container
+	generating      bool
 	closed          bool
 }
 
 func NewTagsDialog(opts TagsDialogOptions, window fyne.Window, callbacks TagsDialogCallbacks) *TagsDialog {
-	d := &TagsDialog{callbacks: callbacks, defaultDate: opts.Date}
+	d := &TagsDialog{window: window, callbacks: callbacks, defaultDate: opts.Date}
 	d.build(opts, window)
 	return d
 }
@@ -94,7 +101,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 		d.progress,
 		d.resultBox,
 		d.status,
-		d.buttonRow(),
+		d.buttons,
 	)
 	wrapped := container.New(&minWidthLayout{width: tagsDialogWidth}, content)
 
@@ -162,10 +169,7 @@ func labeledRow(text string, content fyne.CanvasObject) *fyne.Container {
 
 func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 	d.generateBtn = widget.NewButton("Generate", func() {
-		d.generateBtn.Disable()
-		d.setStatus("Generating, this takes up to a minute...")
-		d.progress.Show()
-		d.progress.Start()
+		d.Generating()
 		call(d.callbacks.OnGenerate)
 	})
 	d.generateBtn.Importance = widget.HighImportance
@@ -181,17 +185,37 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 		d.saveJPEGBtn.Disable()
 	}
 
-	d.closeBtn = widget.NewButton("Close", d.requestClose)
+	d.closeBtn = widget.NewButton("Close (ESC)", d.requestClose)
+
+	d.cancelRunBtn = widget.NewButton("Cancel (N)", func() { call(d.callbacks.OnCancelRun) })
+	d.cancelRunBtn.Importance = widget.DangerImportance
+	d.backgroundBtn = widget.NewButton("Background (B)", func() { call(d.callbacks.OnBackground) })
+
+	d.buttons = container.NewGridWithColumns(0)
+	d.setGenerating(false)
 }
 
-func (d *TagsDialog) buttonRow() *fyne.Container {
+// A run offers no way out but its own two: closing the dialog would have to
+// mean one of them anyway, and copying or saving tags that are still being
+// generated has nothing to work with.
+func (d *TagsDialog) buttonSet() []fyne.CanvasObject {
+	if d.generating {
+		return []fyne.CanvasObject{d.cancelRunBtn, d.backgroundBtn, d.generateBtn}
+	}
 	buttons := make([]fyne.CanvasObject, 0, 5)
 	buttons = append(buttons, d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn)
 	if d.saveJPEGBtn != nil {
 		buttons = append(buttons, d.saveJPEGBtn)
 	}
-	buttons = append(buttons, d.generateBtn)
-	return container.NewGridWithColumns(len(buttons), buttons...)
+	return append(buttons, d.generateBtn)
+}
+
+func (d *TagsDialog) setGenerating(generating bool) {
+	d.generating = generating
+	buttons := d.buttonSet()
+	d.buttons.Layout = layout.NewGridLayout(len(buttons))
+	d.buttons.Objects = buttons
+	d.buttons.Refresh()
 }
 
 func (d *TagsDialog) requestClose() {
@@ -299,11 +323,30 @@ func (d *TagsDialog) Fail(err error) {
 	d.setStatus(err.Error())
 }
 
+// Generating is also how a dialog reopened over a run that is still going
+// catches up with it, so the state it puts the dialog in belongs here rather
+// than in the Generate button.
+//
+// The focus goes with it: Cancel and Background are reached by their letters as
+// well, and a plain letter typed into an entry belongs to the entry, so the
+// canvas only sees those keys while nothing is focused.
+func (d *TagsDialog) Generating() {
+	d.generateBtn.Disable()
+	d.setStatus("Generating, this takes up to a minute...")
+	d.progress.Show()
+	d.progress.Start()
+	d.setGenerating(true)
+	if d.window != nil {
+		d.window.Canvas().Unfocus()
+	}
+}
+
 func (d *TagsDialog) finishRun() {
 	d.progress.Stop()
 	d.progress.Hide()
 	d.generateBtn.Enable()
 	d.generateBtn.SetText("Regenerate")
+	d.setGenerating(false)
 }
 
 func (d *TagsDialog) refreshStatus() {

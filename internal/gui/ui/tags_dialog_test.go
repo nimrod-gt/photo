@@ -153,6 +153,68 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.progress.Visible())
 	})
 
+	t.Run("a run leaves no way out but cancelling or backgrounding it", func(t *testing.T) {
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+		assert.Equal(t,
+			[]fyne.CanvasObject{d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.saveJPEGBtn, d.generateBtn},
+			d.buttons.Objects)
+
+		test.Tap(d.generateBtn)
+
+		assert.Equal(t,
+			[]fyne.CanvasObject{d.cancelRunBtn, d.backgroundBtn, d.generateBtn},
+			d.buttons.Objects)
+	})
+
+	t.Run("a finished run brings the other buttons back", func(t *testing.T) {
+		for name, finish := range map[string]func(*TagsDialog){
+			"tags":    func(d *TagsDialog) { d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()}) },
+			"failure": func(d *TagsDialog) { d.Fail(errors.New("running claude: exit status 1")) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				d := newTestTagsDialog(t, TagsDialogCallbacks{})
+				test.Tap(d.generateBtn)
+
+				finish(d)
+
+				assert.Equal(t,
+					[]fyne.CanvasObject{d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.generateBtn},
+					d.buttons.Objects)
+			})
+		}
+	})
+
+	t.Run("a reopened dialog catches up with the run it left going", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.Generating()
+
+		assert.True(t, d.generateBtn.Disabled())
+		assert.True(t, d.progress.Visible())
+		assert.Contains(t, d.status.Text, "Generating")
+		assert.Equal(t,
+			[]fyne.CanvasObject{d.cancelRunBtn, d.backgroundBtn, d.generateBtn},
+			d.buttons.Objects)
+	})
+
+	t.Run("cancel and background report to the app", func(t *testing.T) {
+		var cancels, backgrounds, closes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCancelRun:  func() { cancels++ },
+			OnBackground: func() { backgrounds++ },
+			OnClose:      func() { closes++ },
+		})
+		test.Tap(d.generateBtn)
+
+		test.Tap(d.cancelRunBtn)
+		test.Tap(d.backgroundBtn)
+
+		assert.Equal(t, 1, cancels)
+		assert.Equal(t, 1, backgrounds)
+		assert.Equal(t, 0, closes, "the app decides what closing means for a run")
+	})
+
 	t.Run("failure re-enables generate and keeps the path entry hidden", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		test.Tap(d.generateBtn)

@@ -22,6 +22,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - **Favorites**: Toggles `xmp:Rating` (5 / 0) in place inside the XMP packet the camera embeds in the JPEG (visible in OS file explorer, Lightroom and on camera). JPEG only; a JPEG without a writable XMP packet is reported and left untouched. Read back as XMP first, EXIF Rating second.
 - **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
 - **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
+- **Stock tags**: `T` opens the Tags dialog; Generate runs the claude CLI. While a run is going the dialog offers only Cancel (`N`), which kills it and closes, and Background (`B`), which hides the dialog and lets the run finish. A backgrounded run updates the cache and the tag overlay, writes the XMP sidecar of the RAW pair (a JPEG without a RAW pair is never written to on its own — that stays behind Save JPEG) and reports itself through a notification. Pressing `T` on a photo whose run is still going re-attaches the dialog to it. Every run is cancelled when the app exits.
 - **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
 - **Settings**: Sort order and direction, and whether the tag overlay is shown, are remembered between launches. The window always opens maximized.
 - **Navigation**: Arrow keys (Right/Down = next, Left/Up = previous) and left mouse click on photo = next. Stays on last/first photo at boundaries.
@@ -39,6 +40,8 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `+`/`-` — zoom in/out
 - `L` — toggle grid view
 - `T` — generate stock tags for the current photo
+- `B` — send a running generation to the background (Tags dialog only)
+- `N` — cancel a running generation (Tags dialog only)
 - `I` — toggle the tag overlay
 - Arrow keys — navigate photos
 

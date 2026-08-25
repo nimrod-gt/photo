@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 10,
+  "next_id": 11,
   "todos": [
     {
       "id": 3,
@@ -17,115 +17,102 @@
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/3-background-tag-generation",
       "created_at": "2026-08-23T13:47:50Z",
-      "updated_at": "2026-08-23T13:53:45Z",
+      "updated_at": "2026-08-25T08:36:14Z",
       "plan": {
         "created_at": "2026-08-23T13:53:45Z",
-        "revised_at": null,
-        "base_commit": "4fce1b4",
-        "summary": "Add background (non-modal) tag generation alongside today's per-photo modal flow. A new core `tags.Queue` runs Claude CLI requests on a bounded worker pool with cancellation, de-duplication and progress/result callbacks, mirroring the shape of imaging.Provider.LoadFolder. A new GUI-side controller (internal/gui/app/tags_background.go) owns that queue, applies the persistence policy (XMP sidecar next to the RAW), reports progress and reports the summary through ui.Notifier, always hopping to fyne.Do before touching widgets. Two entry points use it: a new \"Tag All\" button in the file browser bulk bar that tags the currently filtered photos, and the existing Tags dialog, whose in-flight run is handed over to the controller instead of being cancelled when the dialog is dismissed. A small progress row with a Stop button in the left panel shows how far the batch is and cancels it. Help text is updated last.",
+        "revised_at": "2026-08-25T08:36:14Z",
+        "base_commit": "732c7cf",
+        "summary": "Under the reduced scope the todo is only this: a tag generation run started from the Tags dialog can be handed to the background instead of being cancelled when the dialog closes. No bulk Tag All, no queue, no worker pool, no progress widget. While a run is in flight the dialog shows only Cancel (N) | Background (B) | disabled Generate - no Close, no copy/save buttons; Cancel kills the run and closes, Background hides the dialog and lets the run finish. A detached run that lands updates the image cache and the tag overlay, writes the XMP sidecar when the photo has a RAW pair, and reports through the notifier; a JPEG without a RAW pair is still never written to. Pressing T on a photo whose run is still going re-attaches the reopened dialog to it instead of starting a second claude. Runs are unlimited in number and all die when the app exits. The work is entirely inside internal/gui: a new mutex-free run registry in internal/gui/app/tags_runs.go owned by the UI goroutine, the two button states in internal/gui/ui/tags_dialog.go, and the N/B keyboard routing.",
         "steps": [
           {
-            "title": "Add a bounded tag-generation queue to internal/core/tags",
-            "details": "New file internal/core/tags/queue.go with a `Queue` that has no Fyne and no I/O beyond the generator it is given: `NewQueue(generate func(context.Context, Request) (model.Tags, error), workers int) *Queue`, so *Tagger is passed as `tagger.Generate` and tests inject a fake. State under one mutex: pending []Request, active map keyed by Request.Photo.ImagePath (re-enqueueing a queued or running photo is a no-op), running worker count, done/total counters for the current burst, and a ctx/cancel created when the first worker starts. API: `Enqueue(reqs ...Request) int`, `Cancel()`, `Progress() (done, total int)`, `Busy() bool`, and a `Callbacks` struct with `OnResult(Result)` and `OnFinished(Summary)`. Each worker pops under the lock, runs generate with the queue context, fires OnResult, and the last worker fires OnFinished exactly once. Comment that callbacks run on worker goroutines (the CLAUDE.md fyne.Do rule then applies to callers). Also add `var ErrUsageLimit = errors.New(\"usage limit reached\")` in internal/core/tags/tagger.go, wrapped into the usage-limit branch of responseMessage/responseFailure with %w (message text unchanged), so a batch can stop itself. Tests in internal/core/tags/queue_test.go (table/subtest style like tagger_test.go, testify): concurrency never exceeds `workers`, duplicates dropped, Cancel stops pending work and cancels the passed context, OnFinished fires once with the right counts, per-photo results and errors. Extend tagger_test.go with an errors.Is(err, ErrUsageLimit) assertion on the existing usage-limit fixtures.",
+            "title": "Two button states in the Tags dialog",
+            "details": "Add OnCancelRun and OnBackground to TagsDialogCallbacks, keeping OnClose for the idle Close. Build cancelRunBtn (\"Cancel (N)\", DangerImportance) and backgroundBtn (\"Background (B)\"), and relabel closeBtn to \"Close (ESC)\". Replace the single buttonRow() with a container rebuilt by setGenerating(bool): generating shows Cancel (N) | Background (B) | disabled Generate, idle shows Close (ESC) | Copy title | Copy keywords | [Save JPEG] | Generate; finishRun() switches back to idle and the Generate handler switches to generating. Export Generating() so a reopened dialog can start in that state, and keep the window on the struct so entering the generating state can Unfocus the canvas - the N/B scancode shortcuts only reach the canvas when no entry holds focus. Tests in tags_dialog_test.go (test.NewTempWindow style): idle row, generating row, Generate -> SetTags/Fail -> idle, callbacks fire, Generating() on a fresh dialog.",
             "files": [
-              "internal/core/tags/queue.go",
-              "internal/core/tags/queue_test.go",
-              "internal/core/tags/tagger.go",
-              "internal/core/tags/tagger_test.go"
-            ]
-          },
-          {
-            "title": "Add the GUI-side background tagging controller and wire it into Application",
-            "details": "New file internal/gui/app/tags_background.go holding `backgroundTagger`: it owns a *tags.Queue built over a.tagger.Generate plus the policy the queue must not know about. The `generate` wrapper calls a.tagger.Generate and on success persists: when photo.HasRAW(), imaging.WriteSidecar(model.SidecarPath(photo.RAWPath), tags), mirroring tagsSession.saveSidecar; a photo without a RAW pair is not written to at all and is counted as skipped. `RunNow(req, onResult)` starts a single detached goroutine outside the pool for the Tags dialog (step 4) so an interactive run is never stuck behind a batch, sharing the same persist + notify path. Failures are logged (log.Printf, as handleDeleteAll does); a tags.ErrUsageLimit result cancels the whole batch and shows one warning. Every UI touch goes through fyne.Do because callbacks arrive on queue workers. Wire it in internal/gui/app/app.go: new field `bgTags *backgroundTagger`, constructed in New() (`backgroundTagWorkers = 2`) and given its window/progress hooks in Run() after mainWindow exists; cancel the queue from the window's close/lifecycle hook next to the existing SetOnStarted wiring. Inert but compiles and is reviewable on its own.",
-            "files": [
-              "internal/gui/app/tags_background.go",
-              "internal/gui/app/app.go"
-            ]
-          },
-          {
-            "title": "Add the \"Tag All\" bulk entry point over the filtered photos",
-            "details": "internal/gui/ui/filebrowser.go: add `OnTagAll func()` to FileBrowserCallbacks and a `tagAllBtn` (theme.DocumentCreateIcon(), the icon the Tags action uses in toolbar.go) into fb.bulkBar next to Delete All / Copy All, under the same visibility rule (updateBulkBarVisibility). internal/gui/ui/bulk_dialog.go: add `NewTagAllDialogContent(count int) (*fyne.Container, *widget.Check)` following NewDeleteAllDialogContent — a bold \"Generate tags for N filtered photos?\" label plus a \"Skip photos that already have tags\" check (checked by default), wrapped in minWidthLayout{width: copyDialogWidth}. internal/gui/app/actions.go: `handleTagAll` next to handleDeleteAll/handleCopyAll — guard on a.gridMode || a.dialogs.anyOpen(), take a.fileBrowser.FilteredPhotos(), show the confirm dialog through a.dialogs.open(dialogTagAll, ...), and on confirm start one goroutine that (a) with the skip box checked drops photos whose exifService.GetStockInfo already returns non-empty tags, (b) builds tags.Request values with the stored `claudePath` preference and no notes, (c) enqueues them via a.bgTags and reports \"Queued N photos for tagging\" (or \"Nothing to tag\") through fyne.Do + ShowNotification. internal/gui/app/dialogs.go: add the `dialogTagAll` kind. internal/gui/app/app.go: pass OnTagAll: a.handleTagAll in the FileBrowserCallbacks literal.",
-            "files": [
-              "internal/gui/ui/filebrowser.go",
-              "internal/gui/ui/bulk_dialog.go",
-              "internal/gui/app/actions.go",
-              "internal/gui/app/dialogs.go",
-              "internal/gui/app/app.go"
-            ]
-          },
-          {
-            "title": "Let a Tags dialog run survive the dialog being closed",
-            "details": "internal/gui/app/actions.go: route tagsSession.generate through a.bgTags.RunNow instead of its own goroutine + tagger call. The result callback keeps the existing `a.dialogs.isCurrent(s.dialog)` guard, keeps setting the `claudePath` preference on success, and keeps calling s.dialog.SetTags / s.dialog.Fail; the sidecar write for generated tags now belongs to the controller alone, so tagsSession.saveSidecar keeps only its close-time job of persisting user edits (leave its `saved` bookkeeping intact so a run followed by a close does not write the same bytes twice — WriteSidecar already no-ops on identical content). Stop cancelling the run in tagsSession.close: drop the per-session context and the cancel passed to a.dialogs.open, so `Esc` or Close leaves the run going; when the run finishes with the dialog gone, the controller persists the sidecar and shows \"Tags generated for <name>\" (or the failure) through the notifier. Reflect this in internal/gui/ui/tags_dialog.go only if the generating status line should say the run continues in the background (a one-line setStatus text change); extend internal/gui/ui/tags_dialog_test.go if that text is asserted.",
-            "files": [
-              "internal/gui/app/actions.go",
               "internal/gui/ui/tags_dialog.go",
               "internal/gui/ui/tags_dialog_test.go"
             ]
           },
           {
-            "title": "Show background progress with a Stop button in the left panel",
-            "details": "New internal/gui/ui/tag_progress.go: a small `TagProgress` type wrapping a widget.ProgressBar plus a label (\"Tagging 3/20\") and a Stop button, hidden by default, with `SetProgress(done, total int)`, `Hide()` and an OnStop callback. internal/gui/ui/filebrowser.go: build one in FileBrowser, add it to the existing `topBars` VBox (below bulkBar so it stays visible whether or not a filter is on), add `OnStopTagging func()` to FileBrowserCallbacks and expose `SetTagProgress(done, total int)` / `HideTagProgress()`. internal/gui/app/tags_background.go: feed OnResult/OnFinished into those two methods inside fyne.Do, and on OnFinished show the summary through the notifier (\"Tagged 18/20 photos (2 failed)\" as a warning when anything failed or was skipped, a plain notification otherwise), mirroring handleCopyAll's wording. internal/gui/app/app.go: pass OnStopTagging: a.bgTags.Cancel. Add a table test in internal/gui/ui/tag_progress_test.go (test.NewTempWindow like tags_dialog_test.go) covering visibility and label text for zero/partial/complete states.",
+            "title": "A run registry that outlives the dialog",
+            "details": "New internal/gui/app/tags_runs.go with a tagRunner on Application (a.tagRuns), created in New(), holding an app-level context plus cancel and runs map[string]*tagRun keyed by ImagePath; every mutation happens on the UI goroutine (started from a dialog callback, finished inside fyne.Do) so there is no mutex, stated in a comment. tagRun holds the photo, its cancel, the taken date and the attached *tagsSession (nil once detached). start(session) derives the run context from the app context, spawns the goroutine calling a.tagger.Generate and on completion inside fyne.Do drops the run and then: attached and still current -> today's path (claudePath preference, SetTags/Fail, storeStock, saveSidecar); detached -> claudePath on success, StoreStockInfo + setTagsIfCurrent, WriteSidecar when photo.HasRAW(), and a notifier message for success or failure; cancelled -> silent. background(path) detaches, cancel(path) cancels, stopAll() cancels the app context and waits on a bounded WaitGroup so exec.CommandContext has killed the child processes - called in Run() right after mainWindow.Show() returns. tags_action.go: handleTags builds no context, session.generate goes through the runner, session.close only saves user edits and unregisters, and the generated-tags sidecar write moves into the runner so it has a single writer.",
             "files": [
-              "internal/gui/ui/tag_progress.go",
-              "internal/gui/ui/tag_progress_test.go",
-              "internal/gui/ui/filebrowser.go",
-              "internal/gui/app/tags_background.go",
+              "internal/gui/app/tags_runs.go",
+              "internal/gui/app/tags_action.go",
               "internal/gui/app/app.go"
             ]
           },
           {
-            "title": "Document the background mode",
-            "details": "internal/gui/ui/help.go: extend the Actions section only if a keyboard shortcut is added (see the last question); otherwise no change there. CLAUDE.md: in Features/UI Layout, note that Tag All in the bulk bar generates tags for the filtered photos in the background, that background results are written to the XMP sidecar of the RAW pair, that the Tags dialog no longer cancels a run when closed, and that progress is shown in the left panel with a Stop button. Keep the edit confined to the feature/shortcut documentation.",
+            "title": "Re-attach a reopened dialog to a running generation",
+            "details": "In handleTags, after seed()/prefill(), ask the runner for a run on this photo; when there is one, attach the new session to it and put the dialog into Generating(). The completion path keeps its a.dialogs.isCurrent(s.dialog) guard so a stale session can never write into a dialog that is gone. A second T while the dialog is open stays blocked by shortcutsBlocked and Generate is disabled while generating, so one photo can never have two runs.",
             "files": [
-              "CLAUDE.md",
-              "internal/gui/ui/help.go"
+              "internal/gui/app/tags_action.go"
+            ]
+          },
+          {
+            "title": "N and B while the dialog generates",
+            "details": "handleCancel (Escape and N) already routes to dialogs.cancel() and so to the tags session's onCancel; make that cancel the run and close, matching the Cancel (N) button. B means toggle Blue today and is swallowed by shortcutsBlocked(), so add a check at the top of the blue path that performs Background when the tags dialog is open with a run in flight, keeping the keyboard and the buttons in step.",
+            "files": [
+              "internal/gui/app/tags_action.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Document it",
+            "details": "help.go: note under the Tags entry that a running generation goes to the background with B and is cancelled with N. CLAUDE.md: in Features and Keyboard Shortcuts, state that a tag run keeps going when the dialog is put in the background, that the result updates the cache, the overlay and the RAW sidecar and is announced by a notification, and that reopening T on that photo re-attaches to the run.",
+            "files": [
+              "internal/gui/ui/help.go",
+              "CLAUDE.md"
             ]
           }
         ],
         "questions": [
           {
-            "question": "Scope check for steps 3 and 4: background mode = (a) bulk tagging of the currently filtered photos plus (b) an interactive run that keeps going after the Tags dialog is closed. Assume both unless told otherwise.",
-            "answer": null
+            "question": "Scope check: background mode = (a) bulk tagging of the filtered photos plus (b) an interactive run that keeps going after the Tags dialog is closed?",
+            "answer": "Detached dialog run only - no bulk Tag All, no queue, no worker pool, no progress widget."
           },
           {
-            "question": "Step 2: how many concurrent claude CLI runs? Each spawns a process with a 3-minute timeout and consumes subscription quota. Assume 2 workers unless told otherwise; should it be a preference instead of a constant?",
-            "answer": null
+            "question": "How many concurrent claude CLI runs? Each spawns a process with a 3-minute timeout and consumes subscription quota.",
+            "answer": "No limit."
           },
           {
-            "question": "Step 2: a photo without a RAW pair has nowhere to store tags except the JPEG's own XMP packet, which the foreground flow only writes behind an explicit button. Assume background runs skip JPEG-only photos and count them as skipped, rather than writing into the JPEG.",
-            "answer": null
+            "question": "A photo without a RAW pair has nowhere to store tags except the JPEG's own XMP packet, which the foreground flow only writes behind an explicit button. What should a background run do with it?",
+            "answer": "Generate and cache it - update the cache and the overlay, write no file. Writing the JPEG stays behind the Save JPEG button."
           },
           {
-            "question": "Step 3: should Tag All skip photos that already carry a title and keywords? Assume yes, with a checkbox in the confirm dialog checked by default.",
-            "answer": null
+            "question": "On a usage-limit error, should the whole batch be cancelled with one warning?",
+            "answer": "Not applicable - there are no batches, only the detached dialog run; the error surfaces per run."
           },
           {
-            "question": "Step 3: bulk runs send no Concept/Location/Editorial notes, unlike the dialog. Assume no notes unless the dialog's inputs should be reused for the whole batch.",
-            "answer": null
+            "question": "The dialog is closed while a run is in flight and the user presses T on the same photo again - what should the reopened dialog do?",
+            "answer": "Re-attach to the running generation: it opens in the generating state and fills in when that run lands."
           },
           {
-            "question": "Step 2: should a running batch be cancelled when the user opens another folder or quits? Assume it keeps running across folder changes (paths are absolute) and is cancelled only by Stop or app exit.",
-            "answer": null
+            "question": "A detached run finishes with no dialog on screen - what should the user see?",
+            "answer": "A notification on success and on failure."
           },
           {
-            "question": "Step 2: on a usage-limit error, assume the whole batch is cancelled and one warning is shown, instead of every remaining photo failing the same way.",
-            "answer": null
+            "question": "The app is quit while a detached run is still going - what happens to the claude process?",
+            "answer": "Cancel the runs on quit so no claude process outlives the window."
           },
           {
-            "question": "Step 6: does background tagging need a keyboard shortcut of its own (e.g. Shift+T for the current photo)? Assume no shortcut for now; button only.",
-            "answer": null
+            "question": "What should the button row look like while generating, and what does Cancel do to the dialog?",
+            "answer": "Only Cancel (N) and Background (B) plus the disabled Generate; the copy and save buttons are hidden and there is no Close while generating. Cancel (N) kills the run and closes the dialog. The idle Close button reads \"Close (ESC)\"."
+          },
+          {
+            "question": "What does Escape do while a run is generating?",
+            "answer": "The same as Cancel (N): kill the run and close, keeping Escape's meaning consistent across the app. B is the only way to detach."
           }
         ],
         "risks": [
-          "Concurrent claude CLI processes multiply cost and can trip the subscription usage limit quickly; the worker count and the usage-limit abort are the only brakes.",
-          "Two writers for the same sidecar: the controller writes generated tags while tagsSession still writes edited tags on close. WriteSidecar is a read-modify-write with no lock (ExifService.access does not cover it), so a close landing exactly on a finishing run can lose one of the two writes.",
-          "Detaching the dialog run removes the cancel-on-close guarantee: a user who closes the dialog can no longer stop a run except through the new Stop button; make sure the controller's context is also cancelled on app exit so no claude process outlives the window.",
-          "Queue callbacks arrive on worker goroutines and the thread checks are compiled out (CLAUDE.md), so a missing fyne.Do will not warn — it will corrupt the canvas intermittently.",
-          "Deleting or moving photos while a batch runs leaves stale requests that fail per photo; noise in the summary counts.",
-          "Overlap with open todos #1 (tag cache) and #2 (display tags): the persistence helper added here is the code #1 would move behind a cache, so expect a merge touch-up in internal/gui/app/tags_background.go."
+          "The Fyne thread checks are compiled out (fyneDo migration), so a missing fyne.Do in the detached completion path will not warn - it will corrupt the canvas intermittently.",
+          "The run registry is mutex-free on the 'UI goroutine only' argument; a future caller from a worker goroutine breaks that silently.",
+          "Two writers for one sidecar (the runner on completion, the session on close). WriteSidecar is a read-modify-write with no lock, so the saved bookkeeping that makes the close-time write a no-op after a run must stay intact.",
+          "N and B reach the canvas only when no entry holds focus; the Unfocus on entering the generating state is what makes the button labels honest and needs a manual check.",
+          "Cancelling on exit races the process teardown; the bounded wait after ShowAndRun is what stops a claude process outliving the window.",
+          "Detaching removes the old guarantee that closing the dialog stops the spend: a forgotten run keeps burning quota until it finishes."
         ]
       }
     },
@@ -146,8 +133,79 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-24T16:20:17Z",
-      "updated_at": "2026-08-24T16:20:17Z",
-      "plan": null
+      "updated_at": "2026-08-25T08:08:33Z",
+      "plan": {
+        "created_at": "2026-08-25T08:08:33Z",
+        "revised_at": null,
+        "base_commit": "732c7cf",
+        "summary": "Todo #8 asks to verify the grid-view preload path that todo #7 touched. The refactor itself is faithful: the old code peeked the sized cache, fell back to the embedded EXIF thumbnail and called schedulePreload on a miss, and resolveThumbnail(size>0) does exactly that (Peek only, needsLoad == Peek miss), so the trigger condition is unchanged. What the reading of gridviewer.go turned up is that the surrounding preload machinery has two real defects and no tests: (a) updateItem records the tile id into visibleMin/visibleMax *after* calling schedulePreload, so the first preload after SetPhotos+ScrollToIndex(500) computes its window from the stale (0,0) range and warms photos 0..50 instead of the ones on screen; (b) the visibleMin/visibleMax bookkeeping uses `visibleMin == visibleMax` as an \"unset\" sentinel, which is true again after every single-item update, so the range collapses to the last updated tile instead of covering the visible run. On top of that, schedulePreload re-reads thumbPixelSize() inside the goroutine (a resize in between caches images at a size the tile's Peek can never satisfy), a schedule dropped by the preloadScheduled CAS is lost with no re-arm, and the fyne.Do(grid.RefreshItem) callback path is unobservable from a test. The plan makes the provider dependency an interface so the whole path can be exercised, extracts and fixes the visible-range tracking, re-arms dropped schedules, and covers the refresh callback (index mapping + generation guard) with tests; package ui already has widget-level tests (griditem_test.go, thumbnail_test.go) and the Fyne test driver executes fyne.Do inline, so the callbacks are testable synchronously.",
+        "steps": [
+          {
+            "title": "Give GridViewer a provider interface and cover the preload trigger",
+            "details": "In internal/gui/ui/gridviewer.go replace the concrete `*imaging.Provider` field and the NewGridViewer parameter with an unexported interface (e.g. `gridImageProvider`) embedding the existing `thumbnailSource` from internal/gui/ui/thumbnail.go and adding `Preload(paths []string, size int, onLoaded func(string))`, `Gen() uint64` and `BumpGen()`. `*imaging.Provider` satisfies it implicitly, so internal/gui/app/app.go:125 needs no edit (verify it still builds; the imaging import may become unused in gridviewer.go). Add internal/gui/ui/gridviewer_test.go with a fake provider recording Peek sizes, Preload calls (paths + size) and exposing a channel so the test can wait for the dispatch goroutine. Tests (non-parallel, using test.NewTempApp(t) because build()/Refresh() need a current app): a sized Peek hit shows the cached image and schedules no preload; a Peek miss shows meta.Thumbnail and schedules one preload whose size equals thumbPixelSize() (>= 256, i.e. above imaging.maxThumbnailDim, so the small thumbnail cache is deliberately bypassed); an id past the end of photos/meta is ignored. Drive it through gv.updateItem(id, newGridItem(200)).",
+            "files": [
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/gridviewer_test.go",
+              "internal/gui/ui/thumbnail.go"
+            ]
+          },
+          {
+            "title": "Extract and fix the visible-range window used for preloading",
+            "details": "Add internal/gui/ui/gridwindow.go with a small `visibleRange` type (`observe(id int)`, `reset()`, `bounds(count, buffer int) (lo, hi int)`) that starts unset (explicit bool or -1 sentinel, not `min == max`), grows to cover every id observed since the last snapshot, and clamps to [0, count-1]. In gridviewer.go: record the tile id (observe) *before* resolving the thumbnail and calling schedulePreload, so the window that a triggering tile produces contains that tile; have schedulePreload take its bounds and reset the range under the same mutex acquisition, and snapshot gv.thumbPixelSize() there too, passing the captured size into the goroutine instead of re-reading it after a possible resize. SetPhotos calls reset(). Add table-driven tests in internal/gui/ui/gridwindow_test.go for the range type, and extend gridviewer_test.go with: after SetPhotos + updateItem(500) on a 1000-photo list, the preloaded paths are the window around 500 (450..550), not 0..50; a burst of updateItem calls over ids 500..511 yields a window covering 450..561; the window clamps at both list ends.",
+            "files": [
+              "internal/gui/ui/gridwindow.go",
+              "internal/gui/ui/gridwindow_test.go",
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/gridviewer_test.go"
+            ]
+          },
+          {
+            "title": "Re-arm a preload request dropped by the preloadScheduled CAS",
+            "details": "imaging.Provider.Preload only dispatches (internal/core/imaging/image_loader.go Preload returns once every path is claimed or skipped), so the CAS is held briefly - but every tile whose needsLoad lands during that dispatch is silently dropped today, which is the 'tiles stuck at embedded EXIF quality' risk from todo #7. Add a `preloadPending atomic.Bool`: schedulePreload sets it when the CAS fails, and the dispatch goroutine, after Preload returns and before/around clearing preloadScheduled, re-runs schedulePreload once if pending was set (swap it back to false first so the re-run is bounded and cannot spin when nothing is loadable). Keep a one-line comment explaining why the flag exists, since the 'why' is not obvious. Test in gridviewer_test.go with a fake provider that blocks inside Preload until released: updateItem A (blocks), updateItem B with a far id, release, then assert a second Preload happens with a window covering B, and that a single updateItem produces exactly one Preload (no repeated re-arm).",
+            "files": [
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/gridviewer_test.go"
+            ]
+          },
+          {
+            "title": "Make the loaded-callback refresh observable and test its index mapping and generation guard",
+            "details": "Add an unexported `refreshItem func(int)` field to GridViewer, set in build() to `gv.grid.RefreshItem`, and have the Preload onLoaded callback call `fyne.Do(func() { gv.refreshItem(idx) })` instead of capturing the grid directly. This is purely a test seam: widget.GridWrap.RefreshItem returns immediately when the widget has no scroller, so an unrendered grid can never show the callback ran. In gridviewer_test.go (Fyne's test driver runs fyne.Do inline, so no extra synchronisation is needed beyond waiting for the dispatch goroutine): a fake provider that invokes onLoaded for a known path refreshes exactly that path's index; an unknown path refreshes nothing; a provider whose Gen() changed between scheduling and the callback (what StopLoading/BumpGen and a folder switch do) refreshes nothing. Also assert StopLoading forwards to BumpGen.",
+            "files": [
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/gridviewer_test.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Preload window semantics: assume 'accumulate every tile updated since the last dispatch, then reset to the triggering tile' (step 2) unless you prefer keeping today's effective 'last updated tile +/- 50' behaviour - is the accumulate-and-reset version what you want?",
+            "answer": null
+          },
+          {
+            "question": "gridPreloadBuffer = 50 means up to 101 images decoded at max(tileWidth*2, 256)px per dispatch. Assume the budget stays as is unless you say otherwise (affects step 2 only).",
+            "answer": null
+          },
+          {
+            "question": "Out of scope unless you say otherwise: changing a colour/favourite filter while grid mode is open never reaches GridViewer.SetPhotos (only enterGridMode in internal/gui/app/navigation.go:110 calls it), so the grid keeps showing the pre-filter list. Should that become its own todo?",
+            "answer": null
+          },
+          {
+            "question": "OK to widen NewGridViewer's parameter from *imaging.Provider to an unexported interface and to add an unexported refreshItem func field, purely as test seams (steps 1 and 4)? Assume yes; without them the preload path stays untestable.",
+            "answer": null
+          },
+          {
+            "question": "Should the plan also include a manual smoke check (open a big folder, press L, scroll fast, confirm tiles sharpen and no stall) after the code steps, or is the automated coverage enough? Assume automated coverage plus your own manual pass.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Fyne's test driver executes fyne.Do inline and keeps global app state, so the new gridviewer tests must use test.NewTempApp(t) and must not call t.Parallel(); the project runs tests with -shuffle=on, so any wait on the dispatch goroutine needs a channel or require.Eventually rather than a sleep.",
+          "Observing the tile id before scheduling (step 2) changes which photos are warmed first on entering grid mode; this is the intended fix but it does alter cache warm-up order and could surface as different perceived load times.",
+          "The re-arm flag (step 3) must be bounded to a single re-run, otherwise a folder where every load fails (Preload's onLoaded never fires on error) could keep re-dispatching.",
+          "The stale-index guard still relies on imaging.Provider.Gen(); a photo list swapped without a generation bump would refresh indices from the old list. Harmless today (exitGridMode calls StopLoading -> BumpGen, and LoadFolder clears the loader), but it is the coupling to watch if SetPhotos ever gets called while a preload is in flight.",
+          "GridViewer.updateItem runs on the UI goroutine under gv.mu while the dispatch goroutine takes the same mutex; keep the lock scopes as short as they are now, and run go test with -race for these tests."
+        ]
+      }
     },
     {
       "id": 9,
@@ -167,7 +225,121 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-24T19:00:59Z",
-      "updated_at": "2026-08-24T19:00:59Z",
+      "updated_at": "2026-08-25T08:08:33Z",
+      "plan": {
+        "created_at": "2026-08-25T08:08:33Z",
+        "revised_at": null,
+        "base_commit": "732c7cf",
+        "summary": "The todo is a survey of what else the app could hand to Lightroom, and the survey's one clear answer is already named in the context: colour labels. Today the app writes xmp:Rating in place inside the JPEG's embedded XMP packet (internal/core/imaging/favorite.go + xmp_packet.go) and dc:title/dc:description/dc:subject into that packet and into the .xmp sidecar beside a RAW pair (internal/core/imaging/exif_write.go, sidecar.go), with an EXIF fallback (ImageDescription/XPTitle/XPKeywords). Everything else the app holds is either read-only from the file (PhotoMeta.Date comes from EXIF DateTimeOriginal or the file creation time and is never written; Ratable is a capability flag, not metadata) or lives only in the app (model.ColorLabel in .photo-colors.json). So the plan is: first record the survey itself (what is written today, what carriers exist, what is deliberately left alone - crs develop settings, GPS, lr:hierarchicalSubject, photoshop:*), then close the single gap it identifies by carrying colour labels as xmp:Label through the same two carriers the rating and the tags already use: read/write inside the JPEG packet in place, and write into the RAW sidecar, wired to the existing colour toggle while .photo-colors.json stays the app's own store.",
+        "steps": [
+          {
+            "title": "Record the survey of what the app can pass to Lightroom",
+            "details": "Add a short section to README.md (under Features, next to the Favorites and Color labels bullets) that enumerates, per field: what the app holds and where it is written today - xmp:Rating (5/0, in place in the JPEG's XMP packet, EXIF Rating read as fallback); dc:title + dc:description + dc:subject (packet when it has room, EXIF ImageDescription/XPTitle/XPKeywords otherwise, and the .xmp sidecar for a RAW pair) - and what is held but not passed: model.PhotoMeta.Colors (red/green/blue, .photo-colors.json only; the natural carrier is xmp:Label), PhotoMeta.Date (read from EXIF DateTimeOriginal/DateTimeDigitized/DateTime or the file creation time, never written, so nothing to pass), PhotoMeta.Ratable (a capability of the packet, not metadata). Name explicitly the properties considered and rejected for now, so a later reader does not redo the survey: lr:hierarchicalSubject (Lightroom keyword hierarchy - the app has flat keywords only), photoshop:Headline/Instructions and Iptc4xmpCore:* (no field in the app produces them), xmp:CreateDate/photoshop:DateCreated (would move the photo's date, which the app deliberately preserves), GPS (never held), and crs:* develop settings (present in Lightroom sidecars and must survive every write untouched - see the comment on mergeSidecar). No Go code changes in this step.",
+            "files": [
+              "README.md"
+            ]
+          },
+          {
+            "title": "Give colour labels a Lightroom vocabulary in the model",
+            "details": "In internal/core/model/color.go add the mapping between model.ColorLabel and the label text Lightroom matches against its label set: a table ColorRed->\"Red\", ColorGreen->\"Green\", ColorBlue->\"Blue\", a LabelFor([]ColorLabel) string that resolves the multi-colour case to a single value by a fixed priority (red, then green, then blue) and returns \"\" for none, and ColorsForLabel(string) []ColorLabel for the read direction (case-insensitive, unknown text -> nil). Keep it I/O free like the rest of the package. Table-driven tests in internal/core/model/color_test.go covering none, one colour, several colours, unknown label text.",
+            "files": [
+              "internal/core/model/color.go",
+              "internal/core/model/color_test.go"
+            ]
+          },
+          {
+            "title": "Read and write xmp:Label inside the XMP packet",
+            "details": "Teach the parser and the in-place rewriter about xmp:Label. In internal/core/imaging/sidecar.go: generalise isRatingName into a namespace+local-name check so parseSidecar also collects xmp:Label (field label on sidecarTags, set from the element text and from the attribute form in readAttributes, mirroring setRating). In internal/core/imaging/xmp_packet.go: add packetWithLabel(packet []byte, label string) mirroring packetWithRating - reuse rewritePacket, xmpPrefixes and the element/attribute pattern pair (factor ratingPatterns into a helper parameterised by property name so Label reuses it), and, where the document carries no label at all, append an rdf:Description declaring the xmp namespace exactly as documentWithRatingWritten does. Keep the same read-back check: rewrite, re-parse with parseSidecar, and refuse the write when the parsed value is not the one written. Tests in internal/core/imaging/xmp_packet_test.go: element form, Lightroom's attribute form, xap prefix, no label present (appended), packet with no room (refused), clearing a label back to empty, and that a rating already in the packet is untouched.",
+            "files": [
+              "internal/core/imaging/xmp_packet.go",
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/xmp_packet_test.go",
+              "internal/core/imaging/sidecar_test.go"
+            ]
+          },
+          {
+            "title": "Expose the label on ExifService: write into the JPEG, report it on read",
+            "details": "Add internal/core/imaging/label.go with (s *ExifService) SetLabel(jpegPath string, label string) error, built like ToggleFavorite in favorite.go: take the write lock, read the file, find the packet with xmpPacketSpan, call packetWithLabel, patchPacket only when the bytes differ, and return a plain error naming the file when the packet cannot take a label (no packet, read-only trailer, no room, or a form the app does not rewrite) - no whole-file rewrite and no EXIF fallback, so the file keeps its size and layout. In internal/core/imaging/exif_service.go add Label string (and Labelable bool, computed like packetTakesRating) to PhotoInfo and fill both in GetPhotoInfo from the already parsed packet; in internal/core/imaging/image_provider.go carry Label through LoadedMeta so the folder scan can report it. Tests in internal/core/imaging/label_test.go on the JPEG fixtures the favorite tests already use: set, overwrite, clear, and the refusal path; extend exif_service_test.go for the new PhotoInfo fields.",
+            "files": [
+              "internal/core/imaging/label.go",
+              "internal/core/imaging/exif_service.go",
+              "internal/core/imaging/image_provider.go",
+              "internal/core/imaging/label_test.go",
+              "internal/core/imaging/exif_service_test.go"
+            ]
+          },
+          {
+            "title": "Carry the label into the RAW sidecar",
+            "details": "Extend the sidecar writer so a RAW pair gets the label too. In internal/core/imaging/sidecar.go add the label to what mergeSidecar owns: a strip pattern for xmp:Label in element, self-closing and attribute form (one pattern per property, as the comment on dcElementPatterns requires) and a writer that emits <xmp:Label>text</xmp:Label> inside the same rdf:Description, declaring xmlns:xmp when the element does not already bind it - with the same errForeignDC escape hatch when the prefix means something else there. Choose the API shape: keep WriteSidecar(path, tags) and add WriteSidecarLabel(path, label), so the tags dialog call site in internal/gui/app/tags_action.go is untouched and a colour toggle does not have to know the tags. ReadSidecar keeps returning tags; add ReadSidecarLabel or return the label alongside only if a caller needs it. Tests in internal/core/imaging/sidecar_test.go: new sidecar, sidecar written by Lightroom (crs develop settings and every non-dc property survive byte for byte), existing label replaced, label cleared, foreign xmp prefix.",
+            "files": [
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/sidecar_test.go"
+            ]
+          },
+          {
+            "title": "Write the label whenever a colour is toggled",
+            "details": "Add one core entry point that covers both carriers - e.g. (s *ExifService) SetPhotoLabel(photo model.Photo, colors []model.ColorLabel) error in internal/core/imaging/label.go: resolve the text with model.LabelFor, call SetLabel for a JPEG and WriteSidecarLabel for model.SidecarPath(photo.RAWPath) when photo.HasRAW(), and join the two errors so one failing carrier does not hide the other. Wire it in internal/gui/app/actions.go: handleColorToggle keeps writing .photo-colors.json through colorService (that stays the app's own truth and the source of the filters), then calls SetPhotoLabel on the same goroutine and reports a failure without undoing the JSON write, since the label is an export convenience and the app's own state already changed. Tests in internal/core/imaging/label_test.go for the JPEG-only, RAW-pair and both-fail combinations; the GUI wiring stays a thin call so it needs no test of its own.",
+            "files": [
+              "internal/core/imaging/label.go",
+              "internal/core/imaging/label_test.go",
+              "internal/gui/app/actions.go"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Should this todo stop after the survey (step 1) and leave xmp:Label to a separate todo? Assume no - the survey names it as the one gap, so steps 2-6 close it - unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "A photo can carry Red+Green at once but xmp:Label is a single string. Assume a fixed priority (red, then green, then blue) picks the one written, rather than a combined \"Red, Green\" that Lightroom would show as a custom label with no colour - affects step 2.",
+            "answer": null
+          },
+          {
+            "question": "Label text: assume the English capitalised \"Red\"/\"Green\"/\"Blue\", which matches Lightroom's default label set; any other set name the user configured would show the label as white. Affects step 2.",
+            "answer": null
+          },
+          {
+            "question": "Should a label found in a file (written in Lightroom) be read back into the app's colour state, or does .photo-colors.json stay the only truth? Assume it stays the only truth: step 4 merely exposes PhotoInfo.Label, nothing reads it into PhotoMeta.Colors.",
+            "answer": null
+          },
+          {
+            "question": "Should the colour buttons be disabled where the packet cannot take a label, the way the favorite button follows PhotoMeta.Ratable? Assume no - a colour toggle must keep working as a JSON-only label on such files, with the failed file write only reported - affects step 6.",
+            "answer": null
+          },
+          {
+            "question": "When a JPEG has no writable XMP packet, should the label fall back to the EXIF the way the stock tags do (rewriting the whole file)? Assume no: refuse and report, like the rating path - affects step 4.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Colour toggling is currently a JSON write that touches no photo; after step 6 it patches the JPEG and writes a sidecar, so it becomes slower, can fail per file, and takes the ExifService write lock - a fast run of R/G/B on a big folder now serialises against the folder scan.",
+          "xmp:Label appended to a packet with no padding room fails the same way a rating does, so some files will keep a colour the app shows and Lightroom never sees; the error text must say that plainly.",
+          "The sidecar merge is regex surgery over documents that carry Lightroom develop settings; a new property pattern that is too greedy can swallow crs:* blocks. The one-pattern-per-property rule in sidecar.go exists for exactly this and must be followed.",
+          "Two sources of truth: a label edited in Lightroom and a colour toggled in the app will drift, since nothing reads the label back.",
+          "Adding a label field to sidecarTags changes what parseSidecar reports, and that same parser gates the packet writes in appendDescription and documentWithRating - check no existing refusal path changes meaning."
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "description": "Improve keyboard navigation in the Tags dialog",
+      "context": "In the Tags dialog (internal/gui/ui/tags_dialog.go) the button row is rebuilt by setGenerating(bool): while a run is in flight it shows Cancel (N) | Background (B) | disabled Generate, idle it shows Close (ESC) | Copy title | Copy keywords | [Save JPEG] | Generate; N and B are not handled by the dialog but by global GLFW scancode shortcuts on the canvas (internal/gui/ui/shortcuts.go, mapped to OnCancel/OnBlue and dispatched through internal/gui/app/actions.go + tags_action.go, gated by shortcutsBlocked), so they only fire when nothing holds focus and Generating() calls window.Canvas().Unfocus() as a workaround. Escape is already solved separately by the escapeEntry/escapeDateEntry/escapeCheck wrappers in internal/gui/ui/escapable.go, which intercept Escape in TypedKey and forward it to TagsDialogCallbacks.OnEscape because a Fyne calendar popup can stack over the dialog; the dialog otherwise relies on default Fyne Tab traversal across Concept, Location, Editorial, Date, claude path, Title, Keywords and the buttons, and this fragile letter-key/focus interaction is what prompted the task.",
+      "docs": [
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/ui/escapable.go",
+        "internal/gui/ui/tags_dialog_test.go",
+        "internal/gui/ui/shortcuts.go",
+        "internal/gui/ui/callbacks.go",
+        "internal/gui/app/actions.go",
+        "internal/gui/app/tags_action.go",
+        "internal/gui/ui/help.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-25T08:52:45Z",
+      "updated_at": "2026-08-25T08:52:45Z",
       "plan": null
     }
   ]
