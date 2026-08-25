@@ -99,6 +99,7 @@ func (s *tagsSession) generate() {
 	s.app.tagRuns.start(s, tags.Request{
 		Photo:      s.photo,
 		Notes:      s.dialog.Notes(),
+		Location:   s.dialog.Location(),
 		ClaudePath: s.dialog.ClaudePath(),
 	})
 }

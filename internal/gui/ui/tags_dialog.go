@@ -50,6 +50,7 @@ type TagsDialog struct {
 	callbacks       TagsDialogCallbacks
 	concept         *escapeEntry
 	location        *escapeEntry
+	split           model.Place
 	editorial       *escapeCheck
 	date            *escapeDateEntry
 	dateRow         *fyne.Container
@@ -250,7 +251,7 @@ func (d *TagsDialog) Notes() string {
 	if concept := strings.TrimSpace(d.concept.Text); len(concept) != 0 {
 		lines = append(lines, "Concept: "+concept)
 	}
-	if location := strings.TrimSpace(d.location.Text); len(location) != 0 {
+	if location := d.Location(); len(location) != 0 {
 		lines = append(lines, "Location: "+location)
 	}
 	if d.editorial.Checked {
@@ -270,11 +271,28 @@ func (d *TagsDialog) ClaudePath() string {
 	return strings.TrimSpace(d.pathEntry.Text)
 }
 
+func (d *TagsDialog) Location() string {
+	return strings.TrimSpace(d.location.Text)
+}
+
 func (d *TagsDialog) Tags() model.Tags {
 	return model.Tags{
 		Title:    strings.TrimSpace(d.title.Text),
 		Keywords: model.ParseKeywordLine(d.keywords.Text),
+		Place:    d.place(),
 	}
+}
+
+// The split into city, region and country is never shown, so a wrong one cannot
+// be corrected by hand. It is kept only while the location it was made from is
+// still the one in the entry: an edited location ships as free text alone rather
+// than with a city that no longer belongs to it.
+func (d *TagsDialog) place() model.Place {
+	location := d.Location()
+	if location != d.split.Location {
+		return model.Place{Location: location}
+	}
+	return d.split
 }
 
 // SetPhotoInfo fills in what the file itself already knows: the tags written to
@@ -311,6 +329,12 @@ func (d *TagsDialog) SetTags(generated model.Tags) {
 func (d *TagsDialog) showTags(shown model.Tags) {
 	d.title.SetText(shown.Title)
 	d.keywords.SetText(shown.KeywordLine())
+	d.split = shown.Place.Trimmed()
+	// A location typed while the run was going is the newer one and stays; the
+	// split then no longer matches it and place() drops it.
+	if len(d.Location()) == 0 {
+		d.location.SetText(d.split.Location)
+	}
 	d.resultBox.Show()
 	d.refreshStatus()
 }

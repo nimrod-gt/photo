@@ -449,6 +449,110 @@ func TestTagsDialog(t *testing.T) {
 
 		assert.Equal(t, 1, closes)
 	})
+
+	t.Run("the typed location is what the tags carry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.location.SetText("  Cascais, Portugal  ")
+
+		assert.Equal(t, model.Place{Location: "Cascais, Portugal"}, d.Tags().Place)
+	})
+
+	t.Run("a generated split reaches the tags", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.location.SetText("Cascais, Portugal")
+
+		d.SetTags(model.Tags{
+			Title:    "A calm morning.",
+			Keywords: fullKeywords(),
+			Place: model.Place{
+				Location: "Cascais, Portugal",
+				City:     "Cascais",
+				State:    "Lisboa",
+				Country:  "Portugal",
+			},
+		})
+
+		assert.Equal(t, model.Place{
+			Location: "Cascais, Portugal",
+			City:     "Cascais",
+			State:    "Lisboa",
+			Country:  "Portugal",
+		}, d.Tags().Place)
+	})
+
+	t.Run("editing the location afterwards drops the split", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.location.SetText("Cascais, Portugal")
+		d.SetTags(model.Tags{
+			Title:    "A calm morning.",
+			Keywords: fullKeywords(),
+			Place:    model.Place{Location: "Cascais, Portugal", City: "Cascais", Country: "Portugal"},
+		})
+
+		d.location.SetText("Sintra, Portugal")
+
+		assert.Equal(t, model.Place{Location: "Sintra, Portugal"}, d.Tags().Place,
+			"a split the user cannot see must not outlive the location it was made from")
+	})
+
+	t.Run("a location typed during the run wins over the split", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Generating()
+		d.location.SetText("Sintra, Portugal")
+
+		d.SetTags(model.Tags{
+			Title:    "A calm morning.",
+			Keywords: fullKeywords(),
+			Place:    model.Place{Location: "Cascais, Portugal", City: "Cascais"},
+		})
+
+		assert.Equal(t, "Sintra, Portugal", d.location.Text)
+		assert.Equal(t, model.Place{Location: "Sintra, Portugal"}, d.Tags().Place)
+	})
+
+	t.Run("a place read from the file fills the empty location entry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.SetPhotoInfo(model.Tags{
+			Title:    "Old title.",
+			Keywords: []string{"lake"},
+			Place:    model.Place{Location: "Cascais, Portugal", City: "Cascais", Country: "Portugal"},
+		}, time.Time{})
+
+		assert.Equal(t, "Cascais, Portugal", d.location.Text)
+		assert.Equal(t, model.Place{Location: "Cascais, Portugal", City: "Cascais", Country: "Portugal"},
+			d.Tags().Place)
+	})
+
+	t.Run("a place read from the file leaves a typed location alone", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.location.SetText("Sintra, Portugal")
+
+		d.SetPhotoInfo(model.Tags{
+			Title:    "Old title.",
+			Keywords: []string{"lake"},
+			Place:    model.Place{Location: "Cascais, Portugal", City: "Cascais"},
+		}, time.Time{})
+
+		assert.Equal(t, "Sintra, Portugal", d.location.Text)
+		assert.Equal(t, model.Place{Location: "Sintra, Portugal"}, d.Tags().Place)
+	})
+
+	// A Lightroom sidecar can carry photoshop:City without an
+	// Iptc4xmpCore:Location, and nothing about it is stale.
+	t.Run("a split without free text survives an untouched entry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.SetPhotoInfo(model.Tags{
+			Title:    "Old title.",
+			Keywords: []string{"lake"},
+			Place:    model.Place{City: "Cascais", Country: "Portugal"},
+		}, time.Time{})
+
+		assert.Empty(t, d.location.Text)
+		assert.Equal(t, model.Place{City: "Cascais", Country: "Portugal"}, d.Tags().Place)
+	})
 }
 
 func TestNotesStayASCII(t *testing.T) {
