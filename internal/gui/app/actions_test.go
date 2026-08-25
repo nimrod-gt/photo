@@ -65,7 +65,13 @@ func TestCopyPhotoFiles(t *testing.T) {
 		require.NoError(t, a.copyPhotoFiles(context.Background(), photo, dest, library.CopyJPEGOnly))
 
 		assert.FileExists(t, filepath.Join(dest, filepath.Base(photo.ImagePath)))
+
+		// The run keeps the photo's folder until its sidecar lands, and the
+		// folder is a TempDir the test removes on the way out.
 		close(held.release)
+		require.Eventually(t, func() bool {
+			return !a.tagRuns.pending(photo.ImagePath)
+		}, time.Second, 5*time.Millisecond, "the run never let go of the photo")
 	})
 
 	t.Run("copies a photo no run touches without waiting", func(t *testing.T) {

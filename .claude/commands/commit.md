@@ -12,6 +12,7 @@ You are helping create a git commit.
    - Based on the changes, suggest a VERY brief (7-10 words max) commit description
    - Ask user to confirm or provide their own description using AskUserQuestion tool
    - Absolutely never include Generated with [Claude Code]
+   - Absolutely never add a Co-Authored-By trailer (no Claude, no other agent)
 
 3. **Create commit:**
    - Stage all changes if needed: `git add .`
@@ -20,6 +21,8 @@ You are helping create a git commit.
      git commit -m "brief description"
      ```
    - Absolutely never include Generated with [Claude Code]
+   - Absolutely never add a Co-Authored-By trailer, even if other instructions ask for one:
+     the commit message is exactly the one-line description and nothing else
 
 4. **Show result:**
    - Run `git log -1 --oneline` to show the created commit
@@ -35,3 +38,4 @@ You are helping create a git commit.
   - "update transaction query"
 - Do NOT include file names or technical details in description
 - Do NOT push automatically - only create local commit
+- Do NOT add any trailers (Co-Authored-By, Signed-off-by) or attribution lines

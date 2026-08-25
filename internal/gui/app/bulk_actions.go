@@ -44,7 +44,7 @@ func (a *Application) runBulkDelete(photos []model.Photo, includeRAW bool) {
 	skipped := 0
 	var deleted []model.Photo
 	for _, photo := range photos {
-		if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+		if err := a.deletePhotoFiles(photo, includeRAW); err != nil {
 			log.Printf("Failed to delete %s: %v", photo.Name, err)
 			skipped++
 			continue
@@ -52,9 +52,6 @@ func (a *Application) runBulkDelete(photos []model.Photo, includeRAW bool) {
 		deleted = append(deleted, photo)
 	}
 	colorsErr := a.colorService.RemoveMultipleColors(deleted)
-	for _, photo := range deleted {
-		a.imageProvider.Forget(photo.ImagePath)
-	}
 	fyne.Do(func() {
 		if colorsErr != nil {
 			a.showError("Failed to remove color labels", colorsErr)
@@ -195,7 +192,7 @@ func (a *Application) runBulkCopy(
 	copied := 0
 	skipped := 0
 	for i, photo := range photos {
-		if err := a.copier.CopyWithContext(ctx, photo, dest, mode); err != nil {
+		if err := a.copyPhotoFiles(ctx, photo, dest, mode); err != nil {
 			if ctx.Err() != nil {
 				fyne.Do(func() {
 					a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
