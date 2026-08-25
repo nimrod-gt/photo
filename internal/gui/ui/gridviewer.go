@@ -15,7 +15,7 @@ import (
 const (
 	gridColumns       = 3
 	gridThumbRatio    = 220.0 / 300.0
-	gridPreloadBuffer = 50
+	gridPreloadBuffer = 20
 )
 
 type gridImageProvider interface {
@@ -36,8 +36,7 @@ type GridViewer struct {
 	callbacks        GridViewerCallbacks
 	photos           []model.Photo
 	meta             []model.PhotoMeta
-	visibleMin       int
-	visibleMax       int
+	visible          visibleRange
 	mu               sync.Mutex
 	tileWidth        float32
 	preloadScheduled atomic.Bool
@@ -58,6 +57,10 @@ func NewGridViewer(imageProvider gridImageProvider, callbacks GridViewerCallback
 func (gv *GridViewer) thumbPixelSize() int {
 	gv.mu.Lock()
 	defer gv.mu.Unlock()
+	return gv.thumbPixelSizeLocked()
+}
+
+func (gv *GridViewer) thumbPixelSizeLocked() int {
 	return max(int(gv.tileWidth*2), 256)
 }
 
@@ -73,8 +76,7 @@ func (gv *GridViewer) SetPhotos(photos []model.Photo, meta []model.PhotoMeta) {
 	gv.mu.Lock()
 	gv.photos = photos
 	gv.meta = meta
-	gv.visibleMin = 0
-	gv.visibleMax = 0
+	gv.visible.reset()
 	gv.mu.Unlock()
 	gv.grid.Refresh()
 }
@@ -142,6 +144,10 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 	}
 	photo := gv.photos[id]
 	meta := gv.meta[id]
+	// before the preload below, so the dispatch it may trigger already knows
+	// which tile asked for it
+	gv.visible.observe(id)
+	size := gv.thumbPixelSizeLocked()
 	gv.mu.Unlock()
 
 	item, ok := obj.(*gridItem)
@@ -149,20 +155,11 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 		return
 	}
 
-	thumbnail, needsLoad := resolveThumbnail(gv.imageProvider, photo.ImagePath, meta.Thumbnail, gv.thumbPixelSize())
+	thumbnail, needsLoad := resolveThumbnail(gv.imageProvider, photo.ImagePath, meta.Thumbnail, size)
 	if needsLoad {
 		gv.schedulePreload()
 	}
 	item.update(photo.Name, thumbnail)
-
-	gv.mu.Lock()
-	if id < gv.visibleMin || gv.visibleMin == gv.visibleMax {
-		gv.visibleMin = id
-	}
-	if id > gv.visibleMax || gv.visibleMin == gv.visibleMax {
-		gv.visibleMax = id
-	}
-	gv.mu.Unlock()
 }
 
 func (gv *GridViewer) schedulePreload() {
@@ -173,15 +170,14 @@ func (gv *GridViewer) schedulePreload() {
 	gen := gv.imageProvider.Gen()
 
 	gv.mu.Lock()
-	if len(gv.photos) == 0 {
-		gv.mu.Unlock()
-		gv.preloadScheduled.Store(false)
-		return
-	}
-	lo := max(gv.visibleMin-gridPreloadBuffer, 0)
-	hi := min(gv.visibleMax+gridPreloadBuffer, len(gv.photos)-1)
-	paths := make([]string, 0, hi-lo+1)
-	indexByPath := make(map[string]int, hi-lo+1)
+	lo, hi := gv.visible.bounds(len(gv.photos), gridPreloadBuffer)
+	gv.visible.reset()
+	// snapshotted here rather than read in the goroutine: a resize in between
+	// would cache the images at a size the tile's own Peek can never satisfy
+	size := gv.thumbPixelSizeLocked()
+	count := max(hi-lo+1, 0)
+	paths := make([]string, 0, count)
+	indexByPath := make(map[string]int, count)
 	for i := lo; i <= hi; i++ {
 		p := gv.photos[i].ImagePath
 		paths = append(paths, p)
@@ -189,9 +185,14 @@ func (gv *GridViewer) schedulePreload() {
 	}
 	gv.mu.Unlock()
 
+	if len(paths) == 0 {
+		gv.preloadScheduled.Store(false)
+		return
+	}
+
 	go func() {
 		defer gv.preloadScheduled.Store(false)
-		gv.imageProvider.Preload(paths, gv.thumbPixelSize(), func(path string) {
+		gv.imageProvider.Preload(paths, size, func(path string) {
 			if gen != gv.imageProvider.Gen() {
 				return
 			}

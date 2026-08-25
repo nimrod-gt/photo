@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,7 +33,7 @@ type fakeGridProvider struct {
 }
 
 func newFakeGridProvider() *fakeGridProvider {
-	return &fakeGridProvider{calls: make(chan gridPreloadCall, 8)}
+	return &fakeGridProvider{calls: make(chan gridPreloadCall, 64)}
 }
 
 func (f *fakeGridProvider) Peek(_ string, size int) image.Image {
@@ -87,12 +88,16 @@ func (r *refreshRecorder) seen() []int {
 	return append([]int(nil), r.ids...)
 }
 
+func gridTestPath(i int) string {
+	return fmt.Sprintf("/photos/DSC%03d.JPG", i)
+}
+
 func gridTestPhotos(count int) ([]model.Photo, []model.PhotoMeta) {
 	photos := make([]model.Photo, count)
 	meta := make([]model.PhotoMeta, count)
 	for i := range count {
-		name := fmt.Sprintf("DSC%03d.JPG", i)
-		photos[i] = model.Photo{ImagePath: "/photos/" + name, Name: name}
+		path := gridTestPath(i)
+		photos[i] = model.Photo{ImagePath: path, Name: filepath.Base(path)}
 		meta[i] = model.PhotoMeta{Thumbnail: image.NewNRGBA(image.Rect(0, 0, 2, 2))}
 	}
 	return photos, meta
@@ -193,4 +198,59 @@ func TestGridViewerRefreshesTheTileOfALoadedPhoto(t *testing.T) {
 	fake.BumpGen()
 	call.onLoaded("/photos/DSC000.JPG")
 	assert.Equal(t, []int{2}, refreshes.seen(), "a stale generation refreshes nothing")
+}
+
+// The grid renders tiles of its own the moment SetPhotos refreshes it, and
+// those count as seen just like scrolled ones; a test that wants to know what a
+// scroll warms has to start from the state a dispatch leaves behind.
+func settleGrid(t *testing.T, gv *GridViewer, fake *fakeGridProvider) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return !gv.preloadScheduled.Load()
+	}, 2*time.Second, 5*time.Millisecond)
+
+	for {
+		select {
+		case <-fake.calls:
+		default:
+			gv.mu.Lock()
+			gv.visible.reset()
+			gv.mu.Unlock()
+			return
+		}
+	}
+}
+
+func TestGridViewerPreloadsAroundTheTileBeingShown(t *testing.T) {
+	tests := []struct {
+		name      string
+		id        int
+		count     int
+		wantFirst int
+		wantLast  int
+	}{
+		{name: "around the tile that missed", id: 500, count: 1000, wantFirst: 480, wantLast: 520},
+		{name: "clamped at the start", id: 1, count: 1000, wantFirst: 0, wantLast: 21},
+		{name: "clamped at the end", id: 999, count: 1000, wantFirst: 979, wantLast: 999},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			test.NewTempApp(t)
+
+			fake := newFakeGridProvider()
+			gv := NewGridViewer(fake, GridViewerCallbacks{})
+			photos, meta := gridTestPhotos(tt.count)
+			gv.SetPhotos(photos, meta)
+			settleGrid(t, gv, fake)
+
+			gv.updateItem(tt.id, newGridItem(200))
+
+			call := fake.awaitPreload(t)
+			require.Len(t, call.paths, tt.wantLast-tt.wantFirst+1)
+			assert.Equal(t, gridTestPath(tt.wantFirst), call.paths[0])
+			assert.Equal(t, gridTestPath(tt.wantLast), call.paths[len(call.paths)-1])
+		})
+	}
 }
