@@ -272,6 +272,24 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, model.Tags{Title: "From the sidecar.", Keywords: []string{"packet"}}, info.Tags)
 	})
 
+	// The EXIF has no field for a place, so a JPEG whose packet had no room keeps
+	// its location in the sidecar alone - and a sidecar another tool wrote may
+	// have tags and no location while the packet has one.
+	t.Run("fills from the packet the place the sidecar lacks", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		placed := model.Tags{Title: "From the packet.", Place: model.Place{Location: "Praia do Guincho", City: "Cascais"}}
+		path := writeJPEGWithPacket(t, dir, "DSC020.jpg", exifTags, packetWith(t, placed))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC020.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC020.xmp"), model.Tags{Title: "From the sidecar."}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "From the sidecar.", info.Tags.Title)
+		assert.Equal(t, model.Place{Location: "Praia do Guincho", City: "Cascais"}, info.Tags.Place)
+	})
+
 	t.Run("reports a packet it cannot parse and keeps the EXIF tags", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", exifTags, xmpPacket("<x:xmpmeta><unclosed>", 40))

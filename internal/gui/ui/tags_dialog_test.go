@@ -525,6 +525,18 @@ func TestTagsDialog(t *testing.T) {
 			d.Tags().Place)
 	})
 
+	// A sidecar another tool wrote can hold a location and no tags at all, and it
+	// is still the location of this photo.
+	t.Run("a place read from a file without tags fills the location entry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.SetPhotoInfo(model.Tags{Place: model.Place{Location: "Cascais, Portugal", City: "Cascais"}}, time.Time{})
+
+		assert.Equal(t, "Cascais, Portugal", d.location.Text)
+		assert.Equal(t, model.Place{Location: "Cascais, Portugal", City: "Cascais"}, d.Tags().Place)
+		assert.True(t, d.resultBox.Hidden, "there are no tags to show")
+	})
+
 	t.Run("a place read from the file leaves a typed location alone", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		d.location.SetText("Sintra, Portugal")

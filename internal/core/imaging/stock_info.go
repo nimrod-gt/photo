@@ -109,13 +109,30 @@ func stockInfoFromSegments(sl *jpegstructure.SegmentList, source string) (StockI
 }
 
 func fillMissing(tags, fallback model.Tags) model.Tags {
-	if len(strings.TrimSpace(tags.Title)) == 0 {
-		tags.Title = fallback.Title
-	}
+	tags.Title = orFallback(tags.Title, fallback.Title)
 	if len(tags.Keywords) == 0 {
 		tags.Keywords = fallback.Keywords
 	}
+	tags.Place = fillMissingPlace(tags.Place, fallback.Place)
 	return tags
+}
+
+// Level by level: a sidecar that names the country but not the city is no reason
+// to drop the city the packet of the JPEG carries.
+func fillMissingPlace(place, fallback model.Place) model.Place {
+	return model.Place{
+		Location: orFallback(place.Location, fallback.Location),
+		City:     orFallback(place.City, fallback.City),
+		State:    orFallback(place.State, fallback.State),
+		Country:  orFallback(place.Country, fallback.Country),
+	}
+}
+
+func orFallback(value, fallback string) string {
+	if len(strings.TrimSpace(value)) == 0 {
+		return fallback
+	}
+	return value
 }
 
 func xmpPacketOf(sl *jpegstructure.SegmentList) []byte {

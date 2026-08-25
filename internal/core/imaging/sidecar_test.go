@@ -713,6 +713,33 @@ func TestParseSidecar_Place(t *testing.T) {
 	})
 }
 
+// The prefix is all a regular expression sees, so a document that spells
+// photoshop as a vocabulary of its own would have had its own City taken for
+// ours and deleted.
+func TestMergeSidecar_KeepsThePropertiesOfAForeignPrefix(t *testing.T) {
+	t.Parallel()
+
+	const foreignPhotoshop = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photoshop="http://example.com/of-our-own/">
+   <photoshop:City>a city of another vocabulary</photoshop:City>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
+	merged, err := mergeSidecar([]byte(foreignPhotoshop), placedTags())
+	require.NoError(t, err)
+
+	text := string(merged)
+	assert.Contains(t, text, "<photoshop:City>a city of another vocabulary</photoshop:City>",
+		"the property of the foreign vocabulary must survive")
+	assert.Contains(t, text, "<photoshop:City>Cascais</photoshop:City>", "ours is written beside it")
+	requireWellFormed(t, merged)
+}
+
 func placedTags() model.Tags {
 	return model.Tags{
 		Title:    "A tram climbs the hill.",

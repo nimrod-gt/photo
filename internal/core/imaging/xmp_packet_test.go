@@ -642,6 +642,23 @@ func TestPacketWithRating(t *testing.T) {
 	}
 }
 
+// Every description this writer appends declares at least one namespace of its
+// own, so the removal that takes an emptied one back out must not reach for a
+// bare description another tool left behind.
+func TestAppendDescription_KeepsADescriptionItCouldNotHaveWritten(t *testing.T) {
+	t.Parallel()
+
+	const bare = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>\n" +
+		"<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\n" +
+		` <rdf:Description rdf:about=""></rdf:Description>` + "\n" +
+		"</rdf:RDF>\n</x:xmpmeta>"
+
+	content, ok := appendDescription(bare, model.Tags{})
+
+	require.True(t, ok)
+	assert.Contains(t, content, `<rdf:Description rdf:about=""></rdf:Description>`)
+}
+
 func TestPacketWithTags_Place(t *testing.T) {
 	t.Parallel()
 

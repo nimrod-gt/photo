@@ -379,16 +379,24 @@ func descriptionClose(text string, from int) (int, error) {
 	return 0, errors.New("no rdf:Description element to update")
 }
 
+type prefixedPattern struct {
+	prefix string
+	re     *regexp.Regexp
+}
+
 // The element the app writes, the self-closing form an earlier save may have
 // left, and the attribute form exiftool writes - per property, matched by the
-// prefix, which is all a regular expression has to go on.
-func stripPatterns() (empty, element, attribute []*regexp.Regexp) {
+// prefix, which is all a regular expression has to go on. The prefix travels
+// with the pattern so that stripProperties can tell whose property it is.
+func stripPatterns() (empty, element, attribute []prefixedPattern) {
 	for _, property := range writtenProperties {
 		name := regexp.QuoteMeta(property.qualified())
-		empty = append(empty, regexp.MustCompile(`[ \t]*<`+name+`\b[^>]*/>[ \t]*\n?`))
-		element = append(element, regexp.MustCompile(
-			`(?s)[ \t]*<`+name+`\b(?:[^>]*[^/>])?>.*?</`+name+`>[ \t]*\n?`))
-		attribute = append(attribute, regexp.MustCompile(`\s+`+name+`\s*=\s*("[^"]*"|'[^']*')`))
+		add := func(into []prefixedPattern, pattern string) []prefixedPattern {
+			return append(into, prefixedPattern{prefix: property.prefix, re: regexp.MustCompile(pattern)})
+		}
+		empty = add(empty, `[ \t]*<`+name+`\b[^>]*/>[ \t]*\n?`)
+		element = add(element, `(?s)[ \t]*<`+name+`\b(?:[^>]*[^/>])?>.*?</`+name+`>[ \t]*\n?`)
+		attribute = add(attribute, `\s+`+name+`\s*=\s*("[^"]*"|'[^']*')`)
 	}
 	return empty, element, attribute
 }
@@ -396,12 +404,28 @@ func stripPatterns() (empty, element, attribute []*regexp.Regexp) {
 // The self-closing form goes first, so that an empty property left by an earlier
 // save cannot stand in as the opening tag of the paired one below it.
 func stripProperties(text string) string {
-	for _, patterns := range [][]*regexp.Regexp{emptyPropertyPatterns, elementPropertyPatterns, attrPropertyPatterns} {
+	strippable := strippablePrefixes(text)
+	for _, patterns := range [][]prefixedPattern{emptyPropertyPatterns, elementPropertyPatterns, attrPropertyPatterns} {
 		for _, pattern := range patterns {
-			text = pattern.ReplaceAllString(text, "")
+			if strippable[pattern.prefix] {
+				text = pattern.re.ReplaceAllString(text, "")
+			}
 		}
 	}
 	return text
+}
+
+// A document that spells photoshop - or dc, or Iptc4xmpCore - as a vocabulary of
+// its own means something else by photoshop:City than we do, and that element is
+// another tool's to keep. A regular expression sees the prefix and nothing else,
+// so the bindings of the whole document decide rather than the single match; a
+// prefix nothing binds is ours to strip, which is what a bare fragment is.
+func strippablePrefixes(text string) map[string]bool {
+	strippable := make(map[string]bool, len(namespaceBindings))
+	for _, binding := range namespaceBindings {
+		strippable[binding.prefix] = binding.bound.MatchString(text) || !binding.anyBinding.MatchString(text)
+	}
+	return strippable
 }
 
 type description struct {
@@ -493,13 +517,21 @@ func descriptionOpenTag(bindings []namespaceBinding) string {
 // properties needed, so every subset the writer can produce - in the order the
 // table gives them - has to read as one of ours here.
 func ownDescriptionPattern() string {
-	pattern := regexp.QuoteMeta(`<rdf:Description rdf:about=""`)
-	var patternSb497 strings.Builder
-	for _, binding := range namespaceBindings {
-		patternSb497.WriteString(`(?: ` + regexp.QuoteMeta(binding.declaration) + `)?`)
+	branches := make([]string, 0, len(namespaceBindings))
+	for at, binding := range namespaceBindings {
+		var branch strings.Builder
+		branch.WriteString(declarationPattern(binding))
+		for _, later := range namespaceBindings[at+1:] {
+			branch.WriteString(`(?:` + declarationPattern(later) + `)?`)
+		}
+		branches = append(branches, branch.String())
 	}
-	pattern += patternSb497.String()
-	return pattern + ">"
+	return regexp.QuoteMeta(`<rdf:Description rdf:about=""`) +
+		`(?:` + strings.Join(branches, "|") + `)>`
+}
+
+func declarationPattern(binding namespaceBinding) string {
+	return " " + regexp.QuoteMeta(binding.declaration)
 }
 
 func withProperties(opened description, cut int, properties string) string {

@@ -151,7 +151,7 @@ func (a *Application) handleBlue() {
 // repeat it, and a failed write puts the previous ones back so the next close
 // tries again.
 func (s *tagsSession) saveSidecar(written model.Tags) {
-	if !s.photo.HasRAW() || written.Equal(s.saved) || (written.IsEmpty() && s.saved.IsEmpty()) {
+	if !s.photo.HasRAW() || written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
 		return
 	}
 	previous := s.saved
@@ -171,6 +171,13 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 		// them again, so the entry goes and the file is read instead.
 		s.app.imageProvider.Forget(s.photo.ImagePath)
 	})
+}
+
+// Tags.IsEmpty ignores the place on purpose - a place alone is not a result the
+// generator produced - but a location the user typed is worth a sidecar of its
+// own, with or without tags to go with it.
+func nothingToWrite(tags model.Tags) bool {
+	return tags.IsEmpty() && tags.Place.IsEmpty()
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A

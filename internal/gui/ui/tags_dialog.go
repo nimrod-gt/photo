@@ -304,7 +304,15 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 		d.defaultDate = taken
 		d.date.SetDate(&taken)
 	}
-	if existing.IsEmpty() || !d.resultUntouched() {
+	if !d.resultUntouched() {
+		return
+	}
+	// A file can carry a place and no tags at all - a Lightroom sidecar with a
+	// location in it, or a photo whose location was typed and never generated
+	// from. The location is the user's own field and is filled either way; the
+	// result fields stay hidden while there is nothing to put in them.
+	if existing.IsEmpty() {
+		d.takePlace(existing.Place)
 		return
 	}
 	d.showTags(existing)
@@ -329,14 +337,18 @@ func (d *TagsDialog) SetTags(generated model.Tags) {
 func (d *TagsDialog) showTags(shown model.Tags) {
 	d.title.SetText(shown.Title)
 	d.keywords.SetText(shown.KeywordLine())
-	d.split = shown.Place.Trimmed()
+	d.takePlace(shown.Place)
+	d.resultBox.Show()
+	d.refreshStatus()
+}
+
+func (d *TagsDialog) takePlace(place model.Place) {
+	d.split = place.Trimmed()
 	// A location typed while the run was going is the newer one and stays; the
 	// split then no longer matches it and place() drops it.
 	if len(d.Location()) == 0 {
 		d.location.SetText(d.split.Location)
 	}
-	d.resultBox.Show()
-	d.refreshStatus()
 }
 
 func (d *TagsDialog) Fail(err error) {
