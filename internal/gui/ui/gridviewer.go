@@ -3,6 +3,7 @@ package ui
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -16,6 +17,7 @@ const (
 	gridColumns       = 3
 	gridThumbRatio    = 220.0 / 300.0
 	gridPreloadBuffer = 20
+	gridRefreshDelay  = 50 * time.Millisecond
 )
 
 type gridImageProvider interface {
@@ -40,6 +42,14 @@ type GridViewer struct {
 	mu               sync.Mutex
 	tileWidth        float32
 	preloadScheduled atomic.Bool
+	// a tile that misses while a dispatch is in flight is dropped by the CAS
+	// above and would stay at EXIF quality until the next scroll, so the miss is
+	// remembered and the dispatch re-arms itself once it is done
+	preloadPending atomic.Bool
+	// one RefreshItem re-runs updateItem for every visible tile, so a whole
+	// batch of loaded photos needs exactly one of them
+	refreshPending atomic.Bool
+	refreshDelay   time.Duration
 	// GridWrap.RefreshItem does nothing until the grid sits in a scroller, so
 	// the call is held as a field the tests can watch.
 	refreshItem func(int)
@@ -49,6 +59,7 @@ func NewGridViewer(imageProvider gridImageProvider, callbacks GridViewerCallback
 	gv := &GridViewer{
 		imageProvider: imageProvider,
 		callbacks:     callbacks,
+		refreshDelay:  gridRefreshDelay,
 	}
 	gv.build()
 	return gv
@@ -164,6 +175,7 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 
 func (gv *GridViewer) schedulePreload() {
 	if !gv.preloadScheduled.CompareAndSwap(false, true) {
+		gv.preloadPending.Store(true)
 		return
 	}
 
@@ -186,12 +198,12 @@ func (gv *GridViewer) schedulePreload() {
 	gv.mu.Unlock()
 
 	if len(paths) == 0 {
-		gv.preloadScheduled.Store(false)
+		gv.finishPreload()
 		return
 	}
 
 	go func() {
-		defer gv.preloadScheduled.Store(false)
+		defer gv.finishPreload()
 		gv.imageProvider.Preload(paths, size, func(path string) {
 			if gen != gv.imageProvider.Gen() {
 				return
@@ -200,12 +212,31 @@ func (gv *GridViewer) schedulePreload() {
 			idx, ok := indexByPath[path]
 			gv.mu.Unlock()
 			if ok {
-				fyne.Do(func() {
-					gv.refreshItem(idx)
-				})
+				gv.scheduleRefresh(idx)
 			}
 		})
 	}()
+}
+
+// The re-run is bounded: the flag is taken before dispatching again, so it only
+// covers the tiles that missed while this dispatch was running.
+func (gv *GridViewer) finishPreload() {
+	gv.preloadScheduled.Store(false)
+	if gv.preloadPending.Swap(false) {
+		gv.schedulePreload()
+	}
+}
+
+func (gv *GridViewer) scheduleRefresh(index int) {
+	if !gv.refreshPending.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(gv.refreshDelay, func() {
+		gv.refreshPending.Store(false)
+		fyne.Do(func() {
+			gv.refreshItem(index)
+		})
+	})
 }
 
 type gridResizeLayout struct {
