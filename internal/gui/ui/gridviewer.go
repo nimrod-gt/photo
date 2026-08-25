@@ -9,7 +9,6 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"photo/internal/core/imaging"
 	"photo/internal/core/model"
 )
 
@@ -19,6 +18,13 @@ const (
 	gridPreloadBuffer = 50
 )
 
+type gridImageProvider interface {
+	thumbnailSource
+	Preload(paths []string, size int, onLoaded func(string))
+	Gen() uint64
+	BumpGen()
+}
+
 type GridViewerCallbacks struct {
 	OnPhotoTapped func(index int)
 }
@@ -26,7 +32,7 @@ type GridViewerCallbacks struct {
 type GridViewer struct {
 	container        *fyne.Container
 	grid             *widget.GridWrap
-	imageProvider    *imaging.Provider
+	imageProvider    gridImageProvider
 	callbacks        GridViewerCallbacks
 	photos           []model.Photo
 	meta             []model.PhotoMeta
@@ -35,9 +41,12 @@ type GridViewer struct {
 	mu               sync.Mutex
 	tileWidth        float32
 	preloadScheduled atomic.Bool
+	// GridWrap.RefreshItem does nothing until the grid sits in a scroller, so
+	// the call is held as a field the tests can watch.
+	refreshItem func(int)
 }
 
-func NewGridViewer(imageProvider *imaging.Provider, callbacks GridViewerCallbacks) *GridViewer {
+func NewGridViewer(imageProvider gridImageProvider, callbacks GridViewerCallbacks) *GridViewer {
 	gv := &GridViewer{
 		imageProvider: imageProvider,
 		callbacks:     callbacks,
@@ -86,6 +95,7 @@ func (gv *GridViewer) build() {
 		gv.createItem,
 		gv.updateItem,
 	)
+	gv.refreshItem = gv.grid.RefreshItem
 
 	gv.grid.OnSelected = func(id widget.GridWrapItemID) {
 		gv.grid.UnselectAll()
@@ -179,7 +189,6 @@ func (gv *GridViewer) schedulePreload() {
 	}
 	gv.mu.Unlock()
 
-	grid := gv.grid
 	go func() {
 		defer gv.preloadScheduled.Store(false)
 		gv.imageProvider.Preload(paths, gv.thumbPixelSize(), func(path string) {
@@ -191,7 +200,7 @@ func (gv *GridViewer) schedulePreload() {
 			gv.mu.Unlock()
 			if ok {
 				fyne.Do(func() {
-					grid.RefreshItem(idx)
+					gv.refreshItem(idx)
 				})
 			}
 		})
