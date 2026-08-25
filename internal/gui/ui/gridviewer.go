@@ -47,11 +47,13 @@ type GridViewer struct {
 	// misses are collected for one delay instead, which is what lets the visible
 	// range grow to cover the whole row before anything is warmed.
 	preloadPending atomic.Bool
-	preloadDelay   time.Duration
 	// one RefreshItem re-runs updateItem for every visible tile, so a whole
 	// batch of loaded photos needs exactly one of them
 	refreshPending atomic.Bool
-	refreshDelay   time.Duration
+	// time.AfterFunc as a field, so the tests fire the delays themselves: a
+	// stalled machine must not be able to split one coalescing window into two
+	// dispatches.
+	after func(time.Duration, func())
 	// GridWrap.RefreshItem does nothing until the grid sits in a scroller, so
 	// the call is held as a field the tests can watch.
 	refreshItem func(int)
@@ -61,8 +63,7 @@ func NewGridViewer(imageProvider gridImageProvider, callbacks GridViewerCallback
 	gv := &GridViewer{
 		imageProvider: imageProvider,
 		callbacks:     callbacks,
-		preloadDelay:  gridPreloadDelay,
-		refreshDelay:  gridRefreshDelay,
+		after:         func(delay time.Duration, run func()) { time.AfterFunc(delay, run) },
 	}
 	gv.build()
 	return gv
@@ -180,7 +181,7 @@ func (gv *GridViewer) schedulePreload() {
 	if !gv.preloadPending.CompareAndSwap(false, true) {
 		return
 	}
-	time.AfterFunc(gv.preloadDelay, func() {
+	gv.after(gridPreloadDelay, func() {
 		// cleared before the window is taken, so a tile missing from here on
 		// arms the next dispatch instead of being dropped
 		gv.preloadPending.Store(false)
@@ -230,7 +231,7 @@ func (gv *GridViewer) scheduleRefresh(index int) {
 	if !gv.refreshPending.CompareAndSwap(false, true) {
 		return
 	}
-	time.AfterFunc(gv.refreshDelay, func() {
+	gv.after(gridRefreshDelay, func() {
 		gv.refreshPending.Store(false)
 		fyne.Do(func() {
 			gv.refreshItem(index)

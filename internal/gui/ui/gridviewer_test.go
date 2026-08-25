@@ -74,6 +74,33 @@ func (f *fakeGridProvider) awaitPreload(t *testing.T) gridPreloadCall {
 	}
 }
 
+// The grid coalesces over two delays, and a test that waited them out would be
+// racing the machine it runs on: a stall between two tiles of the same pass is
+// indistinguishable from a real second pass. The clock collects what the viewer
+// arms instead, and the test decides when it goes off.
+type manualClock struct {
+	mu    sync.Mutex
+	armed []func()
+}
+
+func (c *manualClock) after(_ time.Duration, run func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.armed = append(c.armed, run)
+}
+
+func (c *manualClock) fire() int {
+	c.mu.Lock()
+	armed := c.armed
+	c.armed = nil
+	c.mu.Unlock()
+
+	for _, run := range armed {
+		run()
+	}
+	return len(armed)
+}
+
 type refreshRecorder struct {
 	mu  sync.Mutex
 	ids []int
@@ -114,7 +141,7 @@ func TestGridViewerUpdateItemShowsTheCachedImage(t *testing.T) {
 	fake := newFakeGridProvider()
 	cached := image.NewNRGBA(image.Rect(0, 0, 4, 4))
 	fake.sized = cached
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv, clock := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1)
 	gv.SetPhotos(photos, meta)
 
@@ -129,14 +156,15 @@ func TestGridViewerUpdateItemShowsTheCachedImage(t *testing.T) {
 	for _, size := range fake.peekSizes() {
 		assert.Equal(t, gv.thumbPixelSize(), size)
 	}
-	assert.Empty(t, fake.calls, "a cache hit must not schedule a preload")
+	assert.Equal(t, 0, clock.fire(), "a cache hit must not schedule a preload")
+	assert.Empty(t, fake.calls)
 }
 
 func TestGridViewerUpdateItemFallsBackToTheEmbeddedThumbnail(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv, clock := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1)
 	gv.SetPhotos(photos, meta)
 
@@ -145,6 +173,7 @@ func TestGridViewerUpdateItemFallsBackToTheEmbeddedThumbnail(t *testing.T) {
 
 	assert.Equal(t, meta[0].Thumbnail, item.thumb.Image)
 
+	require.Equal(t, 1, clock.fire())
 	call := fake.awaitPreload(t)
 	assert.Equal(t, gv.thumbPixelSize(), call.size)
 	assert.Equal(t, []string{"/photos/DSC000.JPG"}, call.paths)
@@ -154,7 +183,7 @@ func TestGridViewerUpdateItemIgnoresAnIDPastTheEnd(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv, _ := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1)
 	gv.SetPhotos(photos, meta)
 
@@ -171,40 +200,39 @@ func TestGridViewerStopLoadingBumpsTheGeneration(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv, _ := newTestGridViewer(fake)
 
 	gv.StopLoading()
 
 	assert.Equal(t, uint64(1), fake.Gen())
 }
 
-// The delays are what the grid coalesces over; the tests only care that it does,
-// so they shrink both to keep the suite quick.
-func newTestGridViewer(fake *fakeGridProvider) *GridViewer {
+func newTestGridViewer(fake *fakeGridProvider) (*GridViewer, *manualClock) {
+	clock := &manualClock{}
 	gv := NewGridViewer(fake, GridViewerCallbacks{})
-	gv.preloadDelay = 5 * time.Millisecond
-	gv.refreshDelay = 10 * time.Millisecond
-	return gv
+	gv.after = clock.after
+	return gv, clock
 }
 
-func newRecordingGridViewer(t *testing.T, fake *fakeGridProvider, count int) (*GridViewer, *refreshRecorder) {
+func newRecordingGridViewer(t *testing.T, fake *fakeGridProvider, count int) (*GridViewer, *manualClock, *refreshRecorder) {
 	t.Helper()
 
-	gv := newTestGridViewer(fake)
+	gv, clock := newTestGridViewer(fake)
 	refreshes := &refreshRecorder{}
 	gv.refreshItem = refreshes.refresh
 	photos, meta := gridTestPhotos(count)
 	gv.SetPhotos(photos, meta)
-	return gv, refreshes
+	return gv, clock, refreshes
 }
 
 func TestGridViewerRefreshesLoadedPhotosOnlyOnce(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv, refreshes := newRecordingGridViewer(t, fake, 3)
+	gv, clock, refreshes := newRecordingGridViewer(t, fake, 3)
 
 	gv.updateItem(1, newGridItem(200))
+	require.Equal(t, 1, clock.fire())
 	call := fake.awaitPreload(t)
 	require.Len(t, call.paths, 3)
 
@@ -212,21 +240,22 @@ func TestGridViewerRefreshesLoadedPhotosOnlyOnce(t *testing.T) {
 		call.onLoaded(path)
 	}
 
+	require.Equal(t, 1, clock.fire(), "one refresh already re-runs every visible tile")
+	// the refresh itself is handed to the Fyne loop, so it lands a moment later
 	require.Eventually(t, func() bool {
 		return len(refreshes.seen()) == 1
 	}, 2*time.Second, 5*time.Millisecond)
-	assert.Never(t, func() bool {
-		return len(refreshes.seen()) > 1
-	}, 100*time.Millisecond, 10*time.Millisecond, "one refresh already re-runs every visible tile")
+	assert.Equal(t, 0, clock.fire())
 }
 
 func TestGridViewerIgnoresLoadsItCannotPlace(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv, refreshes := newRecordingGridViewer(t, fake, 3)
+	gv, clock, refreshes := newRecordingGridViewer(t, fake, 3)
 
 	gv.updateItem(1, newGridItem(200))
+	require.Equal(t, 1, clock.fire())
 	call := fake.awaitPreload(t)
 	require.Len(t, call.paths, 3)
 
@@ -234,31 +263,20 @@ func TestGridViewerIgnoresLoadsItCannotPlace(t *testing.T) {
 	fake.BumpGen()
 	call.onLoaded("/photos/DSC000.JPG")
 
-	assert.Never(t, func() bool {
-		return len(refreshes.seen()) > 0
-	}, 100*time.Millisecond, 10*time.Millisecond)
+	assert.Equal(t, 0, clock.fire(), "neither load has a tile to refresh")
+	assert.Empty(t, refreshes.seen())
 }
 
-// The grid renders tiles of its own the moment SetPhotos refreshes it, and
-// those count as seen just like scrolled ones; a test that wants to know what a
-// scroll warms has to start from the state a dispatch leaves behind.
-func settleGrid(t *testing.T, gv *GridViewer, fake *fakeGridProvider) {
+// SetPhotos renders tiles of its own before it returns, and those count as seen
+// just like scrolled ones - they arm a dispatch that warms the top of the
+// folder. A test that wants to know what a scroll warms has to let that
+// dispatch through first; it clears the visible range on its way out, so what
+// follows starts from nothing seen.
+func settleGrid(t *testing.T, fake *fakeGridProvider, clock *manualClock) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		return !gv.preloadPending.Load()
-	}, 2*time.Second, 5*time.Millisecond)
-
-	for {
-		select {
-		case <-fake.calls:
-		default:
-			gv.mu.Lock()
-			gv.visible.reset()
-			gv.mu.Unlock()
-			return
-		}
-	}
+	require.Equal(t, 1, clock.fire(), "the tiles SetPhotos rendered arm one dispatch")
+	fake.awaitPreload(t)
 }
 
 func TestGridViewerPreloadsAroundTheTileBeingShown(t *testing.T) {
@@ -279,13 +297,14 @@ func TestGridViewerPreloadsAroundTheTileBeingShown(t *testing.T) {
 			test.NewTempApp(t)
 
 			fake := newFakeGridProvider()
-			gv := newTestGridViewer(fake)
+			gv, clock := newTestGridViewer(fake)
 			photos, meta := gridTestPhotos(tt.count)
 			gv.SetPhotos(photos, meta)
-			settleGrid(t, gv, fake)
+			settleGrid(t, fake, clock)
 
 			gv.updateItem(tt.id, newGridItem(200))
 
+			require.Equal(t, 1, clock.fire())
 			call := fake.awaitPreload(t)
 			require.Len(t, call.paths, tt.wantLast-tt.wantFirst+1)
 			assert.Equal(t, gridTestPath(tt.wantFirst), call.paths[0])
@@ -298,56 +317,57 @@ func TestGridViewerDispatchesOnePreloadPerMissedTile(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := newTestGridViewer(fake)
+	gv, clock := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1000)
 	gv.SetPhotos(photos, meta)
-	settleGrid(t, gv, fake)
+	settleGrid(t, fake, clock)
 
 	gv.updateItem(500, newGridItem(200))
+	require.Equal(t, 1, clock.fire())
 	fake.awaitPreload(t)
 
-	assert.Never(t, func() bool {
-		return len(fake.calls) > 0
-	}, 200*time.Millisecond, 10*time.Millisecond, "the dispatch must not re-arm itself on its own")
+	assert.Equal(t, 0, clock.fire(), "the dispatch must not re-arm itself on its own")
+	assert.Empty(t, fake.calls)
 }
 
 func TestGridViewerCoalescesTheMissesOfOnePass(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := newTestGridViewer(fake)
+	gv, clock := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1000)
 	gv.SetPhotos(photos, meta)
-	settleGrid(t, gv, fake)
+	settleGrid(t, fake, clock)
 
 	// a row of tiles drawn in one pass, every one of them a miss
 	for id := 500; id < 503; id++ {
 		gv.updateItem(id, newGridItem(200))
 	}
 
+	require.Equal(t, 1, clock.fire(), "one dispatch per pass, not one per tile")
 	call := fake.awaitPreload(t)
 	assert.Equal(t, gridTestPath(480), call.paths[0], "the window covers the whole row, not just the first tile")
 	assert.Equal(t, gridTestPath(522), call.paths[len(call.paths)-1])
-	assert.Never(t, func() bool {
-		return len(fake.calls) > 0
-	}, 200*time.Millisecond, 10*time.Millisecond, "one dispatch per pass, not one per tile")
+	assert.Empty(t, fake.calls)
 }
 
 func TestGridViewerDispatchesAgainForALaterMiss(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := newTestGridViewer(fake)
+	gv, clock := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1000)
 	gv.SetPhotos(photos, meta)
-	settleGrid(t, gv, fake)
+	settleGrid(t, fake, clock)
 
 	gv.updateItem(500, newGridItem(200))
+	require.Equal(t, 1, clock.fire())
 	first := fake.awaitPreload(t)
 	require.Equal(t, gridTestPath(480), first.paths[0])
 
 	gv.updateItem(900, newGridItem(200))
 
+	require.Equal(t, 1, clock.fire())
 	second := fake.awaitPreload(t)
 	assert.Equal(t, gridTestPath(880), second.paths[0])
 	assert.Equal(t, gridTestPath(920), second.paths[len(second.paths)-1])
