@@ -225,8 +225,88 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-25T08:52:45Z",
-      "updated_at": "2026-08-25T08:52:45Z",
-      "plan": null
+      "updated_at": "2026-08-25T11:03:29Z",
+      "plan": {
+        "created_at": "2026-08-25T11:03:29Z",
+        "revised_at": null,
+        "base_commit": "025f002",
+        "summary": "Move the Tags dialog's keyboard handling into the dialog itself so it no longer depends on canvas-level GLFW scancode shortcuts firing only while nothing holds focus (and on the `window.Canvas().Unfocus()` workaround in `Generating()`). The escape wrappers in internal/gui/ui/escapable.go become a general key router that every focusable widget of the dialog (entries, date entry, check, and a new button wrapper) consults before the embedded widget sees the key; multi-line entries stop swallowing Tab, so Tab traversal actually walks the whole dialog; buttons answer Return as well as Space and, while a run is going, N/B by physical key; and focus is placed deliberately (Concept on open, Cancel while a run goes, a sensible field when the run ends) instead of being cleared. Help text and CLAUDE.md are updated last. The app-side plumbing (actions.go, tags_action.go, shortcuts.go) keeps working unchanged as a fallback for when nothing in the dialog holds focus.",
+        "steps": [
+          {
+            "title": "Turn the escape wrappers into a key router and let Tab leave the multi-line fields",
+            "details": "In internal/gui/ui/escapable.go replace the `onEscape func()` field of `escapeEntry`, `escapeDateEntry` and `escapeCheck` with `onKey func(*fyne.KeyEvent) bool`: `TypedKey` calls it first and returns when it reports the key as consumed, otherwise it forwards to the embedded widget. Rename the three types to `dialogEntry`, `dialogDateEntry`, `dialogCheck` (file name stays escapable.go) and rewrite the file header comment: it is no longer only about Escape. Add `func (e *dialogEntry) AcceptsTab() bool { return false }` — the GLFW driver checks `fyne.Tabbable.AcceptsTab()` in `capturesTab` *before* `TypedKey`, so a multi-line `widget.Entry` (Title, Keywords) currently eats Tab and cannot be left by keyboard; overriding it is the only way to make Tab traverse. In internal/gui/ui/tags_dialog.go add `func (d *TagsDialog) handleKey(ev *fyne.KeyEvent) bool` that consumes `fyne.KeyEscape` by calling `d.requestEscape()` and returns false otherwise, and pass `d.handleKey` to every constructor in `buildInputs`/`buildResult`; update the struct field types. In internal/gui/ui/tags_dialog_test.go update the `[]*escapeEntry` loop in TestTagsDialog_Escape to `[]*dialogEntry` and add cases: Tab is not accepted by title/keywords (`assert.False(t, d.keywords.AcceptsTab())`) and a non-Escape key still reaches the widget (the existing \"other keys still reach the input\" case covers the latter).",
+            "files": [
+              "internal/gui/ui/escapable.go",
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Give the dialog buttons keyboard activation and the run's command keys",
+            "details": "Add a `dialogButton` wrapper to internal/gui/ui/escapable.go embedding `widget.Button` with an `onKey func(*fyne.KeyEvent) bool`: `TypedKey` asks the dialog first, then treats `fyne.KeyReturn`/`fyne.KeyEnter` as a tap (Fyne's Button only answers Space), then falls through to `widget.Button.TypedKey`. Add a helper to internal/gui/ui/shortcuts.go, e.g. `func physicalKey(ev *fyne.KeyEvent, key glfw.Key, name fyne.KeyName) bool`, matching `ev.Physical.ScanCode == glfw.GetKeyScancode(key)` or `ev.Name == name` — the scancode form keeps the letters layout-independent like the canvas shortcuts, the name form is the fallback where GLFW is not initialised (it returns -1 then, which would make N and B collide). In internal/gui/ui/tags_dialog.go build every button (`generateBtn`, `copyTitleBtn`, `copyKeywordsBtn`, `saveJPEGBtn`, `closeBtn`, `cancelRunBtn`, `backgroundBtn`) as `*dialogButton`, change `setEnabled(button *widget.Button, ...)` to take `*dialogButton`, and add `func (d *TagsDialog) handleCommandKey(ev *fyne.KeyEvent) bool` = `handleKey` plus, while `d.generating`, N -> `call(d.callbacks.OnCancelRun)` and B -> `call(d.callbacks.OnBackground)`; hand `handleCommandKey` to the buttons and to `dialogCheck` (neither consumes runes, so intercepting bare letters there is safe, unlike in a text entry where the character still arrives through TypedRune). Tests in internal/gui/ui/tags_dialog_test.go: N and B on the focused `cancelRunBtn` reach OnCancelRun/OnBackground only while generating; Return on a focused button taps it; N typed into `d.concept` triggers no callback.",
+            "files": [
+              "internal/gui/ui/escapable.go",
+              "internal/gui/ui/shortcuts.go",
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Place focus deliberately instead of clearing it",
+            "details": "In internal/gui/ui/tags_dialog.go add a `shown bool` field set in `Show()` (cleared in `Hide()`) and a small `func (d *TagsDialog) focus(obj fyne.Focusable)` that no-ops unless the dialog is shown — `canvas.Focus` logs \"Failed to focus object which is not part of the canvas' content, menu or overlays\" for an object in an unshown dialog. `Show()` focuses `d.concept` so the dialog opens ready for typing. `Generating()` drops `d.window.Canvas().Unfocus()` and instead focuses `d.cancelRunBtn` after `setGenerating(true)`, so N/B/Space/Return all act on the run without the unfocus trick; update the comment above it, which explains the workaround. `finishRun()` must move focus off the button that is about to leave the row (the focus manager keeps a pointer to a removed object and keys then go nowhere): focus `d.pathEntry` when `Fail` revealed `pathRow`, `d.title` when tags arrived, else `d.generateBtn`; the simplest shape is for `SetTags`/`Fail` to pass the target into `finishRun`. Tests: after `d.Show()` the canvas focus is the concept entry; after `Generating()` it is `cancelRunBtn`; after `SetTags`/`Fail` it is no longer a button that left `d.buttons.Objects`.",
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Enter in the single-line inputs starts a run",
+            "details": "In internal/gui/ui/tags_dialog.go extract the Generate button's body into `func (d *TagsDialog) startGenerate()` (guarding `d.generating` and `d.generateBtn.Disabled()`), use it for the button and set it as `OnSubmitted` of `d.concept`, `d.location` and `d.pathEntry` — Fyne fires `OnSubmitted` on Return for single-line entries, so a user can type a concept and press Enter without reaching for the mouse, while Return in the multi-line Title/Keywords keeps inserting a newline. Tests in internal/gui/ui/tags_dialog_test.go: `d.concept.OnSubmitted(\"x\")` (or a Return key event on the entry) runs OnGenerate once and puts the dialog into the generating state; a second submission while generating does nothing.",
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Document the dialog's keys",
+            "details": "Extend the \"Tags dialog\" section of `helpRight` in internal/gui/ui/help.go with the keys the dialog now owns: `Tab`/`Shift+Tab` move between fields and buttons, `Space`/`Enter` press the focused button, `Enter` in Concept/Location starts a run, `Esc` closes, and keep `B`/`N` for background/cancel of a running generation. Mirror the same list in the \"Keyboard Shortcuts\" section of CLAUDE.md (the `B` and `N` bullets currently say \"Tags dialog only\" without saying that they now work from the dialog itself).",
+            "files": [
+              "internal/gui/ui/help.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Should the dialog focus the Concept field when it opens? It makes typing immediate but means the canvas letter shortcuts no longer reach the app while the dialog is up (they are blocked by shortcutsBlocked anyway). Assume yes unless told otherwise. Affects step 3.",
+            "answer": null
+          },
+          {
+            "question": "Should Tab move out of the multi-line Title/Keywords fields, giving up the ability to type a literal tab character there? Assume yes unless told otherwise. Affects step 1.",
+            "answer": null
+          },
+          {
+            "question": "Should Enter in Concept/Location/claude-path start a generation? Assume yes unless told otherwise. Affects step 4.",
+            "answer": null
+          },
+          {
+            "question": "Keep the global fallback (ui/shortcuts.go OnCancel/OnBlue -> app.handleCancel/handleBlue) now that the dialog answers N/B itself, or delete the tags branch of handleBlue? Assume keep — it still fires when a mouse click has left nothing focused. Affects step 2.",
+            "answer": null
+          },
+          {
+            "question": "Keep the current button order (Close, Copy title, Copy keywords, Save JPEG, Generate), which is also the Tab order, or should Generate come first? Assume keep — the existing test asserts that exact slice. Affects steps 2 and 3.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "glfw.GetKeyScancode returns -1 when GLFW is not initialised (unit tests, headless CI), so a scancode-only match would make N and B indistinguishable; the helper must also compare fyne.KeyName.",
+          "Bare letters cannot be intercepted inside a text entry: the driver delivers TypedKey and TypedRune separately, so swallowing KeyN in TypedKey would still insert 'n'. Only the buttons and the check may claim letters.",
+          "The button row is rebuilt by setGenerating; if focus stays on a button that was removed from the container, the focus manager keeps pointing at it and keys silently go nowhere.",
+          "canvas.Focus on a widget whose dialog is not shown logs an error - the focus helper must be a no-op until Show().",
+          "Escape from the date entry while the Fyne calendar popup is stacked on top must keep going through OnEscape -> app.handleCancel, which is the only place that can see the foreign overlay.",
+          "Existing tests compare d.buttons.Objects by identity and call test.Tap on the buttons; changing the field type to *dialogButton keeps both working only if the wrapper embeds widget.Button and calls ExtendBaseWidget."
+        ]
+      }
     },
     {
       "id": 11,
@@ -245,11 +325,74 @@
       "depends_on": [
         3
       ],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/11-wait-for-tag-runs",
       "created_at": "2026-08-25T10:30:37Z",
-      "updated_at": "2026-08-25T10:30:37Z",
-      "plan": null
+      "updated_at": "2026-08-25T11:10:42Z",
+      "plan": {
+        "created_at": "2026-08-25T11:02:32Z",
+        "revised_at": "2026-08-25T11:10:42Z",
+        "base_commit": "025f002",
+        "summary": "Background tag runs (tagRunner in internal/gui/app/tags_runs.go) can still be writing the RAW sidecar after the Tags dialog is gone, so a copy (C / Copy All) may copy a RAW before its sidecar exists and a delete (D / Delete All) may leave an orphan sidecar written after the RAW was removed. The plan gives every run a lifetime that ends only when all of its file work is done: a per-run `done` channel plus a `landed` flag keep the run in the registry (unattachable) until the detached sidecar write finishes, and `release` is the single terminal point that closes the channel and drops the entry. On top of that the runner gets `pending(path)` and `wait(ctx, path)`, wrapped in two Application helpers - `awaitTags` (wait, with a notification when there is something to wait for) and `stopTags` (cancel, then wait for it to let go of the files). Copy and delete then route their file work through `copyPhotoFiles` / `deletePhotoFiles`, used by both the single-photo handlers in actions.go and the bulk loops in bulk_actions.go, so each photo is only touched once its own run is over. Waiting always happens on the worker goroutines that already do the copying and deleting, never on the UI goroutine, because a run finishes inside fyne.Do.",
+        "steps": [
+          {
+            "title": "Keep a tag run registered until all of its work is done",
+            "details": "In internal/gui/app/tags_runs.go add to tagRun a `done chan struct{}` (created in `start`), plus `landed` and `released` flags. Replace the delete-on-finish behaviour with a single terminal `release(run)` method: under the mutex, return if `run.released`, set it, delete `r.runs[path]` only when `r.runs[path] == run` (a later run for the same path keeps its entry), and `close(run.done)`. `unregister` no longer deletes; it sets `run.landed = true` and still answers (cancelled, session). `attach` must return false when `run.landed || run.cancelled`, so a dialog reopened while a run is writing its sidecar reads the file instead of hanging on 'Generating'. `cancel(path)` stops the run and marks it cancelled but leaves the entry in place - removal is `release`'s job - which is what makes a cancelled run still waitable while its sidecar write is in flight. Call `release(run)` at every terminal point of `finish`/`finishDetached`: the cancelled return, the error return, the branch that hands the result to a live dialog session, the no-RAW branch after `report`, and - importantly - in the sidecar goroutine right after `imaging.WriteSidecar` returns, before the `fyne.Do` that reports, so that a waiter is freed by the file being on disk and not by the UI goroutine being free. Leave `r.running` (the WaitGroup used by `stopAll`) exactly as it is: tying it to `release` would make shutdown block on fyne.Do callbacks that can no longer run. Tests in internal/gui/app/tags_runs_test.go: the existing 'a cancelled run writes nothing' case must still see `attach` return false (now via the flags); add a case that a backgrounded run for a photo with a RAW stays `pending` until the sidecar exists - poll until the run is no longer pending, then require.FileExists on model.SidecarPath(photo.RAWPath).",
+            "files": [
+              "internal/gui/app/tags_runs.go",
+              "internal/gui/app/tags_runs_test.go"
+            ]
+          },
+          {
+            "title": "Add the wait API and the two Application helpers around it",
+            "details": "In internal/gui/app/tags_runs.go add `pending(path string) bool` (registry lookup under the mutex) and `wait(ctx context.Context, path string)` which grabs the run under the mutex, releases it, and then selects on `run.done` and `ctx.Done()`; an unknown path returns at once. Add the two Application-level helpers next to them: `awaitTags(ctx context.Context, photo model.Photo)` returns immediately when nothing is pending, otherwise shows 'Waiting for tags of <name>' through `fyne.Do(func(){ a.mainWindow.ShowNotification(...) })` and then waits; `stopTags(photo model.Photo)` calls `tagRuns.cancel` and then `wait(context.Background(), ...)`, because a cancel cannot stop a sidecar write that already started. Document in a comment that both must be called from a worker goroutine - a run finishes inside fyne.Do, so waiting on the UI goroutine deadlocks. Tests in internal/gui/app/tags_runs_test.go: wait returns at once when no run is registered; wait for a held run returns as soon as the generation is released; wait with an already-cancelled context returns while the run keeps going.",
+            "files": [
+              "internal/gui/app/tags_runs.go",
+              "internal/gui/app/tags_runs_test.go"
+            ]
+          },
+          {
+            "title": "Route single-photo copy and delete through the wait",
+            "details": "In internal/gui/app/actions.go add two helpers that hold the file work both the single and the bulk paths share: `deletePhotoFiles(photo model.Photo, includeRAW bool) error` = `stopTags(photo)`, `deleter.DeleteWithOption(photo, includeRAW)`, and `imageProvider.Forget(photo.ImagePath)` on success; `copyPhotoFiles(ctx context.Context, photo model.Photo, dest string, mode library.CopyMode) error` = `awaitTags(ctx, photo)` then `copier.CopyWithContext(ctx, photo, dest, mode)`. Point `handleDelete`'s goroutine at `deletePhotoFiles(photo, true)` (dropping its now-duplicated `Forget` call, keeping the RemoveColors step) and `handleCopy`'s goroutine at `copyPhotoFiles(context.Background(), photo, dest, mode)`; add the `context` import. New test file internal/gui/app/actions_test.go, reusing `newTestApplication`, `heldTagger` and `testPhoto` from tags_runs_test.go (same package): a copy of a photo whose backgrounded run is still held does not return until the run is released and then finds the sidecar in the destination directory; a copy of a photo with no run returns without blocking; a delete of a photo whose run is still held returns promptly, removes JPEG and RAW, and leaves no sidecar behind (assert.Never over a short window, since the killed run must never write one).",
+            "files": [
+              "internal/gui/app/actions.go",
+              "internal/gui/app/actions_test.go"
+            ]
+          },
+          {
+            "title": "Use the same helpers in Copy All and Delete All, and record the rule in CLAUDE.md",
+            "details": "In internal/gui/app/bulk_actions.go, `runBulkDelete` calls `a.deletePhotoFiles(photo, includeRAW)` instead of `a.deleter.DeleteWithOption` and drops its own `Forget` loop over the deleted photos (the helper does it per photo); the batch `RemoveMultipleColors` and the reporting stay as they are. `runBulkCopy` calls `a.copyPhotoFiles(ctx, photo, dest, mode)` instead of `a.copier.CopyWithContext`, so the wait is cancelled by the Copy All dialog's Cancel through the same context - a copy whose wait was cut short then fails with the context error and lands in the existing 'Copy cancelled after n/m photos' branch, so no new branch is needed. The waiting itself is covered by the helper tests from the previous step; `runBulkDelete`/`runBulkCopy` end in UI-goroutine work (showPhoto needs `fullImageSize`, which only Run sets) that the test application cannot drive, so no test is added here. Finally extend the Stock tags bullet in CLAUDE.md with one sentence: a copy of a photo waits for its running generation, and a delete kills that generation and waits for it to let the files go.",
+            "files": [
+              "internal/gui/app/bulk_actions.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Delete kills a running generation and then waits for it to stop, rather than waiting out a full three-minute generation whose output is about to be deleted anyway - assume that unless told otherwise (affects steps 2 and 3).",
+            "answer": "Kill the run, then wait for it to let the files go (not wait out a full ~3 min generation)."
+          },
+          {
+            "question": "A copy that has to wait announces it with the normal bottom-right notification ('Waiting for tags of <name>'), which fades after four seconds; nothing is shown in the Copy All dialog itself. Assume that unless a dedicated status line in the Copy All dialog is wanted (affects steps 2 and 4).",
+            "answer": "The usual bottom-right notification 'Waiting for tags of <name>'; nothing added to the Copy All dialog."
+          },
+          {
+            "question": "A single-photo copy (C) has no cancel of its own, so its wait is unbounded (up to the claude run's own timeout). Assume no extra time limit unless a cap is wanted (affects step 2).",
+            "answer": "No cap - the run has its own timeout."
+          },
+          {
+            "question": "Sidecar writes started by the Tags dialog itself (Save on close, saveSidecar in tags_action.go) are not tracked and are not waited for - only generation runs are. Assume that is in scope for a later todo, not this one (affects step 1).",
+            "answer": "Out of scope; only generation runs are tracked."
+          }
+        ],
+        "risks": [
+          "Waiting must never happen on the UI goroutine: a run completes inside fyne.Do, so a wait there would deadlock until the app is killed. All new call sites are inside goroutines that already existed, but any future caller of awaitTags/stopTags inherits that rule.",
+          "A run now stays in the registry while its sidecar is being written, and attach refuses it. A Tags dialog reopened in that window reads the file instead of attaching, and may read it just before the sidecar lands - the same staleness that already exists between a run finishing and the dialog reading, only slightly wider.",
+          "release closes the done channel before the fyne.Do report, so a delete that was waiting can finish while the report is still queued; the report then stores a cache entry and shows a 'Tags generated' notification for a file that no longer exists. Cosmetic, and the cancel-first delete suppresses it in the common case.",
+          "cancel no longer removes the registry entry, so a claude process that ignores its kill keeps the path occupied until the run goroutine returns; a delete on that path then waits for it rather than proceeding. stopAll's two-second shutdown bound is unchanged and still does not cover an in-flight sidecar write."
+        ]
+      }
     }
   ]
 }

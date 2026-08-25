@@ -159,6 +159,27 @@ func TestTagRunner(t *testing.T) {
 		assert.Equal(t, generatedTags(), written)
 	})
 
+	t.Run("a backgrounded run stays pending until its sidecar is on disk", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+		require.True(t, a.tagRuns.pending(photo.ImagePath))
+
+		close(held.release)
+		require.Eventually(t, func() bool {
+			return !a.tagRuns.pending(photo.ImagePath)
+		}, time.Second, 5*time.Millisecond, "the run never let go of the photo")
+
+		// The run is only let go of once the file it owes is written, so a copy
+		// freed by it finds the sidecar without waiting for anything else.
+		require.FileExists(t, model.SidecarPath(photo.RAWPath))
+	})
+
 	t.Run("a sidecar that could not be written leaves the cache empty", func(t *testing.T) {
 		held := newHeldTagger(generatedTags(), nil)
 		a := newTestApplication(t, held)
@@ -217,6 +238,60 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), second.dialog.Tags())
 		assert.Empty(t, first.dialog.Tags().Title, "the dialog that let the run go keeps nothing")
+	})
+
+	t.Run("waiting on a photo no run touches ends at once", func(t *testing.T) {
+		a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+
+		a.tagRuns.wait(context.Background(), testPhoto(t, false).ImagePath)
+	})
+
+	t.Run("a wait ends when the run lets go of the photo", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+
+		waited := make(chan struct{})
+		go func() {
+			defer close(waited)
+			a.tagRuns.wait(context.Background(), photo.ImagePath)
+		}()
+		select {
+		case <-waited:
+			t.Fatal("the wait ended while the run was still going")
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		close(held.release)
+		select {
+		case <-waited:
+		case <-time.After(time.Second):
+			t.Fatal("the wait outlived the run")
+		}
+		assert.FileExists(t, model.SidecarPath(photo.RAWPath), "the wait ended before the sidecar was written")
+	})
+
+	t.Run("a cancelled context ends the wait and leaves the run alone", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		a.tagRuns.wait(ctx, photo.ImagePath)
+
+		assert.True(t, a.tagRuns.pending(photo.ImagePath), "the run must keep going without its waiter")
+		held.answerWithTags(t, a, photo.ImagePath)
 	})
 
 	t.Run("attaches to nothing when no run is going", func(t *testing.T) {

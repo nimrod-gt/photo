@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"log"
 
 	"fyne.io/fyne/v2"
@@ -49,6 +50,27 @@ func (a *Application) toggleCurrentPhoto(failure string, ratingWritten bool, tog
 	}()
 }
 
+// The file work of a copy and of a delete, single photo and bulk alike, goes
+// through these two: a photo is only touched once no run is going to write for
+// it any more. Both wait, so both belong on a worker goroutine.
+func (a *Application) copyPhotoFiles(ctx context.Context, photo model.Photo, dest string, mode library.CopyMode) error {
+	// The sidecar of the RAW pair is the only file a run writes, so a copy that
+	// leaves the RAW behind has nothing to wait for.
+	if photo.HasRAW() && mode != library.CopyJPEGOnly {
+		a.awaitTags(ctx, photo)
+	}
+	return a.copier.CopyWithContext(ctx, photo, dest, mode)
+}
+
+func (a *Application) deletePhotoFiles(photo model.Photo, includeRAW bool) error {
+	a.stopTags(photo)
+	if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+		return err
+	}
+	a.imageProvider.Forget(photo.ImagePath)
+	return nil
+}
+
 func (a *Application) handleCopyToClipboard() {
 	if a.shortcutsBlocked() {
 		return
@@ -81,14 +103,13 @@ func (a *Application) handleDelete() {
 		widget.NewLabel(message),
 		func() {
 			go func() {
-				if err := a.deleter.Delete(photo); err != nil {
+				if err := a.deletePhotoFiles(photo, true); err != nil {
 					a.showErrorAsync("Failed to delete photo", err)
 					return
 				}
 				if err := a.colorService.RemoveColors(photo); err != nil {
 					log.Println("Failed to remove color labels:", err)
 				}
-				a.imageProvider.Forget(photo.ImagePath)
 				fyne.Do(func() {
 					nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
 					a.fileBrowser.RemovePhoto(photo.ImagePath)
@@ -167,7 +188,7 @@ func (a *Application) handleCopy() {
 			mode := modeSelect.Mode
 			a.saveCopyPreferences(dest, mode)
 			go func() {
-				err := a.copier.Copy(photo, dest, mode)
+				err := a.copyPhotoFiles(context.Background(), photo, dest, mode)
 				fyne.Do(func() {
 					if err != nil {
 						a.showError("Failed to copy photo", err)
