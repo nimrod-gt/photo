@@ -17,6 +17,7 @@ const (
 	gridColumns       = 3
 	gridThumbRatio    = 220.0 / 300.0
 	gridPreloadBuffer = 20
+	gridPreloadDelay  = 20 * time.Millisecond
 	gridRefreshDelay  = 50 * time.Millisecond
 )
 
@@ -32,20 +33,21 @@ type GridViewerCallbacks struct {
 }
 
 type GridViewer struct {
-	container        *fyne.Container
-	grid             *widget.GridWrap
-	imageProvider    gridImageProvider
-	callbacks        GridViewerCallbacks
-	photos           []model.Photo
-	meta             []model.PhotoMeta
-	visible          visibleRange
-	mu               sync.Mutex
-	tileWidth        float32
-	preloadScheduled atomic.Bool
-	// a tile that misses while a dispatch is in flight is dropped by the CAS
-	// above and would stay at EXIF quality until the next scroll, so the miss is
-	// remembered and the dispatch re-arms itself once it is done
+	container     *fyne.Container
+	grid          *widget.GridWrap
+	imageProvider gridImageProvider
+	callbacks     GridViewerCallbacks
+	photos        []model.Photo
+	meta          []model.PhotoMeta
+	visible       visibleRange
+	mu            sync.Mutex
+	tileWidth     float32
+	// Provider.Preload only hands the paths to its workers and returns, so a
+	// dispatch per miss would fire once per tile of the row being drawn. The
+	// misses are collected for one delay instead, which is what lets the visible
+	// range grow to cover the whole row before anything is warmed.
 	preloadPending atomic.Bool
+	preloadDelay   time.Duration
 	// one RefreshItem re-runs updateItem for every visible tile, so a whole
 	// batch of loaded photos needs exactly one of them
 	refreshPending atomic.Bool
@@ -59,6 +61,7 @@ func NewGridViewer(imageProvider gridImageProvider, callbacks GridViewerCallback
 	gv := &GridViewer{
 		imageProvider: imageProvider,
 		callbacks:     callbacks,
+		preloadDelay:  gridPreloadDelay,
 		refreshDelay:  gridRefreshDelay,
 	}
 	gv.build()
@@ -174,11 +177,18 @@ func (gv *GridViewer) updateItem(id widget.GridWrapItemID, obj fyne.CanvasObject
 }
 
 func (gv *GridViewer) schedulePreload() {
-	if !gv.preloadScheduled.CompareAndSwap(false, true) {
-		gv.preloadPending.Store(true)
+	if !gv.preloadPending.CompareAndSwap(false, true) {
 		return
 	}
+	time.AfterFunc(gv.preloadDelay, func() {
+		// cleared before the window is taken, so a tile missing from here on
+		// arms the next dispatch instead of being dropped
+		gv.preloadPending.Store(false)
+		gv.dispatchPreload()
+	})
+}
 
+func (gv *GridViewer) dispatchPreload() {
 	gen := gv.imageProvider.Gen()
 
 	gv.mu.Lock()
@@ -198,12 +208,10 @@ func (gv *GridViewer) schedulePreload() {
 	gv.mu.Unlock()
 
 	if len(paths) == 0 {
-		gv.finishPreload()
 		return
 	}
 
 	go func() {
-		defer gv.finishPreload()
 		gv.imageProvider.Preload(paths, size, func(path string) {
 			if gen != gv.imageProvider.Gen() {
 				return
@@ -216,15 +224,6 @@ func (gv *GridViewer) schedulePreload() {
 			}
 		})
 	}()
-}
-
-// The re-run is bounded: the flag is taken before dispatching again, so it only
-// covers the tiles that missed while this dispatch was running.
-func (gv *GridViewer) finishPreload() {
-	gv.preloadScheduled.Store(false)
-	if gv.preloadPending.Swap(false) {
-		gv.schedulePreload()
-	}
 }
 
 func (gv *GridViewer) scheduleRefresh(index int) {

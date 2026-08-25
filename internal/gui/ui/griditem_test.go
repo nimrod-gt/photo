@@ -4,6 +4,7 @@ import (
 	"image"
 	"testing"
 
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,6 +17,9 @@ func TestGridItemCarriesItsOwnState(t *testing.T) {
 
 	assert.Positive(t, item.MinSize().Width)
 	assert.Positive(t, item.MinSize().Height)
+	// the tile is the one place the GPU does the scaling; a CatmullRom pass per
+	// repaint here is what made a loading row stutter
+	assert.Equal(t, canvas.ImageScaleFastest, item.thumb.ScaleMode)
 
 	thumbnail := image.NewNRGBA(image.Rect(0, 0, 2, 2))
 	item.update("DSC001.JPG", thumbnail)

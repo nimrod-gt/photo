@@ -120,5 +120,5 @@ func TestNewThumbnailImage(t *testing.T) {
 
 	assert.Equal(t, fyne.NewSize(thumbnailWidth, thumbnailHeight), thumb.MinSize())
 	assert.Equal(t, canvas.ImageFillContain, thumb.FillMode)
-	assert.Equal(t, canvas.ImageScaleFastest, thumb.ScaleMode)
+	assert.Equal(t, canvas.ImageScaleSmooth, thumb.ScaleMode, "the browser rows minify far more than a grid tile")
 }

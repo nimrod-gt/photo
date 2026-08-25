@@ -7,17 +7,10 @@ import (
 	"fyne.io/fyne/v2/canvas"
 )
 
-// Smooth scaling is what Fyne paints an image with by default, and it costs a
-// CatmullRom pass over the whole image plus a copy out of the NRGBA it produces,
-// on the UI goroutine, every time a tile shows a different photo. ImageFillContain
-// makes the widget box differ from the image on one axis, so that never lands on
-// the cheap path, while the images cached for these widgets are already about the
-// size they are drawn at - which is exactly what the GPU filters well on its own.
 func newThumbnailImage(width, height float32) *canvas.Image {
 	thumb := canvas.NewImageFromImage(nil)
 	thumb.SetMinSize(fyne.NewSize(width, height))
 	thumb.FillMode = canvas.ImageFillContain
-	thumb.ScaleMode = canvas.ImageScaleFastest
 	return thumb
 }
 

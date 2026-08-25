@@ -29,7 +29,6 @@ type fakeGridProvider struct {
 	peeked []int
 
 	calls chan gridPreloadCall
-	block chan struct{}
 	gen   atomic.Uint64
 }
 
@@ -46,23 +45,11 @@ func (f *fakeGridProvider) Peek(_ string, size int) image.Image {
 
 func (f *fakeGridProvider) Thumbnail(string) image.Image { return nil }
 
+// The real provider hands the paths to its workers and returns at once, so the
+// fake must not block either - a dispatch that waited here would hide how often
+// the grid asks for one.
 func (f *fakeGridProvider) Preload(paths []string, size int, onLoaded func(string)) {
 	f.calls <- gridPreloadCall{paths: paths, size: size, onLoaded: onLoaded}
-
-	f.mu.Lock()
-	block := f.block
-	f.mu.Unlock()
-	if block != nil {
-		<-block
-	}
-}
-
-// Holds every dispatch inside Preload until the channel is closed, so a test
-// can make a tile miss while one is in flight.
-func (f *fakeGridProvider) blockPreloads(block chan struct{}) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.block = block
 }
 
 func (f *fakeGridProvider) Gen() uint64 { return f.gen.Load() }
@@ -191,11 +178,19 @@ func TestGridViewerStopLoadingBumpsTheGeneration(t *testing.T) {
 	assert.Equal(t, uint64(1), fake.Gen())
 }
 
+// The delays are what the grid coalesces over; the tests only care that it does,
+// so they shrink both to keep the suite quick.
+func newTestGridViewer(fake *fakeGridProvider) *GridViewer {
+	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv.preloadDelay = 5 * time.Millisecond
+	gv.refreshDelay = 10 * time.Millisecond
+	return gv
+}
+
 func newRecordingGridViewer(t *testing.T, fake *fakeGridProvider, count int) (*GridViewer, *refreshRecorder) {
 	t.Helper()
 
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
-	gv.refreshDelay = 10 * time.Millisecond
+	gv := newTestGridViewer(fake)
 	refreshes := &refreshRecorder{}
 	gv.refreshItem = refreshes.refresh
 	photos, meta := gridTestPhotos(count)
@@ -251,7 +246,7 @@ func settleGrid(t *testing.T, gv *GridViewer, fake *fakeGridProvider) {
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		return !gv.preloadScheduled.Load()
+		return !gv.preloadPending.Load()
 	}, 2*time.Second, 5*time.Millisecond)
 
 	for {
@@ -284,7 +279,7 @@ func TestGridViewerPreloadsAroundTheTileBeingShown(t *testing.T) {
 			test.NewTempApp(t)
 
 			fake := newFakeGridProvider()
-			gv := NewGridViewer(fake, GridViewerCallbacks{})
+			gv := newTestGridViewer(fake)
 			photos, meta := gridTestPhotos(tt.count)
 			gv.SetPhotos(photos, meta)
 			settleGrid(t, gv, fake)
@@ -303,7 +298,7 @@ func TestGridViewerDispatchesOnePreloadPerMissedTile(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1000)
 	gv.SetPhotos(photos, meta)
 	settleGrid(t, gv, fake)
@@ -316,25 +311,42 @@ func TestGridViewerDispatchesOnePreloadPerMissedTile(t *testing.T) {
 	}, 200*time.Millisecond, 10*time.Millisecond, "the dispatch must not re-arm itself on its own")
 }
 
-func TestGridViewerRearmsAPreloadDroppedWhileOneWasInFlight(t *testing.T) {
+func TestGridViewerCoalescesTheMissesOfOnePass(t *testing.T) {
 	test.NewTempApp(t)
 
 	fake := newFakeGridProvider()
-	gv := NewGridViewer(fake, GridViewerCallbacks{})
+	gv := newTestGridViewer(fake)
 	photos, meta := gridTestPhotos(1000)
 	gv.SetPhotos(photos, meta)
 	settleGrid(t, gv, fake)
 
-	release := make(chan struct{})
-	fake.blockPreloads(release)
+	// a row of tiles drawn in one pass, every one of them a miss
+	for id := 500; id < 503; id++ {
+		gv.updateItem(id, newGridItem(200))
+	}
+
+	call := fake.awaitPreload(t)
+	assert.Equal(t, gridTestPath(480), call.paths[0], "the window covers the whole row, not just the first tile")
+	assert.Equal(t, gridTestPath(522), call.paths[len(call.paths)-1])
+	assert.Never(t, func() bool {
+		return len(fake.calls) > 0
+	}, 200*time.Millisecond, 10*time.Millisecond, "one dispatch per pass, not one per tile")
+}
+
+func TestGridViewerDispatchesAgainForALaterMiss(t *testing.T) {
+	test.NewTempApp(t)
+
+	fake := newFakeGridProvider()
+	gv := newTestGridViewer(fake)
+	photos, meta := gridTestPhotos(1000)
+	gv.SetPhotos(photos, meta)
+	settleGrid(t, gv, fake)
 
 	gv.updateItem(500, newGridItem(200))
 	first := fake.awaitPreload(t)
 	require.Equal(t, gridTestPath(480), first.paths[0])
 
-	// the tile scrolled to while the dispatch above was still running
 	gv.updateItem(900, newGridItem(200))
-	close(release)
 
 	second := fake.awaitPreload(t)
 	assert.Equal(t, gridTestPath(880), second.paths[0])
