@@ -23,9 +23,12 @@ func (a *Application) showTagsFor(photo model.Photo) {
 	generation := a.tagGeneration
 	go func() {
 		info, err := a.imageProvider.StockInfo(photo)
+		// A failed read still carries what it managed to parse - the EXIF tags of
+		// a JPEG whose XMP packet is broken, the JPEG tags of a pair whose sidecar
+		// is - and the Tags dialog shows exactly those, so the overlay does too
+		// instead of claiming the photo has none.
 		if err != nil {
 			log.Println("Failed to read tags:", err)
-			return
 		}
 		fyne.Do(func() {
 			if generation != a.tagGeneration {
