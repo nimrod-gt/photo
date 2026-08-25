@@ -146,6 +146,7 @@ func TestTags_IsEmpty(t *testing.T) {
 	assert.True(t, Tags{Title: "   "}.IsEmpty())
 	assert.False(t, Tags{Title: "A title."}.IsEmpty())
 	assert.False(t, Tags{Keywords: []string{"lake"}}.IsEmpty())
+	assert.True(t, Tags{Place: Place{Location: "Cascais, Portugal"}}.IsEmpty(), "a place alone is not a result")
 }
 
 func TestTags_Equal(t *testing.T) {
@@ -158,4 +159,63 @@ func TestTags_Equal(t *testing.T) {
 	assert.False(t, tags.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
 	assert.False(t, tags.Equal(Tags{Title: "A title.", Keywords: []string{"fog", "lake"}}))
 	assert.True(t, Tags{}.Equal(Tags{Keywords: nil}))
+
+	placed := Tags{Title: "A title.", Keywords: []string{"lake"}, Place: Place{Location: "Cascais", City: "Cascais"}}
+	assert.True(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Place: Place{Location: "Cascais", City: "Cascais"}}))
+	assert.False(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Place: Place{Location: "Cascais"}}))
+	assert.False(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+}
+
+func TestPlace_Trimmed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		place Place
+		want  Place
+	}{
+		{name: "empty", place: Place{}, want: Place{}},
+		{
+			name:  "trims every level",
+			place: Place{Location: " Cascais, Portugal ", City: "\tCascais", State: "Lisboa \n", Country: " Portugal "},
+			want:  Place{Location: "Cascais, Portugal", City: "Cascais", State: "Lisboa", Country: "Portugal"},
+		},
+		{
+			name:  "whitespace only becomes empty",
+			place: Place{Location: "Cascais", State: "   "},
+			want:  Place{Location: "Cascais"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.place.Trimmed())
+		})
+	}
+}
+
+func TestPlace_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		place Place
+		want  bool
+	}{
+		{name: "zero value", place: Place{}, want: true},
+		{name: "whitespace only", place: Place{Location: " ", City: "\n"}, want: true},
+		{name: "free text only", place: Place{Location: "Cascais, Portugal"}},
+		{name: "split only", place: Place{Country: "Portugal"}},
+		{name: "state only", place: Place{State: "Lisboa"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.place.IsEmpty())
+		})
+	}
 }

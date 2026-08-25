@@ -16,18 +16,45 @@ const (
 type Tags struct {
 	Title    string
 	Keywords []string
+	Place    Place
+}
+
+// Place is the location the user typed in the Tags dialog plus the split the
+// generator managed to make of it. A level it could not name stays empty rather
+// than being guessed.
+type Place struct {
+	Location string
+	City     string
+	State    string
+	Country  string
+}
+
+func (p Place) Trimmed() Place {
+	return Place{
+		Location: strings.TrimSpace(p.Location),
+		City:     strings.TrimSpace(p.City),
+		State:    strings.TrimSpace(p.State),
+		Country:  strings.TrimSpace(p.Country),
+	}
+}
+
+func (p Place) IsEmpty() bool {
+	return p.Trimmed() == Place{}
 }
 
 func (t Tags) KeywordLine() string {
 	return strings.Join(t.Keywords, ", ")
 }
 
+// The place is deliberately not looked at: callers read IsEmpty as "the
+// generator produced nothing", and a place alone must not pass for a result -
+// it would let an empty run overwrite a sidecar or blank the dialog.
 func (t Tags) IsEmpty() bool {
 	return len(strings.TrimSpace(t.Title)) == 0 && len(t.Keywords) == 0
 }
 
 func (t Tags) Equal(other Tags) bool {
-	return t.Title == other.Title && slices.Equal(t.Keywords, other.Keywords)
+	return t.Title == other.Title && t.Place == other.Place && slices.Equal(t.Keywords, other.Keywords)
 }
 
 // Problems reports every stock requirement the tags violate, so the user can fix

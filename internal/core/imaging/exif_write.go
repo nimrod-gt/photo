@@ -35,35 +35,47 @@ const (
 	inlineSize     = 4
 )
 
+// StockWrite tells the caller what the write cost the file, so the user hears it
+// in the same breath as the save.
+type StockWrite struct {
+	Rewritten bool
+	// The EXIF has no field for a place, so the fallback path carries the title
+	// and the keywords and leaves the place behind. It survives in the sidecar
+	// beside the RAW pair, where nothing has to fit in a fixed space.
+	PlaceDropped bool
+}
+
 // WriteStockTags puts the tags into the XMP packet of the JPEG in place when it
 // has room for them, which leaves the size, the layout and the directory entry
 // of the file as the camera made them. Without such a packet the EXIF carries
 // them and the file is replaced, which is reported so the user can be told the
 // camera has to re-index it.
-func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (rewritten bool, err error) {
+func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (StockWrite, error) {
 	s.access.Lock()
 	defer s.access.Unlock()
 
 	original, err := os.ReadFile(jpegPath)
 	if err != nil {
-		return false, fmt.Errorf("reading %s: %w", jpegPath, err)
+		return StockWrite{}, fmt.Errorf("reading %s: %w", jpegPath, err)
 	}
 	start, end, err := xmpPacketSpan(original)
 	if err != nil {
-		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
+		return StockWrite{}, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
 	if packet, ok := packetWithTags(original[start:end], tags); ok {
-		return writePacketTags(jpegPath, original, start, end, packet, tags)
+		rewritten, err := writePacketTags(jpegPath, original, start, end, packet, tags)
+		return StockWrite{Rewritten: rewritten}, err
 	}
 	cleared, err := withoutPacketTags(original, start, end, jpegPath)
 	if err != nil {
-		return false, err
+		return StockWrite{}, err
 	}
 	updated, err := withStockTags(cleared, tags)
 	if err != nil {
-		return false, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
+		return StockWrite{}, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
-	return replaceIfChanged(jpegPath, original, updated)
+	rewritten, err := replaceIfChanged(jpegPath, original, updated)
+	return StockWrite{Rewritten: rewritten, PlaceDropped: !tags.Place.IsEmpty()}, err
 }
 
 func replaceIfChanged(jpegPath string, original, updated []byte) (bool, error) {

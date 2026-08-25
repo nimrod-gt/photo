@@ -3,6 +3,7 @@ package app
 import (
 	"log"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -177,19 +178,31 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 // case is spelled out instead of passing as a plain success.
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
+// No EXIF tag holds a place, so the fallback the note above describes carries
+// the title and the keywords and leaves the location behind.
+const placeDroppedNote = "the location was not written: the XMP packet had no room and the EXIF has no field for a place"
+
 func (s *tagsSession) saveJPEG() {
 	taken := s.taken
 	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) (string, error) {
-		rewritten, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
+		write, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
 		if err != nil {
 			return "", err
 		}
 		s.storeStock(saved, taken)
-		if !rewritten {
-			return "", nil
-		}
-		return rewrittenNote, nil
+		return writeNote(write), nil
 	}, nil)
+}
+
+func writeNote(write imaging.StockWrite) string {
+	var notes []string
+	if write.Rewritten {
+		notes = append(notes, rewrittenNote)
+	}
+	if write.PlaceDropped {
+		notes = append(notes, placeDroppedNote)
+	}
+	return strings.Join(notes, "; ")
 }
 
 func (s *tagsSession) close() {

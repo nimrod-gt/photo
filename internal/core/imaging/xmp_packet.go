@@ -29,7 +29,7 @@ var (
 	// stripped, and is dropped whole so the packet returns to what the camera
 	// wrote.
 	emptyDescriptionPattern = regexp.MustCompile(
-		`[ \t]*` + regexp.QuoteMeta(descriptionOpen) + `\s*` + descriptionEnd + `[ \t]*\n?`)
+		`[ \t]*` + ownDescriptionPattern() + `\s*` + descriptionEnd + `[ \t]*\n?`)
 
 	// The reader matches the namespace, so the writer has to find the prefix
 	// the document binds it to: older Bridge and Nikon packets spell it xap.
@@ -131,8 +131,9 @@ func appendDescription(content string, tags model.Tags) (string, bool) {
 	if len(properties) == 0 {
 		return content, true
 	}
+	bindings := writtenBindings(tags)
 	return appendElement(content, func(indent string) string {
-		return dcDescription(indent, properties)
+		return ownDescription(indent, bindings, properties)
 	})
 }
 

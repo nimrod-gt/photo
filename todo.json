@@ -1,118 +1,129 @@
 {
   "version": 1,
-  "next_id": 12,
+  "next_id": 14,
   "todos": [
     {
       "id": 9,
-      "description": "Check what else can be passed to Lightroom",
-      "context": "The app already hands Lightroom-readable metadata to files: xmp:Rating (5/0 for favorite) rewritten in place inside the JPEG's embedded XMP packet, and stock tags (dc:title, dc:description, dc:subject keywords) written into that same packet and into an XMP sidecar beside the RAW/.ARW pair. Colour labels are the notable gap: model.ColorLabel is red/green/blue only and is persisted solely in the app's per-folder .photo-colors.json, so Lightroom never sees them, while xmp:Label is the natural XMP carrier. The task is a survey: enumerate which fields the app holds today (model.PhotoMeta: Date, Colors, Favorite, Ratable; model.Tags) or could hold, and which of them could be conveyed via the XMP packet/sidecar.",
+      "description": "Pass the Tags dialog location to Lightroom and record the metadata survey",
+      "context": "The app already writes xmp:Rating in place inside the JPEG's embedded XMP packet and the stock tags dc:title/dc:description/dc:subject into that packet, into the EXIF as a fallback, and into the .xmp sidecar beside a RAW pair. The survey behind this todo found one real loss: the Location field of the Tags dialog is pasted into the claude prompt and then thrown away, although everything here goes to microstock through Lightroom and an editorial submission is required to carry the place. Colour labels were considered and deliberately rejected - they stay in .photo-colors.json and nothing is written to xmp:Label.",
       "docs": [
-        "internal/core/imaging/xmp_packet.go",
         "internal/core/imaging/sidecar.go",
+        "internal/core/imaging/xmp_packet.go",
+        "internal/core/imaging/exif_write.go",
         "internal/core/imaging/stock_info.go",
-        "internal/core/imaging/favorite.go",
-        "internal/core/imaging/exif_service.go",
-        "internal/core/model/color.go",
-        "internal/core/model/photo_meta.go",
-        "internal/core/library/colors.go"
+        "internal/core/model/tags.go",
+        "internal/core/tags/tagger.go",
+        "internal/core/tags/prompts/stock_photo.txt",
+        "internal/gui/ui/tags_dialog.go"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/9-lightroom-metadata",
       "created_at": "2026-08-24T19:00:59Z",
-      "updated_at": "2026-08-25T08:08:33Z",
+      "updated_at": "2026-08-25T14:17:43Z",
       "plan": {
         "created_at": "2026-08-25T08:08:33Z",
-        "revised_at": null,
-        "base_commit": "732c7cf",
-        "summary": "The todo is a survey of what else the app could hand to Lightroom, and the survey's one clear answer is already named in the context: colour labels. Today the app writes xmp:Rating in place inside the JPEG's embedded XMP packet (internal/core/imaging/favorite.go + xmp_packet.go) and dc:title/dc:description/dc:subject into that packet and into the .xmp sidecar beside a RAW pair (internal/core/imaging/exif_write.go, sidecar.go), with an EXIF fallback (ImageDescription/XPTitle/XPKeywords). Everything else the app holds is either read-only from the file (PhotoMeta.Date comes from EXIF DateTimeOriginal or the file creation time and is never written; Ratable is a capability flag, not metadata) or lives only in the app (model.ColorLabel in .photo-colors.json). So the plan is: first record the survey itself (what is written today, what carriers exist, what is deliberately left alone - crs develop settings, GPS, lr:hierarchicalSubject, photoshop:*), then close the single gap it identifies by carrying colour labels as xmp:Label through the same two carriers the rating and the tags already use: read/write inside the JPEG packet in place, and write into the RAW sidecar, wired to the existing colour toggle while .photo-colors.json stays the app's own store.",
+        "revised_at": "2026-08-25T14:17:43Z",
+        "base_commit": "6b6b00e",
+        "summary": "Todo #9 started as a survey of what else the app could hand to Lightroom. The survey's answer, settled with the user: colour labels are deliberately NOT written - they stay in .photo-colors.json and xmp:Label is dropped from the todo - and the one real gap is the Location field of the Tags dialog (internal/gui/ui/tags_dialog.go:97), which the user fills, the prompt consumes as a Location: line, and nothing ever records in the file. Since everything here ends up on microstock through Lightroom and sometimes Photoshop, where an editorial submission must carry its place, the branch writes that place: Iptc4xmpCore:Location always, plus photoshop:City/State/Country whenever the model manages to split the free text, into the same two carriers the tags already use - the JPEG's XMP packet in place and the .xmp sidecar beside the RAW pair. There is no EXIF tag for a place, so the EXIF fallback path carries the tags but not the place and says so. The work is mostly in internal/core/imaging: the property machinery in sidecar.go and xmp_packet.go is dc-shaped throughout (descriptionOpen hardcodes xmlns:dc, openDescription binds only that with errForeignDC as the escape hatch, stripProperties removes only the three dc properties, sidecarProperties emits only them) and becomes a table of owned properties across three namespaces. The prompt and the CLI json-schema gain the optional split, and README records the survey - what is written, what this branch adds, what is rejected and why, plus the two pipeline traps that silently undo the work: Lightroom reads embedded XMP at import only, and Minimize Embedded Metadata / Save for Web strip it.",
         "steps": [
           {
-            "title": "Record the survey of what the app can pass to Lightroom",
-            "details": "Add a short section to README.md (under Features, next to the Favorites and Color labels bullets) that enumerates, per field: what the app holds and where it is written today - xmp:Rating (5/0, in place in the JPEG's XMP packet, EXIF Rating read as fallback); dc:title + dc:description + dc:subject (packet when it has room, EXIF ImageDescription/XPTitle/XPKeywords otherwise, and the .xmp sidecar for a RAW pair) - and what is held but not passed: model.PhotoMeta.Colors (red/green/blue, .photo-colors.json only; the natural carrier is xmp:Label), PhotoMeta.Date (read from EXIF DateTimeOriginal/DateTimeDigitized/DateTime or the file creation time, never written, so nothing to pass), PhotoMeta.Ratable (a capability of the packet, not metadata). Name explicitly the properties considered and rejected for now, so a later reader does not redo the survey: lr:hierarchicalSubject (Lightroom keyword hierarchy - the app has flat keywords only), photoshop:Headline/Instructions and Iptc4xmpCore:* (no field in the app produces them), xmp:CreateDate/photoshop:DateCreated (would move the photo's date, which the app deliberately preserves), GPS (never held), and crs:* develop settings (present in Lightroom sidecars and must survive every write untouched - see the comment on mergeSidecar). No Go code changes in this step.",
+            "title": "Record the survey",
+            "details": "A new section in README.md under Features listing, per field, what is written and where: xmp:Rating; dc:title + dc:description + dc:subject; Iptc4xmpCore:Location; photoshop:City/State/Country - with the packet -> EXIF fallback -> RAW sidecar rule and the note that a place has no EXIF carrier. README answers 'what ends up in my file' and nothing else: the rejected half of the survey is development rationale and goes into the comment above the owned-properties table two steps later, where a reader would ask why a property is missing from it, and Lightroom's and Photoshop's own ways of losing metadata are not this app's behaviour and are not documented at all. No Go changes in this step.",
             "files": [
               "README.md"
             ]
           },
           {
-            "title": "Give colour labels a Lightroom vocabulary in the model",
-            "details": "In internal/core/model/color.go add the mapping between model.ColorLabel and the label text Lightroom matches against its label set: a table ColorRed->\"Red\", ColorGreen->\"Green\", ColorBlue->\"Blue\", a LabelFor([]ColorLabel) string that resolves the multi-colour case to a single value by a fixed priority (red, then green, then blue) and returns \"\" for none, and ColorsForLabel(string) []ColorLabel for the read direction (case-insensitive, unknown text -> nil). Keep it I/O free like the rest of the package. Table-driven tests in internal/core/model/color_test.go covering none, one colour, several colours, unknown label text.",
+            "title": "Give the tags a place",
+            "details": "In internal/core/model/tags.go add type Place struct {Location, City, State, Country string} and a Place field on model.Tags. Equal compares it; IsEmpty keeps looking at the title and the keywords only - it guards 'claude returned no tags' in tagger.go, the sidecar-overwrite rule in stock_info.go and the foreign-dc refusal in xmp_packet.go:appendDescription, and a place alone must not count as a result in any of them. Add Place.IsEmpty() and a Trimmed() for the writers. Table-driven tests in internal/core/model/tags_test.go.",
             "files": [
-              "internal/core/model/color.go",
-              "internal/core/model/color_test.go"
+              "internal/core/model/tags.go",
+              "internal/core/model/tags_test.go"
             ]
           },
           {
-            "title": "Read and write xmp:Label inside the XMP packet",
-            "details": "Teach the parser and the in-place rewriter about xmp:Label. In internal/core/imaging/sidecar.go: generalise isRatingName into a namespace+local-name check so parseSidecar also collects xmp:Label (field label on sidecarTags, set from the element text and from the attribute form in readAttributes, mirroring setRating). In internal/core/imaging/xmp_packet.go: add packetWithLabel(packet []byte, label string) mirroring packetWithRating - reuse rewritePacket, xmpPrefixes and the element/attribute pattern pair (factor ratingPatterns into a helper parameterised by property name so Label reuses it), and, where the document carries no label at all, append an rdf:Description declaring the xmp namespace exactly as documentWithRatingWritten does. Keep the same read-back check: rewrite, re-parse with parseSidecar, and refuse the write when the parsed value is not the one written. Tests in internal/core/imaging/xmp_packet_test.go: element form, Lightroom's attribute form, xap prefix, no label present (appended), packet with no room (refused), clearing a label back to empty, and that a rating already in the packet is untouched.",
+            "title": "Read the place out of an XMP document",
+            "details": "parseSidecar in internal/core/imaging/sidecar.go keeps dcNamespace elements and, through isRatingName, xmp:Rating. Generalise that into a table of the properties the app owns - namespace + local name -> setter - and add Iptc4xmpCore:Location (namespace http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/) and photoshop:City/State/Country (namespace http://ns.adobe.com/photoshop/1.0/). Cover both the element form and the attribute form in readAttributes, the shape exiftool and simple writers use, and fill Place in sidecarTags.tags(). Read only - nothing writes yet. Tests in sidecar_test.go: element form, attribute form, a Lightroom sidecar carrying both a place and crs:*, a document with no place, and a prefix bound to a foreign namespace being ignored.",
+            "files": [
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/sidecar_test.go"
+            ]
+          },
+          {
+            "title": "Write the place into the RAW sidecar",
+            "details": "The writer half of sidecar.go is dc-shaped: descriptionOpen hardcodes xmlns:dc, openDescription binds only that with errForeignDC as the escape hatch, stripProperties removes only the three dc properties and sidecarProperties emits only them. Turn that into a table of owned properties {prefix, namespace, name, value} and drive all four from it. The comment above that table carries the rejected half of the survey so nobody redoes it: xmp:Label (colour labels stay in .photo-colors.json by the user's decision), lr:hierarchicalSubject (Lightroom-only, agencies ignore it, our keywords are flat), xmp:CreateDate and photoshop:DateCreated (would move the photo's date, which the app preserves), GPS, photoshop:Headline/Instructions, Iptc4xmpCore:CreatorContactInfo and plus:ModelReleaseStatus (no field in the app produces them), and crs:* (Lightroom's own, preserved byte for byte). stripProperties gains one pattern per new property in element, self-closing and attribute form - one pattern per property, never an alternation, for the reason the comment on dcElementPatterns gives. openDescription binds every namespace actually being written, and the errForeignDC escape hatch becomes per-prefix, falling back to insertDescription for the ones that clash. sidecarProperties writes Iptc4xmpCore:Location and the photoshop:* fields as plain text elements, not rdf:Alt, skipping the empty ones. WriteSidecar keeps its signature - the place travels inside model.Tags - so tags_action.go and tags_runs.go are untouched. Tests: a new sidecar; a Lightroom sidecar where every crs:* property survives byte for byte; a place replaced; a place cleared; a document binding photoshop to a foreign vocabulary; a round trip through parseSidecar.",
+            "files": [
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/sidecar_test.go"
+            ]
+          },
+          {
+            "title": "Write the place into the JPEG packet",
+            "details": "appendDescription in internal/core/imaging/xmp_packet.go builds one rdf:Description declaring xmlns:dc and fills it from sidecarProperties, and emptyDescriptionPattern drops that description once it is empty. Both follow the table from the previous step, so the appended description declares every namespace it uses and is still recognised as empty when nothing is written into it. The length rule of rewritePacket is unchanged: what does not fit in the padding is not written here at all. The EXIF fallback in exif_write.go has no carrier for a place, so WriteStockTags must report when it falls back with a non-empty place - the tags reach the EXIF, the place does not - in the same message that already tells the user the file was rewritten. Tests in xmp_packet_test.go and exif_write_test.go: place written into a packet with room; a packet too small (refused, tags fall back, place reported as not written); place cleared; a packet already carrying a rating keeping it.",
             "files": [
               "internal/core/imaging/xmp_packet.go",
-              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/exif_write.go",
               "internal/core/imaging/xmp_packet_test.go",
-              "internal/core/imaging/sidecar_test.go"
+              "internal/core/imaging/exif_write_test.go"
             ]
           },
           {
-            "title": "Expose the label on ExifService: write into the JPEG, report it on read",
-            "details": "Add internal/core/imaging/label.go with (s *ExifService) SetLabel(jpegPath string, label string) error, built like ToggleFavorite in favorite.go: take the write lock, read the file, find the packet with xmpPacketSpan, call packetWithLabel, patchPacket only when the bytes differ, and return a plain error naming the file when the packet cannot take a label (no packet, read-only trailer, no room, or a form the app does not rewrite) - no whole-file rewrite and no EXIF fallback, so the file keeps its size and layout. In internal/core/imaging/exif_service.go add Label string (and Labelable bool, computed like packetTakesRating) to PhotoInfo and fill both in GetPhotoInfo from the already parsed packet; in internal/core/imaging/image_provider.go carry Label through LoadedMeta so the folder scan can report it. Tests in internal/core/imaging/label_test.go on the JPEG fixtures the favorite tests already use: set, overwrite, clear, and the refusal path; extend exif_service_test.go for the new PhotoInfo fields.",
+            "title": "Ask the model for the split",
+            "details": "In internal/core/tags/tagger.go extend tagsSchema with optional city, state and country strings - required stays [title, keywords] and additionalProperties stays false, so an answer without them is still valid. Extend claudeResponse.StructuredOutput and fill model.Tags.Place from it; Request carries the free-text location so Place.Location is set from what the user typed, not from what the model echoed. In internal/core/tags/prompts/stock_photo.txt add the three fields to the response format section and say in the location section that when the Location: line is present the place is also split into city, region and country and returned in those fields, in ASCII, leaving a level empty rather than guessing it, and that without a Location: line all three stay empty in commercial mode. Tests in tagger_test.go: a response with the split, one without it, one with a partial split, and that the free-text location survives either way.",
             "files": [
-              "internal/core/imaging/label.go",
-              "internal/core/imaging/exif_service.go",
-              "internal/core/imaging/image_provider.go",
-              "internal/core/imaging/label_test.go",
-              "internal/core/imaging/exif_service_test.go"
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/prompts/stock_photo.txt",
+              "internal/core/tags/tagger_test.go"
             ]
           },
           {
-            "title": "Carry the label into the RAW sidecar",
-            "details": "Extend the sidecar writer so a RAW pair gets the label too. In internal/core/imaging/sidecar.go add the label to what mergeSidecar owns: a strip pattern for xmp:Label in element, self-closing and attribute form (one pattern per property, as the comment on dcElementPatterns requires) and a writer that emits <xmp:Label>text</xmp:Label> inside the same rdf:Description, declaring xmlns:xmp when the element does not already bind it - with the same errForeignDC escape hatch when the prefix means something else there. Choose the API shape: keep WriteSidecar(path, tags) and add WriteSidecarLabel(path, label), so the tags dialog call site in internal/gui/app/tags_action.go is untouched and a colour toggle does not have to know the tags. ReadSidecar keeps returning tags; add ReadSidecarLabel or return the label alongside only if a caller needs it. Tests in internal/core/imaging/sidecar_test.go: new sidecar, sidecar written by Lightroom (crs develop settings and every non-dc property survive byte for byte), existing label replaced, label cleared, foreign xmp prefix.",
+            "title": "Carry the place through the dialog",
+            "details": "TagsDialog.Tags() in internal/gui/ui/tags_dialog.go rebuilds model.Tags from the two result entries and would drop the place. Keep the split in a field set by showTags and SetPhotoInfo, and have Tags() take Location from the live d.location entry and the three levels from that field, dropping the split when the entry no longer matches the text it was derived from, so an edited location cannot ship a stale city. The split stays invisible in the dialog; the free-text field is the only thing the user edits. Tests in tags_dialog_test.go: a generated split reaches Tags(); editing the location entry afterwards clears it; SetPhotoInfo from a file with a place fills the location entry only while it is untouched.",
             "files": [
-              "internal/core/imaging/sidecar.go",
-              "internal/core/imaging/sidecar_test.go"
-            ]
-          },
-          {
-            "title": "Write the label whenever a colour is toggled",
-            "details": "Add one core entry point that covers both carriers - e.g. (s *ExifService) SetPhotoLabel(photo model.Photo, colors []model.ColorLabel) error in internal/core/imaging/label.go: resolve the text with model.LabelFor, call SetLabel for a JPEG and WriteSidecarLabel for model.SidecarPath(photo.RAWPath) when photo.HasRAW(), and join the two errors so one failing carrier does not hide the other. Wire it in internal/gui/app/actions.go: handleColorToggle keeps writing .photo-colors.json through colorService (that stays the app's own truth and the source of the filters), then calls SetPhotoLabel on the same goroutine and reports a failure without undoing the JSON write, since the label is an export convenience and the app's own state already changed. Tests in internal/core/imaging/label_test.go for the JPEG-only, RAW-pair and both-fail combinations; the GUI wiring stays a thin call so it needs no test of its own.",
-            "files": [
-              "internal/core/imaging/label.go",
-              "internal/core/imaging/label_test.go",
-              "internal/gui/app/actions.go"
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
             ]
           }
         ],
         "questions": [
           {
-            "question": "Should this todo stop after the survey (step 1) and leave xmp:Label to a separate todo? Assume no - the survey names it as the one gap, so steps 2-6 close it - unless told otherwise.",
-            "answer": null
+            "question": "Should this todo stop after the survey and leave the file writing to a separate todo?",
+            "answer": "No. The survey plus the location, in one branch. xmp:Label is dropped entirely: colour labels are never written to files."
           },
           {
-            "question": "A photo can carry Red+Green at once but xmp:Label is a single string. Assume a fixed priority (red, then green, then blue) picks the one written, rather than a combined \"Red, Green\" that Lightroom would show as a custom label with no colour - affects step 2.",
-            "answer": null
+            "question": "A photo can carry Red+Green at once but xmp:Label is a single string. How is that resolved?",
+            "answer": "Moot: colour labels are not written to files at all."
           },
           {
-            "question": "Label text: assume the English capitalised \"Red\"/\"Green\"/\"Blue\", which matches Lightroom's default label set; any other set name the user configured would show the label as white. Affects step 2.",
-            "answer": null
+            "question": "How does the free-text Location field reach the file?",
+            "answer": "The dialog keeps one free-text field, always written to Iptc4xmpCore:Location. The prompt additionally asks for a city/state/country split; when it comes back, those are written to photoshop:City/State/Country too."
           },
           {
-            "question": "Should a label found in a file (written in Lightroom) be read back into the app's colour state, or does .photo-colors.json stay the only truth? Assume it stays the only truth: step 4 merely exposes PhotoInfo.Label, nothing reads it into PhotoMeta.Colors.",
-            "answer": null
+            "question": "Which carriers does the place go into?",
+            "answer": "The JPEG XMP packet and the RAW sidecar, exactly like the tags."
           },
           {
-            "question": "Should the colour buttons be disabled where the packet cannot take a label, the way the favorite button follows PhotoMeta.Ratable? Assume no - a colour toggle must keep working as a JSON-only label on such files, with the failed file write only reported - affects step 6.",
-            "answer": null
+            "question": "The Editorial checkbox and its date also live only in the prompt. Are they in scope?",
+            "answer": "No - the prompt already builds the 'City, Country - Month D, YYYY' caption prefix into the title, so there is nothing to do."
           },
           {
-            "question": "When a JPEG has no writable XMP packet, should the label fall back to the EXIF the way the stock tags do (rewriting the whole file)? Assume no: refuse and report, like the rating path - affects step 4.",
-            "answer": null
+            "question": "Is a place found in a file read back into the app?",
+            "answer": "Yes, unlike colours: the place round-trips through the sidecar and the packet the way the tags do, so reopening the dialog shows what the file holds."
+          },
+          {
+            "question": "Should the place fall back to the EXIF when the JPEG has no writable XMP packet?",
+            "answer": "No. There is no EXIF tag for a place, so such a JPEG keeps its place only in the RAW sidecar and the write reports that the place was not written."
           }
         ],
         "risks": [
-          "Colour toggling is currently a JSON write that touches no photo; after step 6 it patches the JPEG and writes a sidecar, so it becomes slower, can fail per file, and takes the ExifService write lock - a fast run of R/G/B on a big folder now serialises against the folder scan.",
-          "xmp:Label appended to a packet with no padding room fails the same way a rating does, so some files will keep a colour the app shows and Lightroom never sees; the error text must say that plainly.",
-          "The sidecar merge is regex surgery over documents that carry Lightroom develop settings; a new property pattern that is too greedy can swallow crs:* blocks. The one-pattern-per-property rule in sidecar.go exists for exactly this and must be followed.",
-          "Two sources of truth: a label edited in Lightroom and a colour toggled in the app will drift, since nothing reads the label back.",
-          "Adding a label field to sidecarTags changes what parseSidecar reports, and that same parser gates the packet writes in appendDescription and documentWithRating - check no existing refusal path changes meaning."
+          "The last two imaging steps rewrite the machinery that already writes the tags: the errForeignDC path, the empty-description removal and the length rule of rewritePacket all change shape. The 621 lines of sidecar_test.go and 643 of xmp_packet_test.go are the safety net and must all keep passing unchanged in meaning.",
+          "stripProperties is shared by the sidecar writer and the packet writer, so a new pattern that is too greedy eats the crs:* develop settings of a Lightroom sidecar - the exact damage the one-pattern-per-property rule exists to prevent.",
+          "IsEmpty must keep ignoring the place: three call sites read it as 'this is not a result', and a place-only Tags slipping through would clear a sidecar or blank the dialog.",
+          "The split is invisible in the dialog, so a wrong city cannot be corrected by hand, only by editing the location and generating again.",
+          "The place has no EXIF carrier, so on the fallback path it is absent unless the write reports it.",
+          "The json-schema change must not make a well-formed old answer fail: the three new fields stay optional.",
+          "Out of scope but named by the survey: creator/copyright (dc:creator, dc:rights, xmpRights:UsageTerms) and release status (plus:ModelReleaseStatus) are the next microstock candidates and each deserves its own todo."
         ]
       }
     },
@@ -216,6 +227,47 @@
           "Existing tests compare d.buttons.Objects by identity and call test.Tap on the buttons; changing the field type to *dialogButton keeps both working only if the wrapper embeds widget.Button and calls ExtendBaseWidget."
         ]
       }
+    },
+    {
+      "id": 12,
+      "description": "Copy stock tags from one photo to another",
+      "context": "Let a user take the stock tags of one photo (model.Tags - Title + Keywords, plus a Place on the todo/9 branch) and apply them to another photo; today there is no UI affordance and no core entry point for it, only per-photo generation. The pieces to build on are the Tags dialog session in internal/gui/app/tags_action.go, which owns the clipboard copies and the save path, the per-photo cache in internal/core/imaging/image_provider.go (PeekStockInfo/StoreStockInfo), and the writers ExifService.WriteStockTags (JPEG XMP packet with an EXIF fallback) and imaging.WriteSidecar (.xmp beside the RAW pair). Todo #9 is adding a Place to model.Tags and reshaping the sidecar and packet property tables, so whatever is copied has to carry the place too.",
+      "docs": [
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/tags_runs.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/core/imaging/image_provider.go",
+        "internal/core/imaging/stock_info.go",
+        "internal/core/model/tags.go",
+        "internal/core/imaging/exif_write.go",
+        "internal/core/imaging/sidecar.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-25T14:28:59Z",
+      "updated_at": "2026-08-25T14:28:59Z",
+      "plan": null
+    },
+    {
+      "id": 13,
+      "description": "Make sure tags edited by hand in the Tags dialog are written into the XMP",
+      "context": "Hand-edited Title and Keywords reach the RAW sidecar only when the dialog closes - tagsSession.close calls saveSidecar(s.dialog.Tags()) in internal/gui/app/tags_action.go, guarded by photo.HasRAW and skipped when the tags equal s.saved - while the run-finished paths write the sidecar from the run result instead (runFinished and the detached tagRunner.finishDetached in internal/gui/app/tags_runs.go). The JPEG's embedded XMP packet is written only through the explicit Save JPEG button (OnSaveJPEG -> tagsSession.saveJPEG -> ExifService.WriteStockTags), a button that exists only for a JPEG and is enabled only while model.Tags.Problems() is empty, so hand edits to a JPEG that are merely closed never enter the packet. Values come from TagsDialog.Tags(), which reads the live entry text, and every successful write also refreshes the per-photo cache through StoreStockInfo.",
+      "docs": [
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/tags_runs.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/core/imaging/exif_write.go",
+        "internal/core/imaging/sidecar.go",
+        "internal/gui/app/tags_runs_test.go",
+        "internal/gui/ui/tags_dialog_test.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-25T14:35:53Z",
+      "updated_at": "2026-08-25T14:35:53Z",
+      "plan": null
     }
   ]
 }

@@ -619,3 +619,271 @@ func TestParseSidecar_Rating(t *testing.T) {
 		assert.Equal(t, model.Tags{}, parsed.tags())
 	})
 }
+
+func TestParseSidecar_Place(t *testing.T) {
+	t.Parallel()
+
+	const bindings = `xmlns:Iptc4xmpCore="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/" ` +
+		`xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"`
+	tests := []struct {
+		name        string
+		description string
+		want        model.Place
+	}{
+		{
+			name: "the element form",
+			description: `<rdf:Description rdf:about="" ` + bindings + `>` +
+				`<Iptc4xmpCore:Location>Praia do Guincho</Iptc4xmpCore:Location>` +
+				`<photoshop:City>Cascais</photoshop:City>` +
+				`<photoshop:State>Lisboa</photoshop:State>` +
+				`<photoshop:Country>Portugal</photoshop:Country>` +
+				`</rdf:Description>`,
+			want: model.Place{Location: "Praia do Guincho", City: "Cascais", State: "Lisboa", Country: "Portugal"},
+		},
+		{
+			name: "the attribute form",
+			description: `<rdf:Description rdf:about="" ` + bindings +
+				` Iptc4xmpCore:Location="Praia do Guincho" photoshop:City="Cascais"` +
+				` photoshop:State="Lisboa" photoshop:Country="Portugal"/>`,
+			want: model.Place{Location: "Praia do Guincho", City: "Cascais", State: "Lisboa", Country: "Portugal"},
+		},
+		{
+			name: "the namespaces under other prefixes",
+			description: `<rdf:Description rdf:about="" xmlns:iptc="http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"` +
+				` xmlns:ps="http://ns.adobe.com/photoshop/1.0/">` +
+				`<iptc:Location>Praia do Guincho</iptc:Location><ps:City>Cascais</ps:City></rdf:Description>`,
+			want: model.Place{Location: "Praia do Guincho", City: "Cascais"},
+		},
+		{
+			name: "a level the generator left out",
+			description: `<rdf:Description rdf:about="" ` + bindings + `>` +
+				`<Iptc4xmpCore:Location>Somewhere at sea</Iptc4xmpCore:Location>` +
+				`<photoshop:Country>Portugal</photoshop:Country></rdf:Description>`,
+			want: model.Place{Location: "Somewhere at sea", Country: "Portugal"},
+		},
+		{
+			name:        "no place at all",
+			description: `<rdf:Description rdf:about=""/>`,
+		},
+		{
+			name: "a prefix bound to another vocabulary",
+			description: `<rdf:Description rdf:about="" xmlns:photoshop="http://example.com/of-our-own/">` +
+				`<photoshop:City>Cascais</photoshop:City></rdf:Description>`,
+		},
+		{
+			name:        "a prefix bound to nothing",
+			description: `<rdf:Description rdf:about="" photoshop:City="Cascais"/>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			document := `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+				tt.description + `</rdf:RDF></x:xmpmeta>`
+
+			parsed, err := parseSidecar([]byte(document))
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, parsed.place)
+			assert.Equal(t, tt.want, parsed.tags().Place)
+		})
+	}
+
+	t.Run("a Lightroom sidecar carrying a place beside its develop settings", func(t *testing.T) {
+		t.Parallel()
+		document := strings.Replace(lightroomSidecar,
+			"   <dc:subject>",
+			"   <Iptc4xmpCore:Location>Praia do Guincho</Iptc4xmpCore:Location>\n"+
+				"   <photoshop:City>Cascais</photoshop:City>\n"+
+				"   <dc:subject>", 1)
+		document = strings.Replace(document,
+			`    xmlns:crs=`,
+			`    xmlns:Iptc4xmpCore="`+iptcCoreNamespace+`"`+"\n"+
+				`    xmlns:photoshop="`+photoshopNamespace+`"`+"\n"+
+				`    xmlns:crs=`, 1)
+
+		parsed, err := parseSidecar([]byte(document))
+
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{
+			Title:    "Old title",
+			Keywords: []string{"old"},
+			Place:    model.Place{Location: "Praia do Guincho", City: "Cascais"},
+		}, parsed.tags())
+	})
+}
+
+func placedTags() model.Tags {
+	return model.Tags{
+		Title:    "A tram climbs the hill.",
+		Keywords: []string{"lisbon", "tram"},
+		Place: model.Place{
+			Location: "Praia do Guincho",
+			City:     "Cascais",
+			State:    "Lisboa",
+			Country:  "Portugal",
+		},
+	}
+}
+
+func TestWriteSidecar_Place(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a new sidecar carries the place back", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, "<Iptc4xmpCore:Location>Praia do Guincho</Iptc4xmpCore:Location>")
+		assert.Contains(t, content, "<photoshop:City>Cascais</photoshop:City>")
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, placedTags(), read)
+	})
+
+	t.Run("only the namespaces being written are declared", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, model.Tags{Title: "A tram climbs the hill."}))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `xmlns:dc="`+dcNamespace+`"`)
+		assert.NotContains(t, content, "xmlns:photoshop=")
+		assert.NotContains(t, content, "xmlns:Iptc4xmpCore=")
+	})
+
+	t.Run("a level the generator left out is not written", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := model.Tags{
+			Title: "A tram climbs the hill.",
+			Place: model.Place{Location: "Somewhere at sea", Country: "Portugal"},
+		}
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "<photoshop:City>")
+		assert.NotContains(t, content, "<photoshop:State>")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
+	t.Run("keeps the develop settings of a Lightroom sidecar", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, lightroomSidecar)
+
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `crs:Exposure2012="+0.35"`)
+		assert.Contains(t, content, `crs:Contrast2012="+12"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, placedTags(), read)
+	})
+
+	t.Run("a place already in the sidecar is replaced, not doubled", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		moved := placedTags()
+		moved.Place = model.Place{Location: "Praia de Carcavelos", City: "Oeiras", Country: "Portugal"}
+		require.NoError(t, WriteSidecar(path, moved))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, "<Iptc4xmpCore:Location>"))
+		assert.Equal(t, 1, strings.Count(content, `xmlns:photoshop="`+photoshopNamespace+`"`))
+		assert.NotContains(t, content, "Praia do Guincho")
+		assert.NotContains(t, content, "<photoshop:State>")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, moved, read)
+	})
+
+	t.Run("a place cleared leaves nothing behind", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		cleared := placedTags()
+		cleared.Place = model.Place{}
+		require.NoError(t, WriteSidecar(path, cleared))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "Iptc4xmpCore:Location")
+		assert.NotContains(t, content, "photoshop:City")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, cleared, read)
+	})
+
+	t.Run("the attribute form is replaced too", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photoshop="`+photoshopNamespace+`"
+   photoshop:City="Porto" photoshop:Country="Portugal"/>
+ </rdf:RDF>
+</x:xmpmeta>`)
+
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "Porto")
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, placedTags(), read)
+	})
+}
+
+// The prefix means something else here, so a second declaration of it on the
+// same element would be a document no strict parser reads.
+func TestMergeSidecar_PhotoshopPrefixBoundToAnotherVocabulary(t *testing.T) {
+	t.Parallel()
+
+	const foreignPhotoshop = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photoshop="http://example.com/of-our-own/"
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+   <crs:Exposure2012>+0.50</crs:Exposure2012>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+	written := placedTags()
+
+	merged, err := mergeSidecar([]byte(foreignPhotoshop), written)
+	require.NoError(t, err)
+
+	text := string(merged)
+	assert.Contains(t, text, `xmlns:photoshop="http://example.com/of-our-own/"`,
+		"the foreign binding must be left as it was found")
+	assert.Contains(t, text, "<crs:Exposure2012>+0.50</crs:Exposure2012>", "the develop settings must survive")
+	assert.Equal(t, 1, strings.Count(text, `xmlns:photoshop="`+photoshopNamespace+`"`))
+	requireWellFormed(t, merged)
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, written, parsed.tags())
+
+	again, err := mergeSidecar(merged, written)
+	require.NoError(t, err)
+	assert.Equal(t, text, string(again))
+}

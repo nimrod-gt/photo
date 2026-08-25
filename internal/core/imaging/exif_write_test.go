@@ -446,9 +446,9 @@ func entryByTag(entries []exifEntry, tagID uint16) (exifEntry, bool) {
 
 func mustWriteStockTags(t *testing.T, svc *ExifService, path string, tags model.Tags) bool {
 	t.Helper()
-	rewritten, err := svc.WriteStockTags(path, tags)
+	write, err := svc.WriteStockTags(path, tags)
 	require.NoError(t, err)
-	return rewritten
+	return write.Rewritten
 }
 
 func readBytes(t *testing.T, path string) []byte {
@@ -595,10 +595,10 @@ func TestExifService_WriteStockTags_RefusesAClosedPacketCarryingTags(t *testing.
 	path := writeJPEGWithPacket(t, t.TempDir(), "closed.jpg", map[string]any{"Make": "SONY"}, closed)
 	before := readBytes(t, path)
 
-	rewritten, err := svc.WriteStockTags(path, model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}})
+	write, err := svc.WriteStockTags(path, model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"lisbon"}})
 
 	require.Error(t, err)
-	assert.False(t, rewritten)
+	assert.False(t, write.Rewritten)
 	assert.Contains(t, err.Error(), "closed to updates")
 	assert.Equal(t, before, readBytes(t, path))
 }
@@ -642,4 +642,57 @@ func TestExifService_WriteStockTags_ClearsTheExifBehindThePacket(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, info.Tags.Title)
 	assert.Equal(t, []string{"lisbon"}, info.Tags.Keywords)
+}
+
+func TestExifService_WriteStockTags_Place(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	written := placedTags()
+	sonyExif := map[string]any{"Make": "SONY"}
+
+	t.Run("the packet carries the place", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", sonyExif, sonyPacket(2000))
+		before := readBytes(t, path)
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.False(t, write.Rewritten, "a packet with room must not rewrite the file")
+		assert.False(t, write.PlaceDropped)
+		assert.Len(t, readBytes(t, path), len(before))
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
+
+	// There is no EXIF tag for a place, so the fallback carries the title and the
+	// keywords and says what it left behind.
+	t.Run("the EXIF fallback reports the place it cannot carry", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.True(t, write.PlaceDropped)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written.Title, info.Tags.Title)
+		assert.Equal(t, written.Keywords, info.Tags.Keywords)
+		assert.Equal(t, model.Place{}, info.Tags.Place)
+	})
+
+	t.Run("a fallback without a place reports nothing", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, model.Tags{Title: written.Title, Keywords: written.Keywords})
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.False(t, write.PlaceDropped)
+	})
 }

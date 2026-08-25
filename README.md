@@ -14,6 +14,25 @@ Cameras save photos as JPEG + RAW (`.ARW`) pairs. The app displays JPEGs, but fi
 - **Copy** single photo or all filtered photos, with or without RAW
 - **Grid view**, zoom/pan, EXIF-orientation-aware rendering
 
+## Metadata written to files
+
+Everything here is meant to survive the trip to a microstock agency through Lightroom and, sometimes,
+Photoshop. What the app writes, and where:
+
+| Field | Carrier | Notes |
+| --- | --- | --- |
+| Favorite | `xmp:Rating` (5/0) | Patched in place inside the JPEG's embedded XMP packet, so the file keeps its size and layout and the camera keeps showing it. Read back from XMP first, EXIF `Rating` second |
+| Title | `dc:title`, `dc:description` | Both, because stock sites disagree on which one carries the caption |
+| Keywords | `dc:subject` | 50 flat keywords |
+| Location | `Iptc4xmpCore:Location` | The free text typed in the Tags dialog |
+| Location, split | `photoshop:City`, `photoshop:State`, `photoshop:Country` | Only when the generator manages to split the free text; a level it is unsure of stays empty |
+
+Title, keywords and location go into the JPEG's XMP packet when it has room, and into the `.xmp`
+sidecar beside the RAW pair. Where the packet has no room the title and keywords fall back to the
+EXIF (`ImageDescription`, `XPTitle`, `XPKeywords`) and the whole file is rewritten, which is reported.
+There is no EXIF tag for a place, so on that path the location reaches the sidecar only, and the app
+says so.
+
 ## Keyboard shortcuts
 
 | Key | Action |
