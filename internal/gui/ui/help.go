@@ -32,8 +32,6 @@ var helpLeft = []shortcutSection{
 			{"L", "Toggle grid view"},
 			{"Z", "Reset zoom"},
 			{"T", "Generate stock tags"},
-			{"B", "Send a running generation to the background"},
-			{"N", "Cancel a running generation"},
 			{"I", "Toggle tag overlay"},
 			{"H", "Toggle this help"},
 		},
@@ -48,6 +46,13 @@ var helpRight = []shortcutSection{
 			{"→ ↓ 🖱", "Next photo"},
 			{"+ 🖲↑", "Zoom in"},
 			{"- 🖲↓", "Zoom out"},
+		},
+	},
+	{
+		title: "Tags dialog",
+		entries: []shortcutEntry{
+			{"B", "Generate in background"},
+			{"N", "Cancel generation"},
 		},
 	},
 	{

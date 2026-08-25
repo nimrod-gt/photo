@@ -62,6 +62,10 @@ func (h *heldTagger) answerWithTags(t *testing.T, a *Application, path string) i
 	return info
 }
 
+// The wait ends when the generation answers, which is one step short of the
+// report it hands to fyne.Do, so the window afterwards is a bound rather than a
+// proof. What proves the run is dead is asserted by the caller: it is gone from
+// the registry and it wrote no file.
 func (h *heldTagger) answerWithNothing(t *testing.T, a *Application, r *tagRunner, path string) {
 	t.Helper()
 	close(h.release)
@@ -69,7 +73,7 @@ func (h *heldTagger) answerWithNothing(t *testing.T, a *Application, r *tagRunne
 	assert.Never(t, func() bool {
 		_, ok := a.imageProvider.PeekStockInfo(path)
 		return ok
-	}, 50*time.Millisecond, 5*time.Millisecond, "the run stored tags it was told to drop")
+	}, 200*time.Millisecond, 5*time.Millisecond, "the run stored tags it was told to drop")
 }
 
 // The Fyne test driver keeps global state, so these tests share an app and must
@@ -109,7 +113,7 @@ func generatedTags() model.Tags {
 func (a *Application) openTestTagsDialog(t *testing.T, photo model.Photo) *tagsSession {
 	t.Helper()
 	taken, _ := a.imageProvider.PeekStockDate(photo.ImagePath)
-	session := &tagsSession{app: a, photo: photo, prefs: a.fyneApp.Preferences(), taken: taken}
+	session := &tagsSession{app: a, photo: photo, taken: taken}
 	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{Filename: photo.Name}, a.mainWindow.Window(),
 		ui.TagsDialogCallbacks{})
 	a.dialogs.open(dialogTags, session.dialog, session.cancelRun)
@@ -155,6 +159,27 @@ func TestTagRunner(t *testing.T) {
 		assert.Equal(t, generatedTags(), written)
 	})
 
+	t.Run("a sidecar that could not be written leaves the cache empty", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		// A directory where the sidecar belongs is the one way to make the write
+		// fail that says nothing about how the write itself is done.
+		require.NoError(t, os.Mkdir(model.SidecarPath(photo.RAWPath), 0o700))
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+
+		close(held.release)
+		a.tagRuns.running.Wait()
+		assert.Never(t, func() bool {
+			_, ok := a.imageProvider.PeekStockInfo(photo.ImagePath)
+			return ok
+		}, 200*time.Millisecond, 5*time.Millisecond, "tags no file holds must not pass for saved")
+	})
+
 	t.Run("a cancelled run writes nothing, even when it answers anyway", func(t *testing.T) {
 		held := newHeldTagger(generatedTags(), nil)
 		a := newTestApplication(t, held)
@@ -165,7 +190,8 @@ func TestTagRunner(t *testing.T) {
 		<-held.started
 		session.cancelRun()
 
-		assert.Empty(t, a.tagRuns.runs, "a cancelled run leaves the registry at once")
+		// Asked the way a reopened dialog asks it, which is also the only way
+		// to read the registry while the run goroutine may still be in it.
 		assert.False(t, a.tagRuns.attach(session), "a dialog reopened now must not wait on a dead run")
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)

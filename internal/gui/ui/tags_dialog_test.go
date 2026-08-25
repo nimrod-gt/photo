@@ -198,6 +198,22 @@ func TestTagsDialog(t *testing.T) {
 			d.buttons.Objects)
 	})
 
+	t.Run("a read landing mid-run fills the fields and leaves the status alone", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Generating()
+
+		existing := model.Tags{Title: "What the file already said.", Keywords: fullKeywords()}
+		d.SetPhotoInfo(existing, defaultTestDate)
+
+		assert.Equal(t, existing, d.Tags())
+		assert.Contains(t, d.status.Text, "Generating")
+
+		d.Fail(errors.New("running claude: exit status 1"))
+
+		assert.Equal(t, existing, d.Tags(), "a failed run leaves what the file held on screen")
+		assert.Equal(t, "running claude: exit status 1", d.status.Text)
+	})
+
 	t.Run("cancel and background report to the app", func(t *testing.T) {
 		var cancels, backgrounds, closes int
 		d := newTestTagsDialog(t, TagsDialogCallbacks{

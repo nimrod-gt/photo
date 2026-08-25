@@ -1,121 +1,7 @@
 {
   "version": 1,
-  "next_id": 11,
+  "next_id": 12,
   "todos": [
-    {
-      "id": 3,
-      "description": "Add a background mode for tag generation",
-      "context": "Tag generation (stock title + keywords via the claude CLI in internal/core/tags) runs only as a foreground, per-photo modal flow today: `T` -> Application.handleTags builds a tagsSession whose generate() spawns a goroutine writing into the Tags dialog and an XMP sidecar, with the context cancelled in tagsSession.close when the dialog is dismissed. Existing background machinery it would sit next to: imaging.Provider.LoadFolder (bounded worker pool, generation counters, onLoaded callback), the bulk-operation pattern in handleCopyAll/handleDeleteAll with ui.BulkDialog progress, and ui.Notifier for completion messages; the Fyne threading rules in CLAUDE.md apply to any UI update from a worker goroutine. Related open todos: #1 tag cache, #2 display tags on the photo.",
-      "docs": [
-        "internal/gui/app/actions.go",
-        "internal/core/tags/tagger.go",
-        "internal/gui/ui/tags_dialog.go",
-        "internal/gui/app/app.go",
-        "internal/core/imaging/image_provider.go",
-        "internal/gui/ui/bulk_dialog.go",
-        "internal/gui/ui/notifier.go",
-        "CLAUDE.md"
-      ],
-      "depends_on": [],
-      "status": "in_progress",
-      "branch": "todo/3-background-tag-generation",
-      "created_at": "2026-08-23T13:47:50Z",
-      "updated_at": "2026-08-25T08:36:14Z",
-      "plan": {
-        "created_at": "2026-08-23T13:53:45Z",
-        "revised_at": "2026-08-25T08:36:14Z",
-        "base_commit": "732c7cf",
-        "summary": "Under the reduced scope the todo is only this: a tag generation run started from the Tags dialog can be handed to the background instead of being cancelled when the dialog closes. No bulk Tag All, no queue, no worker pool, no progress widget. While a run is in flight the dialog shows only Cancel (N) | Background (B) | disabled Generate - no Close, no copy/save buttons; Cancel kills the run and closes, Background hides the dialog and lets the run finish. A detached run that lands updates the image cache and the tag overlay, writes the XMP sidecar when the photo has a RAW pair, and reports through the notifier; a JPEG without a RAW pair is still never written to. Pressing T on a photo whose run is still going re-attaches the reopened dialog to it instead of starting a second claude. Runs are unlimited in number and all die when the app exits. The work is entirely inside internal/gui: a new mutex-free run registry in internal/gui/app/tags_runs.go owned by the UI goroutine, the two button states in internal/gui/ui/tags_dialog.go, and the N/B keyboard routing.",
-        "steps": [
-          {
-            "title": "Two button states in the Tags dialog",
-            "details": "Add OnCancelRun and OnBackground to TagsDialogCallbacks, keeping OnClose for the idle Close. Build cancelRunBtn (\"Cancel (N)\", DangerImportance) and backgroundBtn (\"Background (B)\"), and relabel closeBtn to \"Close (ESC)\". Replace the single buttonRow() with a container rebuilt by setGenerating(bool): generating shows Cancel (N) | Background (B) | disabled Generate, idle shows Close (ESC) | Copy title | Copy keywords | [Save JPEG] | Generate; finishRun() switches back to idle and the Generate handler switches to generating. Export Generating() so a reopened dialog can start in that state, and keep the window on the struct so entering the generating state can Unfocus the canvas - the N/B scancode shortcuts only reach the canvas when no entry holds focus. Tests in tags_dialog_test.go (test.NewTempWindow style): idle row, generating row, Generate -> SetTags/Fail -> idle, callbacks fire, Generating() on a fresh dialog.",
-            "files": [
-              "internal/gui/ui/tags_dialog.go",
-              "internal/gui/ui/tags_dialog_test.go"
-            ]
-          },
-          {
-            "title": "A run registry that outlives the dialog",
-            "details": "New internal/gui/app/tags_runs.go with a tagRunner on Application (a.tagRuns), created in New(), holding an app-level context plus cancel and runs map[string]*tagRun keyed by ImagePath; every mutation happens on the UI goroutine (started from a dialog callback, finished inside fyne.Do) so there is no mutex, stated in a comment. tagRun holds the photo, its cancel, the taken date and the attached *tagsSession (nil once detached). start(session) derives the run context from the app context, spawns the goroutine calling a.tagger.Generate and on completion inside fyne.Do drops the run and then: attached and still current -> today's path (claudePath preference, SetTags/Fail, storeStock, saveSidecar); detached -> claudePath on success, StoreStockInfo + setTagsIfCurrent, WriteSidecar when photo.HasRAW(), and a notifier message for success or failure; cancelled -> silent. background(path) detaches, cancel(path) cancels, stopAll() cancels the app context and waits on a bounded WaitGroup so exec.CommandContext has killed the child processes - called in Run() right after mainWindow.Show() returns. tags_action.go: handleTags builds no context, session.generate goes through the runner, session.close only saves user edits and unregisters, and the generated-tags sidecar write moves into the runner so it has a single writer.",
-            "files": [
-              "internal/gui/app/tags_runs.go",
-              "internal/gui/app/tags_action.go",
-              "internal/gui/app/app.go"
-            ]
-          },
-          {
-            "title": "Re-attach a reopened dialog to a running generation",
-            "details": "In handleTags, after seed()/prefill(), ask the runner for a run on this photo; when there is one, attach the new session to it and put the dialog into Generating(). The completion path keeps its a.dialogs.isCurrent(s.dialog) guard so a stale session can never write into a dialog that is gone. A second T while the dialog is open stays blocked by shortcutsBlocked and Generate is disabled while generating, so one photo can never have two runs.",
-            "files": [
-              "internal/gui/app/tags_action.go"
-            ]
-          },
-          {
-            "title": "N and B while the dialog generates",
-            "details": "handleCancel (Escape and N) already routes to dialogs.cancel() and so to the tags session's onCancel; make that cancel the run and close, matching the Cancel (N) button. B means toggle Blue today and is swallowed by shortcutsBlocked(), so add a check at the top of the blue path that performs Background when the tags dialog is open with a run in flight, keeping the keyboard and the buttons in step.",
-            "files": [
-              "internal/gui/app/tags_action.go",
-              "internal/gui/app/app.go"
-            ]
-          },
-          {
-            "title": "Document it",
-            "details": "help.go: note under the Tags entry that a running generation goes to the background with B and is cancelled with N. CLAUDE.md: in Features and Keyboard Shortcuts, state that a tag run keeps going when the dialog is put in the background, that the result updates the cache, the overlay and the RAW sidecar and is announced by a notification, and that reopening T on that photo re-attaches to the run.",
-            "files": [
-              "internal/gui/ui/help.go",
-              "CLAUDE.md"
-            ]
-          }
-        ],
-        "questions": [
-          {
-            "question": "Scope check: background mode = (a) bulk tagging of the filtered photos plus (b) an interactive run that keeps going after the Tags dialog is closed?",
-            "answer": "Detached dialog run only - no bulk Tag All, no queue, no worker pool, no progress widget."
-          },
-          {
-            "question": "How many concurrent claude CLI runs? Each spawns a process with a 3-minute timeout and consumes subscription quota.",
-            "answer": "No limit."
-          },
-          {
-            "question": "A photo without a RAW pair has nowhere to store tags except the JPEG's own XMP packet, which the foreground flow only writes behind an explicit button. What should a background run do with it?",
-            "answer": "Generate and cache it - update the cache and the overlay, write no file. Writing the JPEG stays behind the Save JPEG button."
-          },
-          {
-            "question": "On a usage-limit error, should the whole batch be cancelled with one warning?",
-            "answer": "Not applicable - there are no batches, only the detached dialog run; the error surfaces per run."
-          },
-          {
-            "question": "The dialog is closed while a run is in flight and the user presses T on the same photo again - what should the reopened dialog do?",
-            "answer": "Re-attach to the running generation: it opens in the generating state and fills in when that run lands."
-          },
-          {
-            "question": "A detached run finishes with no dialog on screen - what should the user see?",
-            "answer": "A notification on success and on failure."
-          },
-          {
-            "question": "The app is quit while a detached run is still going - what happens to the claude process?",
-            "answer": "Cancel the runs on quit so no claude process outlives the window."
-          },
-          {
-            "question": "What should the button row look like while generating, and what does Cancel do to the dialog?",
-            "answer": "Only Cancel (N) and Background (B) plus the disabled Generate; the copy and save buttons are hidden and there is no Close while generating. Cancel (N) kills the run and closes the dialog. The idle Close button reads \"Close (ESC)\"."
-          },
-          {
-            "question": "What does Escape do while a run is generating?",
-            "answer": "The same as Cancel (N): kill the run and close, keeping Escape's meaning consistent across the app. B is the only way to detach."
-          }
-        ],
-        "risks": [
-          "The Fyne thread checks are compiled out (fyneDo migration), so a missing fyne.Do in the detached completion path will not warn - it will corrupt the canvas intermittently.",
-          "The run registry is mutex-free on the 'UI goroutine only' argument; a future caller from a worker goroutine breaks that silently.",
-          "Two writers for one sidecar (the runner on completion, the session on close). WriteSidecar is a read-modify-write with no lock, so the saved bookkeeping that makes the close-time write a no-op after a run must stay intact.",
-          "N and B reach the canvas only when no entry holds focus; the Unfocus on entering the generating state is what makes the button labels honest and needs a manual check.",
-          "Cancelling on exit races the process teardown; the bounded wait after ShowAndRun is what stops a claude process outliving the window.",
-          "Detaching removes the old guarantee that closing the dialog stops the spend: a forgotten run keeps burning quota until it finishes."
-        ]
-      }
-    },
     {
       "id": 8,
       "description": "Check the preload behaviour in grid view",
@@ -340,6 +226,29 @@
       "branch": null,
       "created_at": "2026-08-25T08:52:45Z",
       "updated_at": "2026-08-25T08:52:45Z",
+      "plan": null
+    },
+    {
+      "id": 11,
+      "description": "Make copy and delete wait for a running tag generation to finish",
+      "context": "Todo #3 just added background tag generation (branch todo/3-background-tag-generation): internal/gui/app/tags_runs.go holds a tagRunner registry of in-flight claude runs keyed by image path, which now outlive the Tags dialog and later write the XMP sidecar of the RAW pair. Because of that, a copy (C / Copy All in actions.go and bulk_actions.go) or delete (D / Delete All) can now hit a photo whose generation is still running, deleting files under it or copying before the sidecar exists. The registry already exposes per-path cancel(path) and stopAll() but no wait-for-completion or per-path \"is running\" query, and copying and deleting themselves live in internal/core/library (Copier, Deleter).",
+      "docs": [
+        "internal/gui/app/tags_runs.go",
+        "internal/gui/app/tags_runs_test.go",
+        "internal/gui/app/actions.go",
+        "internal/gui/app/bulk_actions.go",
+        "internal/gui/app/dialogs.go",
+        "internal/gui/app/tags_action.go",
+        "internal/core/library/copier.go",
+        "internal/core/library/deleter.go"
+      ],
+      "depends_on": [
+        3
+      ],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-25T10:30:37Z",
+      "updated_at": "2026-08-25T10:30:37Z",
       "plan": null
     }
   ]

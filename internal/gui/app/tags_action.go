@@ -26,7 +26,7 @@ func (a *Application) handleTags() {
 	// The date the photo was taken is settled when its image is read, so the
 	// dialog is built with it and never shows another one first.
 	taken, _ := a.imageProvider.PeekStockDate(photo.ImagePath)
-	session := &tagsSession{app: a, photo: photo, prefs: prefs, taken: taken}
+	session := &tagsSession{app: a, photo: photo, taken: taken}
 
 	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{
 		Filename:   photo.Name,
@@ -53,11 +53,12 @@ func (a *Application) handleTags() {
 	a.dialogs.open(dialogTags, session.dialog, session.cancelRun)
 	session.dialog.Show()
 	session.seed()
-	// A run that is still going fills the fields itself, and a read landing
-	// afterwards would have nothing to add and a status line to overwrite.
+	// A run that is still going fills the result fields itself when it lands.
+	// The read still happens underneath: it only ever fills fields that are
+	// empty, and it is the only thing that knows what the file already holds -
+	// which is what the dialog falls back to when the run fails.
 	if a.tagRuns.attach(session) {
 		session.dialog.Generating()
-		return
 	}
 	session.prefill()
 }
@@ -65,7 +66,6 @@ func (a *Application) handleTags() {
 type tagsSession struct {
 	app    *Application
 	photo  model.Photo
-	prefs  fyne.Preferences
 	dialog *ui.TagsDialog
 	saved  model.Tags
 	taken  time.Time
@@ -131,7 +131,9 @@ func (s *tagsSession) background() {
 // key and the button say the same thing.
 func (a *Application) handleBlue() {
 	if session, ok := a.tagRuns.visible(); ok {
-		session.background()
+		if !a.foreignOverlayOnTop() {
+			session.background()
+		}
 		return
 	}
 	a.handleColorToggle(model.ColorBlue)

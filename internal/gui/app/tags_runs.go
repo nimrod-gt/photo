@@ -86,7 +86,7 @@ func (r *tagRunner) start(session *tagsSession, req tags.Request) {
 		// below needs the UI goroutine, which is gone by then.
 		r.running.Done()
 		fyne.Do(func() {
-			r.finish(run, req, generated, err)
+			r.finish(run, req.ClaudePath, generated, err)
 		})
 	}()
 }
@@ -94,7 +94,7 @@ func (r *tagRunner) start(session *tagsSession, req tags.Request) {
 // A cancelled run says nothing and writes nothing: the user who pressed Cancel
 // knows what happened, and tags that landed in the same moment are not theirs
 // to keep - which is why the flag is asked about and not only the error.
-func (r *tagRunner) finish(run *tagRun, req tags.Request, generated model.Tags, err error) {
+func (r *tagRunner) finish(run *tagRun, claudePath string, generated model.Tags, err error) {
 	cancelled, session := r.unregister(run)
 	if cancelled || errors.Is(err, context.Canceled) {
 		return
@@ -105,7 +105,7 @@ func (r *tagRunner) finish(run *tagRun, req tags.Request, generated model.Tags, 
 		// Only a path that produced tags is remembered, and an empty one
 		// clears the preference: a stored path short-circuits the search for
 		// the binary, so a typo saved eagerly would disable it for good.
-		r.app.fyneApp.Preferences().SetString("claudePath", req.ClaudePath)
+		r.app.fyneApp.Preferences().SetString("claudePath", claudePath)
 	}
 
 	if session != nil && r.app.dialogs.isCurrent(session.dialog) {
@@ -133,16 +133,19 @@ func (r *tagRunner) unregister(run *tagRun) (cancelled bool, session *tagsSessio
 // Nothing is on screen for this photo any more, so the run reports itself: what
 // the dialog would have shown goes to the notifier, and what it would have
 // saved is saved here.
+//
+// The cache and the overlay are only told once the sidecar holds the tags. A
+// cached entry means "this file has them", which is what stops the next dialog
+// from writing them again, so a failed write must leave nothing behind.
 func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error) {
 	if err != nil {
 		r.app.showError("Failed to generate tags for "+run.photo.Name, err)
 		return
 	}
 
-	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: generated, Taken: run.dateAt(r.app)})
-	r.app.setTagsIfCurrent(run.photo.ImagePath, generated)
+	taken := run.dateAt(r.app)
 	if !run.photo.HasRAW() {
-		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+		r.report(run, generated, taken)
 		return
 	}
 
@@ -151,15 +154,18 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 		err := imaging.WriteSidecar(path, generated)
 		fyne.Do(func() {
 			if err != nil {
-				// The tags are in the cache either way, so the dialog still
-				// offers them; only the file missed them.
-				r.app.imageProvider.Forget(run.photo.ImagePath)
 				r.app.showError("Failed to save tags to "+filepath.Base(path), err)
 				return
 			}
-			r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+			r.report(run, generated, taken)
 		})
 	}()
+}
+
+func (r *tagRunner) report(run *tagRun, generated model.Tags, taken time.Time) {
+	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: generated, Taken: taken})
+	r.app.setTagsIfCurrent(run.photo.ImagePath, generated)
+	r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
 }
 
 // The date the run started with is the one the cache held then, which for a

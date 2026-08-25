@@ -191,7 +191,7 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 	d.cancelRunBtn.Importance = widget.DangerImportance
 	d.backgroundBtn = widget.NewButton("Background (B)", func() { call(d.callbacks.OnBackground) })
 
-	d.buttons = container.NewGridWithColumns(0)
+	d.buttons = container.New(layout.NewGridLayout(1))
 	d.setGenerating(false)
 }
 
@@ -336,9 +336,7 @@ func (d *TagsDialog) Generating() {
 	d.progress.Show()
 	d.progress.Start()
 	d.setGenerating(true)
-	if d.window != nil {
-		d.window.Canvas().Unfocus()
-	}
+	d.window.Canvas().Unfocus()
 }
 
 func (d *TagsDialog) finishRun() {
@@ -359,6 +357,12 @@ func (d *TagsDialog) refreshStatus() {
 	// line below already spells out what is missing. Nothing is lost meanwhile:
 	// the sidecar is written whatever state the fields are in.
 	setEnabled(d.saveJPEGBtn, len(problems) == 0)
+	// While a run goes the status line is its own, and the tags read from the
+	// file may land in the fields underneath it; the run rewrites the line when
+	// it finishes either way.
+	if d.generating {
+		return
+	}
 	if len(current.Title) == 0 && len(current.Keywords) == 0 {
 		d.setStatus("")
 		return
