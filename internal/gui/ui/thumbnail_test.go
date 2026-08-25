@@ -120,4 +120,5 @@ func TestNewThumbnailImage(t *testing.T) {
 
 	assert.Equal(t, fyne.NewSize(thumbnailWidth, thumbnailHeight), thumb.MinSize())
 	assert.Equal(t, canvas.ImageFillContain, thumb.FillMode)
+	assert.Equal(t, canvas.ImageScaleFastest, thumb.ScaleMode)
 }

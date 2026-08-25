@@ -4,8 +4,8 @@
   "todos": [
     {
       "id": 8,
-      "description": "Check the preload behaviour in grid view",
-      "context": "On branch todo/7-shared-thumbnail-loading, GridViewer.updateItem (internal/gui/ui/gridviewer.go:127-156) now resolves its tile image through the shared resolveThumbnail helper in internal/gui/ui/thumbnail.go and calls gv.schedulePreload() when needsLoad is true, which is meant to reproduce exactly the old condition (the sized Provider.Peek missed). The preload path itself (gridviewer.go:158-199) is guarded by an atomic preloadScheduled CAS, a visibleMin/visibleMax window widened by gridPreloadBuffer (50), a Provider.Gen() generation check and fyne.Do(grid.RefreshItem) callbacks; Provider.Peek/Preload/Thumbnail semantics live in internal/core/imaging/image_provider.go, where peekThumbnail only serves sizes <= maxThumbnailDim (160). The task exists because gridviewer.go has no automated tests, and todo #7 records the risk that a wrong trigger either leaves tiles stuck at embedded EXIF quality or re-arms the preload goroutine from every visible tile.",
+      "description": "Stop the grid from stuttering when a new row of tiles loads",
+      "context": "The grid hitches every time a row scrolls in, and reading the code found three UI-goroutine costs behind it: canvas.Image defaults to ImageScaleSmooth, so every newly shown tile pays a draw.CatmullRom pass plus an NRGBA->RGBA copy in Fyne's painter although the cached image is already tile-sized; GridWrap.RefreshItem runs a full renderer refresh (throwaway tile for MinSize, updateGrid over all visible tiles, canvas.Refresh) and the preload onLoaded callback fires it once per loaded photo; and updateItem records visibleMin/visibleMax after calling schedulePreload, with 'min == max' as the unset sentinel, so the preload window warms 0..50 instead of the rows being scrolled into view.",
       "docs": [
         "internal/gui/ui/gridviewer.go",
         "internal/gui/ui/thumbnail.go",
@@ -13,31 +13,39 @@
         "internal/gui/ui/griditem.go",
         "internal/gui/ui/griditem_test.go",
         "internal/core/imaging/image_provider.go",
+        "internal/core/imaging/image_loader.go",
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/8-grid-preload-scroll",
       "created_at": "2026-08-24T16:20:17Z",
-      "updated_at": "2026-08-25T08:08:33Z",
+      "updated_at": "2026-08-25T12:53:48Z",
       "plan": {
         "created_at": "2026-08-25T08:08:33Z",
-        "revised_at": null,
-        "base_commit": "732c7cf",
-        "summary": "Todo #8 asks to verify the grid-view preload path that todo #7 touched. The refactor itself is faithful: the old code peeked the sized cache, fell back to the embedded EXIF thumbnail and called schedulePreload on a miss, and resolveThumbnail(size>0) does exactly that (Peek only, needsLoad == Peek miss), so the trigger condition is unchanged. What the reading of gridviewer.go turned up is that the surrounding preload machinery has two real defects and no tests: (a) updateItem records the tile id into visibleMin/visibleMax *after* calling schedulePreload, so the first preload after SetPhotos+ScrollToIndex(500) computes its window from the stale (0,0) range and warms photos 0..50 instead of the ones on screen; (b) the visibleMin/visibleMax bookkeeping uses `visibleMin == visibleMax` as an \"unset\" sentinel, which is true again after every single-item update, so the range collapses to the last updated tile instead of covering the visible run. On top of that, schedulePreload re-reads thumbPixelSize() inside the goroutine (a resize in between caches images at a size the tile's Peek can never satisfy), a schedule dropped by the preloadScheduled CAS is lost with no re-arm, and the fyne.Do(grid.RefreshItem) callback path is unobservable from a test. The plan makes the provider dependency an interface so the whole path can be exercised, extracts and fixes the visible-range tracking, re-arms dropped schedules, and covers the refresh callback (index mapping + generation guard) with tests; package ui already has widget-level tests (griditem_test.go, thumbnail_test.go) and the Fyne test driver executes fyne.Do inline, so the callbacks are testable synchronously.",
+        "revised_at": "2026-08-25T12:53:48Z",
+        "base_commit": "2371ba2",
+        "summary": "The task started as a review of the grid preload path after todo #7 and turned into a concrete performance fix: the user reports the grid hitching whenever a new row of tiles appears. Three independent causes were found, all paid on the UI goroutine. (a) newThumbnailImage leaves canvas.Image.ScaleMode at ImageScaleSmooth, so painter.paintImage runs draw.CatmullRom over every newly shown image and its NRGBA result then misses imgToTexture's RGBA fast path and is copied again - two full passes that buy nothing, because ImageFillContain always makes the box differ from the image while the cached image is already about 1:1 with the tile in device pixels. (b) GridWrap.RefreshItem calls BaseWidget.Refresh, whose renderer creates a throwaway tile for MinSize, re-layouts, runs updateGrid over every visible tile and refreshes the whole canvas - and schedulePreload's onLoaded fires that once per loaded photo, up to 101 times per dispatch. (c) updateItem records the tile id into visibleMin/visibleMax after calling schedulePreload and uses 'min == max' as an unset sentinel, so entering the grid at photo 500 warms 0..50 and the rows actually scrolling in are never prefetched. The plan sets ImageScaleFastest on thumbnails, coalesces the refreshes, fixes and extracts the visible-range tracking, drops gridPreloadBuffer to 20, re-arms a preload dropped by the CAS, and puts the whole path under test behind a provider interface and a refreshItem seam.",
         "steps": [
           {
-            "title": "Give GridViewer a provider interface and cover the preload trigger",
-            "details": "In internal/gui/ui/gridviewer.go replace the concrete `*imaging.Provider` field and the NewGridViewer parameter with an unexported interface (e.g. `gridImageProvider`) embedding the existing `thumbnailSource` from internal/gui/ui/thumbnail.go and adding `Preload(paths []string, size int, onLoaded func(string))`, `Gen() uint64` and `BumpGen()`. `*imaging.Provider` satisfies it implicitly, so internal/gui/app/app.go:125 needs no edit (verify it still builds; the imaging import may become unused in gridviewer.go). Add internal/gui/ui/gridviewer_test.go with a fake provider recording Peek sizes, Preload calls (paths + size) and exposing a channel so the test can wait for the dispatch goroutine. Tests (non-parallel, using test.NewTempApp(t) because build()/Refresh() need a current app): a sized Peek hit shows the cached image and schedules no preload; a Peek miss shows meta.Thumbnail and schedules one preload whose size equals thumbPixelSize() (>= 256, i.e. above imaging.maxThumbnailDim, so the small thumbnail cache is deliberately bypassed); an id past the end of photos/meta is ignored. Drive it through gv.updateItem(id, newGridItem(200)).",
+            "title": "Paint tiles without CPU scaling",
+            "details": "In internal/gui/ui/thumbnail.go set thumb.ScaleMode = canvas.ImageScaleFastest in newThumbnailImage, with a short comment on why: smooth scaling costs a CatmullRom pass plus an NRGBA->RGBA copy per repaint (painter/image.go, painter/gl/texture.go), while the cached image is already tile-sized so GPU LINEAR filtering is enough. This covers grid tiles and browser rows alike. Extend internal/gui/ui/thumbnail_test.go to assert the mode.",
             "files": [
-              "internal/gui/ui/gridviewer.go",
-              "internal/gui/ui/gridviewer_test.go",
-              "internal/gui/ui/thumbnail.go"
+              "internal/gui/ui/thumbnail.go",
+              "internal/gui/ui/thumbnail_test.go"
             ]
           },
           {
-            "title": "Extract and fix the visible-range window used for preloading",
-            "details": "Add internal/gui/ui/gridwindow.go with a small `visibleRange` type (`observe(id int)`, `reset()`, `bounds(count, buffer int) (lo, hi int)`) that starts unset (explicit bool or -1 sentinel, not `min == max`), grows to cover every id observed since the last snapshot, and clamps to [0, count-1]. In gridviewer.go: record the tile id (observe) *before* resolving the thumbnail and calling schedulePreload, so the window that a triggering tile produces contains that tile; have schedulePreload take its bounds and reset the range under the same mutex acquisition, and snapshot gv.thumbPixelSize() there too, passing the captured size into the goroutine instead of re-reading it after a possible resize. SetPhotos calls reset(). Add table-driven tests in internal/gui/ui/gridwindow_test.go for the range type, and extend gridviewer_test.go with: after SetPhotos + updateItem(500) on a 1000-photo list, the preloaded paths are the window around 500 (450..550), not 0..50; a burst of updateItem calls over ids 500..511 yields a window covering 450..561; the window clamps at both list ends.",
+            "title": "Give GridViewer a provider interface and a refresh seam, with the first tests",
+            "details": "Replace the concrete *imaging.Provider field and NewGridViewer parameter with an unexported gridImageProvider interface embedding thumbnailSource and adding Preload(paths []string, size int, onLoaded func(string)), Gen() uint64 and BumpGen(); *imaging.Provider satisfies it implicitly, so internal/gui/app/app.go:128 and internal/gui/app/tags_runs_test.go:90 keep compiling. Add an unexported refreshItem func(int) field set in build() to gv.grid.RefreshItem and route the onLoaded callback through it, since RefreshItem is a no-op without a scroller. Add internal/gui/ui/gridviewer_test.go with a fake provider (non-parallel, test.NewTempApp(t)): a sized Peek hit shows the cached image and schedules no preload; a Peek miss shows meta.Thumbnail and schedules one preload at thumbPixelSize(); an id past the end is ignored; StopLoading forwards to BumpGen; a callback for an unknown path or one whose Gen() moved refreshes nothing.",
+            "files": [
+              "internal/gui/ui/gridviewer.go",
+              "internal/gui/ui/gridviewer_test.go"
+            ]
+          },
+          {
+            "title": "Aim the preload window at the tiles being scrolled into view",
+            "details": "Add internal/gui/ui/gridwindow.go with a visibleRange type (observe(id), reset(), bounds(count, buffer) (lo, hi)) that starts explicitly unset instead of using min == max, grows over every id observed since the last dispatch and clamps to [0, count-1]. In gridviewer.go observe the id before resolving the thumbnail and scheduling, have schedulePreload take the bounds and reset the range under one mutex acquisition and snapshot thumbPixelSize() there too (the goroutine re-reads it today, so a resize caches at a size the tile's Peek can never satisfy), and reset in SetPhotos. Drop gridPreloadBuffer to 20. Tests: table-driven gridwindow_test.go, plus gridviewer_test.go cases where updateItem(500) on 1000 photos preloads 480..520 rather than 0..20, a burst over 500..511 covers 480..531, and the window clamps at both ends.",
             "files": [
               "internal/gui/ui/gridwindow.go",
               "internal/gui/ui/gridwindow_test.go",
@@ -46,16 +54,8 @@
             ]
           },
           {
-            "title": "Re-arm a preload request dropped by the preloadScheduled CAS",
-            "details": "imaging.Provider.Preload only dispatches (internal/core/imaging/image_loader.go Preload returns once every path is claimed or skipped), so the CAS is held briefly - but every tile whose needsLoad lands during that dispatch is silently dropped today, which is the 'tiles stuck at embedded EXIF quality' risk from todo #7. Add a `preloadPending atomic.Bool`: schedulePreload sets it when the CAS fails, and the dispatch goroutine, after Preload returns and before/around clearing preloadScheduled, re-runs schedulePreload once if pending was set (swap it back to false first so the re-run is bounded and cannot spin when nothing is loadable). Keep a one-line comment explaining why the flag exists, since the 'why' is not obvious. Test in gridviewer_test.go with a fake provider that blocks inside Preload until released: updateItem A (blocks), updateItem B with a far id, release, then assert a second Preload happens with a window covering B, and that a single updateItem produces exactly one Preload (no repeated re-arm).",
-            "files": [
-              "internal/gui/ui/gridviewer.go",
-              "internal/gui/ui/gridviewer_test.go"
-            ]
-          },
-          {
-            "title": "Make the loaded-callback refresh observable and test its index mapping and generation guard",
-            "details": "Add an unexported `refreshItem func(int)` field to GridViewer, set in build() to `gv.grid.RefreshItem`, and have the Preload onLoaded callback call `fyne.Do(func() { gv.refreshItem(idx) })` instead of capturing the grid directly. This is purely a test seam: widget.GridWrap.RefreshItem returns immediately when the widget has no scroller, so an unrendered grid can never show the callback ran. In gridviewer_test.go (Fyne's test driver runs fyne.Do inline, so no extra synchronisation is needed beyond waiting for the dispatch goroutine): a fake provider that invokes onLoaded for a known path refreshes exactly that path's index; an unknown path refreshes nothing; a provider whose Gen() changed between scheduling and the callback (what StopLoading/BumpGen and a folder switch do) refreshes nothing. Also assert StopLoading forwards to BumpGen.",
+            "title": "Coalesce refreshes and re-arm a preload dropped by the CAS",
+            "details": "Replace the per-path fyne.Do(grid.RefreshItem(idx)) with a coalescing refresh: after the generation check and index lookup, store the index and, if a refreshPending atomic.Bool CAS wins, arm time.AfterFunc(gv.refreshDelay, ...) that clears the flag and calls fyne.Do(gv.refreshItem(idx)); one refresh re-runs updateItem for every visible tile, so a single call picks up everything cached since the last one. refreshDelay is a field (default 50ms) so tests can shrink it. Also add preloadPending atomic.Bool: schedulePreload sets it when the preloadScheduled CAS fails and the dispatch goroutine re-runs schedulePreload once (swapping the flag back first) after Preload returns, so tiles whose needsLoad landed mid-dispatch do not stay at EXIF quality. Tests: N loaded paths produce one refresh, not N; with a provider blocking inside Preload, updateItem A then B yields a second Preload covering B, and a single updateItem yields exactly one Preload.",
             "files": [
               "internal/gui/ui/gridviewer.go",
               "internal/gui/ui/gridviewer_test.go"
@@ -64,32 +64,29 @@
         ],
         "questions": [
           {
-            "question": "Preload window semantics: assume 'accumulate every tile updated since the last dispatch, then reset to the triggering tile' (step 2) unless you prefer keeping today's effective 'last updated tile +/- 50' behaviour - is the accumulate-and-reset version what you want?",
-            "answer": null
+            "question": "Tiles are scaled with CatmullRom on the UI goroutine (two full passes per image). Set ScaleMode = ImageScaleFastest on thumbnails?",
+            "answer": "Yes, Fastest - for grid tiles and browser rows alike; GPU filters with LINEAR and the cached image is about 1:1 with the tile."
           },
           {
-            "question": "gridPreloadBuffer = 50 means up to 101 images decoded at max(tileWidth*2, 256)px per dispatch. Assume the budget stays as is unless you say otherwise (affects step 2 only).",
-            "answer": null
+            "question": "How should the refresh storm from loaded photos be damped?",
+            "answer": "Coalesce them into one: loads mark the grid dirty and a single RefreshItem runs at most every ~50ms."
           },
           {
-            "question": "Out of scope unless you say otherwise: changing a colour/favourite filter while grid mode is open never reaches GridViewer.SetPhotos (only enterGridMode in internal/gui/app/navigation.go:110 calls it), so the grid keeps showing the pre-filter list. Should that become its own todo?",
-            "answer": null
+            "question": "gridPreloadBuffer = 50 means up to 101 JPEGs per dispatch, decoded on NumCPU-2 workers, which takes CPU away from the UI while scrolling.",
+            "answer": "Reduce to 20 (~41 images per dispatch)."
           },
           {
-            "question": "OK to widen NewGridViewer's parameter from *imaging.Provider to an unexported interface and to add an unexported refreshItem func field, purely as test seams (steps 1 and 4)? Assume yes; without them the preload path stays untestable.",
-            "answer": null
-          },
-          {
-            "question": "Should the plan also include a manual smoke check (open a big folder, press L, scroll fast, confirm tiles sharpen and no stall) after the code steps, or is the automated coverage enough? Assume automated coverage plus your own manual pass.",
-            "answer": null
+            "question": "Keep the test seams from the original plan (provider interface instead of *imaging.Provider, refreshItem field, gridviewer_test.go) in this branch?",
+            "answer": "Yes, keep them - otherwise the preload path stays untested while it is being changed."
           }
         ],
         "risks": [
-          "Fyne's test driver executes fyne.Do inline and keeps global app state, so the new gridviewer tests must use test.NewTempApp(t) and must not call t.Parallel(); the project runs tests with -shuffle=on, so any wait on the dispatch goroutine needs a channel or require.Eventually rather than a sleep.",
-          "Observing the tile id before scheduling (step 2) changes which photos are warmed first on entering grid mode; this is the intended fix but it does alter cache warm-up order and could surface as different perceived load times.",
-          "The re-arm flag (step 3) must be bounded to a single re-run, otherwise a folder where every load fails (Preload's onLoaded never fires on error) could keep re-dispatching.",
-          "The stale-index guard still relies on imaging.Provider.Gen(); a photo list swapped without a generation bump would refresh indices from the old list. Harmless today (exitGridMode calls StopLoading -> BumpGen, and LoadFolder clears the loader), but it is the coupling to watch if SetPhotos ever gets called while a preload is in flight.",
-          "GridViewer.updateItem runs on the UI goroutine under gv.mu while the dispatch goroutine takes the same mutex; keep the lock scopes as short as they are now, and run go test with -race for these tests."
+          "ImageScaleFastest means GPU LINEAR filtering with no mipmaps: a photo sitting in the cache at a much larger size than the tile (the viewer loaded it first) now downsamples on the GPU and may look slightly harsher. Worth checking in the manual pass.",
+          "Fyne's test driver runs fyne.Do inline and keeps global app state, so the new tests must use test.NewTempApp(t), must not call t.Parallel(), and with -shuffle=on must wait on a channel or require.Eventually rather than a sleep.",
+          "Observing the tile id before scheduling changes which photos are warmed first; intended, but it does alter cache warm-up order.",
+          "The re-arm flag must be bounded to a single re-run, otherwise a folder where every load fails (onLoaded never fires on error) could keep re-dispatching.",
+          "The stale-index guard still relies on imaging.Provider.Gen(); a photo list swapped without a generation bump would refresh indices from the old list. Harmless today, but it is the coupling to watch if SetPhotos is ever called while a preload is in flight.",
+          "Changing a colour/favourite filter while grid mode is open never reaches GridViewer.SetPhotos (only enterGridMode in internal/gui/app/navigation.go:110 calls it), so the grid keeps showing the pre-filter list. Out of scope here, worth its own todo."
         ]
       }
     },
