@@ -2,6 +2,7 @@ package tags
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -194,6 +195,61 @@ func TestTagger_Generate(t *testing.T) {
 		assert.Contains(t, err.Error(), "running claude")
 	})
 
+	t.Run("returns the place split beside the location the user typed", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],
+			"city":"Cascais","state":"Lisboa","country":"Portugal"}}`}
+		req := testRequest("Location: Cascais, Portugal")
+		req.Location = "  Cascais, Portugal  "
+
+		tags, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, model.Place{
+			Location: "Cascais, Portugal",
+			City:     "Cascais",
+			State:    "Lisboa",
+			Country:  "Portugal",
+		}, tags.Place)
+	})
+
+	t.Run("keeps the typed location when the model returns no split", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest("Location: somewhere in the woods")
+		req.Location = "somewhere in the woods"
+
+		tags, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, model.Place{Location: "somewhere in the woods"}, tags.Place)
+	})
+
+	t.Run("keeps a partial split", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],"country":"Portugal"}}`}
+		req := testRequest("")
+		req.Location = "Portugal"
+
+		tags, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, model.Place{Location: "Portugal", Country: "Portugal"}, tags.Place)
+	})
+
+	// The model is asked for the split, not for the free text, so a split it
+	// invents without a Location line reaches the file on its own.
+	t.Run("keeps a split the request did not ask for", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],"city":"Lisbon"}}`}
+
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		require.NoError(t, err)
+		assert.Equal(t, model.Place{City: "Lisbon"}, tags.Place)
+	})
+
+	t.Run("a place alone is still a failed run", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[],"country":"Portugal"}}`}
+		req := testRequest("")
+		req.Location = "Portugal"
+
+		_, err := newTestTagger(run).Generate(t.Context(), req)
+		assert.ErrorContains(t, err, "claude returned no tags")
+	})
+
 	t.Run("keeps a response without keywords", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"Only a title"}}`}
 
@@ -323,6 +379,23 @@ func TestExcerpt(t *testing.T) {
 	})
 }
 
+func TestTagsSchema(t *testing.T) {
+	t.Parallel()
+
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		Required             []string                   `json:"required"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(tagsSchema), &schema))
+
+	for _, field := range []string{"title", "keywords", "city", "state", "country"} {
+		assert.Contains(t, schema.Properties, field)
+	}
+	assert.Equal(t, []string{"title", "keywords"}, schema.Required, "an answer without a place is still valid")
+	assert.False(t, schema.AdditionalProperties)
+}
+
 func TestStockPhotoPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -330,6 +403,9 @@ func TestStockPhotoPrompt(t *testing.T) {
 	assert.Contains(t, stockPhotoPrompt, "keywords")
 	for _, key := range []string{"Photo:", "Concept:", "Location:", "Editorial:"} {
 		assert.Contains(t, stockPhotoPrompt, key, "the prompt must document every request key the dialog sends")
+	}
+	for _, field := range []string{"city", "state", "country"} {
+		assert.Contains(t, stockPhotoPrompt, field, "the prompt must name every field of the schema")
 	}
 }
 

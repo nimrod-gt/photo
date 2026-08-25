@@ -32,16 +32,20 @@ const (
 )
 
 // The schema pins the counts the prompt asks for, so the CLI refuses an answer
-// with 49 keywords instead of handing it over for the dialog to flag.
+// with 49 keywords instead of handing it over for the dialog to flag. The three
+// place levels stay out of "required": the model leaves a level it cannot name
+// empty, and an answer with no place at all is still a valid answer.
 var tagsSchema = fmt.Sprintf(`{"type":"object","properties":{`+
 	`"title":{"type":"string","maxLength":%d},`+
-	`"keywords":{"type":"array","items":{"type":"string"},"minItems":%d,"maxItems":%d,"uniqueItems":true}},`+
+	`"keywords":{"type":"array","items":{"type":"string"},"minItems":%d,"maxItems":%d,"uniqueItems":true},`+
+	`"city":{"type":"string"},"state":{"type":"string"},"country":{"type":"string"}},`+
 	`"required":["title","keywords"],"additionalProperties":false}`,
 	model.MaxTitleLength, model.KeywordCount, model.KeywordCount)
 
 type Request struct {
 	Photo      model.Photo
 	Notes      string
+	Location   string
 	ClaudePath string
 }
 
@@ -72,6 +76,9 @@ func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) 
 	generated, err := parseTagsResponse(out, t.now())
 	switch {
 	case err == nil:
+		// The free text is the user's own, so it is taken from the request
+		// rather than from the model's echo of it.
+		generated.Place.Location = strings.TrimSpace(req.Location)
 		return generated, nil
 	case runErr == nil || !errors.Is(err, errNoReport):
 		return model.Tags{}, err
@@ -113,6 +120,9 @@ type claudeResponse struct {
 	StructuredOutput *struct {
 		Title    string   `json:"title"`
 		Keywords []string `json:"keywords"`
+		City     string   `json:"city"`
+		State    string   `json:"state"`
+		Country  string   `json:"country"`
 	} `json:"structured_output"`
 }
 
@@ -135,6 +145,11 @@ func parseTagsResponse(out []byte, now time.Time) (model.Tags, error) {
 	generated := model.Tags{
 		Title:    resp.StructuredOutput.Title,
 		Keywords: resp.StructuredOutput.Keywords,
+		Place: model.Place{
+			City:    resp.StructuredOutput.City,
+			State:   resp.StructuredOutput.State,
+			Country: resp.StructuredOutput.Country,
+		}.Trimmed(),
 	}
 	// An empty answer is a failed run, not a result: taken as one it would blank
 	// the fields the dialog was filled with and clear the tags of the sidecar.
