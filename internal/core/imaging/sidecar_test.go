@@ -878,6 +878,155 @@ func TestWriteSidecar_Place(t *testing.T) {
 	})
 }
 
+func conceivedTags() model.Tags {
+	return model.Tags{
+		Title:    "A tram climbs the hill.",
+		Keywords: []string{"lisbon", "tram"},
+		Concept:  "tram 28 seen head-on, morning light",
+	}
+}
+
+func TestWriteSidecar_Concept(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a new sidecar carries the concept back", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, "<photo:Concept>tram 28 seen head-on, morning light</photo:Concept>")
+		assert.Contains(t, content, `xmlns:photo="`+photoNamespace+`"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, conceivedTags(), read)
+	})
+
+	t.Run("a sidecar without a concept never declares the namespace", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, placedTags()))
+
+		assert.NotContains(t, readFile(t, path), "xmlns:photo=")
+	})
+
+	t.Run("keeps the develop settings of a Lightroom sidecar", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, lightroomSidecar)
+
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `crs:Exposure2012="+0.35"`)
+		assert.Contains(t, content, `crs:Contrast2012="+12"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, conceivedTags(), read)
+	})
+
+	t.Run("a concept already in the sidecar is replaced, not doubled", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+
+		rethought := conceivedTags()
+		rethought.Concept = "the tram from the side, empty street"
+		require.NoError(t, WriteSidecar(path, rethought))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, "<photo:Concept>"))
+		assert.Equal(t, 1, strings.Count(content, `xmlns:photo="`+photoNamespace+`"`))
+		assert.NotContains(t, content, "head-on")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, rethought, read)
+	})
+
+	t.Run("a concept cleared leaves nothing behind", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+
+		cleared := conceivedTags()
+		cleared.Concept = ""
+		require.NoError(t, WriteSidecar(path, cleared))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "photo:Concept")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, cleared, read)
+	})
+
+	t.Run("a concept alone is written without any tags to go with it", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := model.Tags{Concept: "tram 28 seen head-on, morning light"}
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
+	t.Run("a sidecar the writer already wrote is edited in place", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+		first := readFile(t, path)
+
+		require.NoError(t, WriteSidecar(path, conceivedTags()))
+
+		content := readFile(t, path)
+		assert.Equal(t, first, content)
+		assert.Equal(t, 1, strings.Count(content, "<rdf:Description"))
+	})
+}
+
+// A document is free to spell photo as a vocabulary of its own, and that element
+// is another tool's to keep - the same promise TestMergeSidecar_KeepsThePropertiesOfAForeignPrefix
+// makes for photoshop, and just as far: the bindings of the whole document decide,
+// so a document that also binds photo to ours has spent the prefix on us.
+func TestMergeSidecar_KeepsAConceptOfAForeignPrefix(t *testing.T) {
+	t.Parallel()
+
+	const foreignPhoto = `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photo="http://example.com/of-our-own/">
+   <photo:Concept>a concept of another vocabulary</photo:Concept>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`
+
+	merged, err := mergeSidecar([]byte(foreignPhoto), conceivedTags())
+	require.NoError(t, err)
+
+	text := string(merged)
+	assert.Contains(t, text, "<photo:Concept>a concept of another vocabulary</photo:Concept>",
+		"the property of the foreign vocabulary must survive")
+	assert.Contains(t, text, "<photo:Concept>tram 28 seen head-on, morning light</photo:Concept>",
+		"ours is written beside it")
+	assert.Contains(t, text, `xmlns:photo="http://example.com/of-our-own/"`,
+		"the foreign binding must be left as it was found")
+	requireWellFormed(t, merged)
+
+	parsed, err := parseSidecar(merged)
+	require.NoError(t, err)
+	assert.Equal(t, conceivedTags(), parsed.tags())
+}
+
 // The prefix means something else here, so a second declaration of it on the
 // same element would be a document no strict parser reads.
 func TestMergeSidecar_PhotoshopPrefixBoundToAnotherVocabulary(t *testing.T) {

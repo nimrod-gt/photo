@@ -290,6 +290,39 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, model.Place{Location: "Praia do Guincho", City: "Cascais"}, info.Tags.Place)
 	})
 
+	// The concept is written wherever the tags are, so a JPEG carries it in its
+	// packet and a photo with a RAW pair in its sidecar; the packet fills what a
+	// sidecar another tool wrote has nothing to say about.
+	t.Run("fills from the packet the concept the sidecar lacks", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		conceived := model.Tags{Title: "From the packet.", Concept: "tram 28 seen head-on"}
+		path := writeJPEGWithPacket(t, dir, "DSC030.jpg", exifTags, packetWith(t, conceived))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC030.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC030.xmp"), model.Tags{Title: "From the sidecar."}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "From the sidecar.", info.Tags.Title)
+		assert.Equal(t, "tram 28 seen head-on", info.Tags.Concept)
+	})
+
+	t.Run("prefers the concept of the sidecar over the one in the packet", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		conceived := model.Tags{Title: "From the packet.", Concept: "the packet's idea"}
+		path := writeJPEGWithPacket(t, dir, "DSC031.jpg", exifTags, packetWith(t, conceived))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC031.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC031.xmp"),
+			model.Tags{Title: "From the sidecar.", Concept: "the sidecar's idea"}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "the sidecar's idea", info.Tags.Concept)
+	})
+
 	t.Run("reports a packet it cannot parse and keeps the EXIF tags", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", exifTags, xmpPacket("<x:xmpmeta><unclosed>", 40))

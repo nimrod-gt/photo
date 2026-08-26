@@ -161,11 +161,90 @@
         "internal/gui/app/tags_action_test.go"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/15-save-concept",
       "created_at": "2026-08-26T10:51:19Z",
-      "updated_at": "2026-08-26T10:51:19Z",
-      "plan": null
+      "updated_at": "2026-08-26T12:38:10Z",
+      "plan": {
+        "created_at": "2026-08-26T12:38:10Z",
+        "revised_at": "2026-08-26T12:38:10Z",
+        "base_commit": "c5fe4e8",
+        "summary": "Persist the Tags dialog's optional Concept note the way the Location already is. model.Tags gains a Concept string that Equal compares while IsEmpty and Problems keep ignoring it, so a note alone is never mistaken for a generated result. The note is stored in a private XMP namespace of ours - xmlns:photo=\"https://github.com/nimrod/photo/1.0/\", property photo:Concept - deliberately not photoshop:Instructions or photoshop:Headline, because a working input must not travel to a stock agency; one entry appended to the writtenProperties table in internal/core/imaging/sidecar.go gives both writers (the .xmp sidecar and the in-place JPEG packet) the property for free, while the EXIF fallback path has no field for it and reports it dropped, exactly as it already does for the place. The concept reaches the saved tags through the run: tags.Request gains a Concept field and the tagger copies the user's own trimmed text into generated.Concept, the same trick it plays with generated.Place.Location, so SetTags, the per-photo cache, the sidecar write and the dialog handover all carry it with no special casing. The dialog reports its entry through Concept(), puts it into Tags(), and takes one back with a takeConcept shaped like takePlace - filling the entry only while it is empty, so a concept typed during a minute-long run is the newer one and stays. Finally nothingToWrite learns about the concept, so typing one alone and closing the dialog writes a sidecar.",
+        "steps": [
+          {
+            "title": "model.Tags.Concept",
+            "details": "Add `Concept string` to model.Tags and compare it in Equal. Leave IsEmpty and Problems untouched, extending the existing comment on IsEmpty so the next reader knows the concept is excluded for the same reason as the place: a note alone is not a result and must not let an empty run overwrite a sidecar. Tests: Equal sees a differing concept; IsEmpty and Problems ignore one.",
+            "files": [
+              "internal/core/model/tags.go",
+              "internal/core/model/tags_test.go"
+            ]
+          },
+          {
+            "title": "Round-trip through the sidecar and the JPEG packet",
+            "details": "In internal/core/imaging/sidecar.go add photoNamespace = \"https://github.com/nimrod/photo/1.0/\", conceptProperty = \"Concept\" and photoPrefix = \"photo\"; add a concept field to sidecarTags, return it from tags(), add the read entry to ownedProperties and APPEND the write entry to writtenProperties (emit: writeTextProperty, value guarded by strings.TrimSpace like placeValues). Appending last matters: ownDescriptionPattern builds its branches from the table in order with every later declaration optional, so a description written by the current version still matches and no second one is appended on the next save. Extend the considered-and-left-out comment block to say photo:Concept is ours and why it is not photoshop:Instructions or Headline. In stock_info.go fillMissing fills the concept from the fallback via orFallback, so a packet concept is not lost when the sidecar has none. In exif_write.go add ConceptDropped to StockWrite and set it beside PlaceDropped in WriteStockTags, because the EXIF fallback carries neither. Tests: sidecar_test - written, read back, edited in place in a Lightroom sidecar without touching crs:*, and cleared when the field is emptied; a document that binds photo to another vocabulary keeps its element. stock_info_test - concept read from a sidecar and from a packet, sidecar winning. xmp_packet_test / exif_write_test - a concept fits into a Sony packet in place, and the fallback path reports ConceptDropped.",
+            "files": [
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/sidecar_test.go",
+              "internal/core/imaging/stock_info.go",
+              "internal/core/imaging/stock_info_test.go",
+              "internal/core/imaging/exif_write.go",
+              "internal/core/imaging/exif_write_test.go",
+              "internal/core/imaging/xmp_packet_test.go"
+            ]
+          },
+          {
+            "title": "Carry the concept through a generation",
+            "details": "Add `Concept string` to tags.Request and, in the err == nil branch of Tagger.Generate, set generated.Concept = strings.TrimSpace(req.Concept) next to the existing generated.Place.Location line, under the comment already there about the free text being the user's own. The JSON schema and claudeResponse stay untouched - the model never returns a concept - and Notes() keeps rendering the Concept: line into the prompt. Test: a request with a concept comes back with it trimmed on the generated tags, even though the CLI response says nothing about it.",
+            "files": [
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/tagger_test.go"
+            ]
+          },
+          {
+            "title": "Dialog: report the concept and take one back",
+            "details": "Add Concept() (trimmed) to TagsDialog and use it in Notes(); Tags() fills Concept from it. Add takeConcept(concept string) shaped like takePlace - it fills the entry only while the entry is empty, so a concept typed during a run is the newer one and stays - and call it from showTags and from the existing.IsEmpty() early return in SetPhotoInfo, which today returns after takePlace alone, keeping the resultUntouched gate. Tests: SetPhotoInfo fills the Concept entry from stored tags, including when there are no tags at all; Tags() returns it; a concept typed while generating survives SetTags; Notes() still renders it.",
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "App wiring and docs",
+            "details": "tagsSession.generate passes Concept: s.dialog.Concept() in the tags.Request; nothingToWrite also requires an empty concept, so typing a concept alone and closing the dialog writes the sidecar; writeNote gains the concept-dropped note beside placeDroppedNote (the XMP packet had no room and the EXIF has no field for it). Tests: closing a dialog whose only input is a concept writes the sidecar, and reopening seeds the field from the cache. CLAUDE.md gets one sentence in the Stock tags paragraph: the Concept note is saved with the tags, in the sidecar and the JPEG packet under photo:Concept, and comes back when the dialog reopens.",
+            "files": [
+              "internal/gui/app/tags_action.go",
+              "internal/gui/app/tags_action_test.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Which XMP property should carry the concept? Affects step 2.",
+            "answer": "A private namespace of ours: xmlns:photo=\"https://github.com/nimrod/photo/1.0/\", property photo:Concept. The note is a working input, not delivery metadata, and must not reach a stock agency through photoshop:Instructions or photoshop:Headline."
+          },
+          {
+            "question": "Should the concept be written into the JPEG XMP packet too, or only into the RAW sidecar? Affects step 2.",
+            "answer": "Both. One entry in writtenProperties serves the sidecar and the in-place packet; the EXIF fallback path has no field for it, so it is dropped there and reported, exactly as the place already is."
+          },
+          {
+            "question": "Is a concept on its own worth a save - no title, no keywords, no location? Affects steps 1 and 5.",
+            "answer": "Yes. nothingToWrite and Tags.Equal learn about the concept; IsEmpty and Problems keep ignoring it, the way they ignore Place."
+          },
+          {
+            "question": "How should the concept reach the saved tags after a generation? Affects steps 3 and 5.",
+            "answer": "Through the run: tags.Request gains a Concept field and the tagger copies the user's own trimmed text into generated.Concept, the same trick it plays with Place.Location, so every downstream path carries it with no special casing."
+          }
+        ],
+        "risks": [
+          "ownDescriptionPattern and writtenBindings are generated from writtenProperties; adding the entry anywhere but the end can stop the writer recognising descriptions it wrote before, which would append a second one on every save.",
+          "The prefix photo is new: strippablePrefixes leaves a document that binds it to another vocabulary alone, which is the wanted behaviour but needs a test to prove it. xmlns:photoshop= does not match the xmlns:photo\\s*= probe, since the = cannot follow photo there.",
+          "A long concept can push the in-place packet over its padding, sending the write down the whole-file rewrite path - the same path that already warns about Sony's image database, and where the concept is dropped, hence ConceptDropped.",
+          "SetTags after a run calls showTags, so takeConcept must keep an edited entry (fill only when empty), exactly like takePlace, or a concept typed during a minute-long run is lost.",
+          "nothingToWrite gates both the sidecar write and the run handover (takeOver/RestoreTags); a concept-only set now counts as something to write, so a run handed such fields writes them on the way out too.",
+          "Todo #12 will copy model.Tags wholesale and so will carry the concept; no dependency, and its planned Clone needs nothing extra for a string field."
+        ]
+      }
     }
   ]
 }

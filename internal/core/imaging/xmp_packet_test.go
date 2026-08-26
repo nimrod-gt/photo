@@ -659,6 +659,50 @@ func TestAppendDescription_KeepsADescriptionItCouldNotHaveWritten(t *testing.T) 
 	assert.Contains(t, content, `<rdf:Description rdf:about=""></rdf:Description>`)
 }
 
+func TestPacketWithTags_Concept(t *testing.T) {
+	t.Parallel()
+
+	tags := conceivedTags()
+
+	t.Run("writes the concept into the padding", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+
+		updated, ok := packetWithTags(packet, tags)
+
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		requireWellFormed(t, updated)
+		assert.Contains(t, string(updated), `xmlns:photo="`+photoNamespace+`"`)
+		parsed, err := parseSidecar(updated)
+		require.NoError(t, err)
+		assert.Equal(t, tags, parsed.tags())
+	})
+
+	t.Run("a packet with no room for the concept is refused", func(t *testing.T) {
+		t.Parallel()
+		tight, ok := packetWithTags(sonyPacket(520), model.Tags{Title: tags.Title, Keywords: tags.Keywords})
+		require.True(t, ok, "the tags alone still fit")
+
+		_, ok = packetWithTags(sonyPacket(520), tags)
+
+		assert.False(t, ok, "the concept pushes the description past the padding")
+		assert.NotContains(t, string(tight), "photo:Concept")
+	})
+
+	t.Run("clearing the concept hands back the original bytes", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+		written, ok := packetWithTags(packet, tags)
+		require.True(t, ok)
+
+		cleared, ok := packetWithTags(written, model.Tags{})
+
+		require.True(t, ok)
+		assert.Equal(t, packet, cleared)
+	})
+}
+
 func TestPacketWithTags_Place(t *testing.T) {
 	t.Parallel()
 

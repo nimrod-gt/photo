@@ -24,6 +24,12 @@ func TestTags_Problems(t *testing.T) {
 		assert.Empty(t, tags.Problems())
 	})
 
+	t.Run("a concept is no stock requirement", func(t *testing.T) {
+		tags := Tags{Title: "Man walks along a beach. Travel and tourism concept.", Keywords: validKeywords(),
+			Concept: "man walking, shot from behind!"}
+		assert.Empty(t, tags.Problems())
+	})
+
 	t.Run("empty title", func(t *testing.T) {
 		tags := Tags{Title: "", Keywords: validKeywords()}
 		assert.Contains(t, tags.Problems(), "title is empty")
@@ -147,6 +153,7 @@ func TestTags_IsEmpty(t *testing.T) {
 	assert.False(t, Tags{Title: "A title."}.IsEmpty())
 	assert.False(t, Tags{Keywords: []string{"lake"}}.IsEmpty())
 	assert.True(t, Tags{Place: Place{Location: "Cascais, Portugal"}}.IsEmpty(), "a place alone is not a result")
+	assert.True(t, Tags{Concept: "fog over the lake"}.IsEmpty(), "a concept alone is not a result")
 }
 
 func TestTags_Equal(t *testing.T) {
@@ -164,6 +171,11 @@ func TestTags_Equal(t *testing.T) {
 	assert.True(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Place: Place{Location: "Cascais", City: "Cascais"}}))
 	assert.False(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Place: Place{Location: "Cascais"}}))
 	assert.False(t, placed.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+
+	conceived := Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the lake"}
+	assert.True(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the lake"}))
+	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the sea"}))
+	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
 }
 
 func TestPlace_Trimmed(t *testing.T) {

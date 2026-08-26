@@ -644,6 +644,58 @@ func TestExifService_WriteStockTags_ClearsTheExifBehindThePacket(t *testing.T) {
 	assert.Equal(t, []string{"lisbon"}, info.Tags.Keywords)
 }
 
+func TestExifService_WriteStockTags_Concept(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	written := conceivedTags()
+	sonyExif := map[string]any{"Make": "SONY"}
+
+	t.Run("the packet carries the concept", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", sonyExif, sonyPacket(2000))
+		before := readBytes(t, path)
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.False(t, write.Rewritten, "a packet with room must not rewrite the file")
+		assert.False(t, write.ConceptDropped)
+		assert.Len(t, readBytes(t, path), len(before))
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
+
+	// No EXIF tag holds a note either, so the fallback says what it left behind
+	// the same way it does for a place.
+	t.Run("the EXIF fallback reports the concept it cannot carry", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.True(t, write.ConceptDropped)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written.Title, info.Tags.Title)
+		assert.Empty(t, info.Tags.Concept)
+	})
+
+	t.Run("a fallback without a concept reports nothing", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, model.Tags{Title: written.Title, Keywords: written.Keywords})
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.False(t, write.ConceptDropped)
+	})
+}
+
 func TestExifService_WriteStockTags_Place(t *testing.T) {
 	t.Parallel()
 

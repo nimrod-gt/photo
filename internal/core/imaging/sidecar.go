@@ -21,16 +21,19 @@ const (
 	xmpNamespace       = "http://ns.adobe.com/xap/1.0/"
 	iptcCoreNamespace  = "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"
 	photoshopNamespace = "http://ns.adobe.com/photoshop/1.0/"
+	photoNamespace     = "https://github.com/nimrod/photo/1.0/"
 
 	ratingProperty   = "Rating"
 	locationProperty = "Location"
 	cityProperty     = "City"
 	stateProperty    = "State"
 	countryProperty  = "Country"
+	conceptProperty  = "Concept"
 
 	dcPrefix        = "dc"
 	iptcCorePrefix  = "Iptc4xmpCore"
 	photoshopPrefix = "photoshop"
+	photoPrefix     = "photo"
 
 	sidecarIndent  = "  "
 	descriptionEnd = "</rdf:Description>"
@@ -72,6 +75,7 @@ type sidecarTags struct {
 	description string
 	keywords    []string
 	place       model.Place
+	concept     string
 	rating      int
 	rated       bool
 }
@@ -81,7 +85,7 @@ func (s sidecarTags) tags() model.Tags {
 	if len(title) == 0 {
 		title = s.description
 	}
-	return model.Tags{Title: title, Keywords: s.keywords, Place: s.place}
+	return model.Tags{Title: title, Keywords: s.keywords, Place: s.place, Concept: s.concept}
 }
 
 // The properties the app reads back out of a document. Everything else - the
@@ -104,6 +108,7 @@ var ownedProperties = []ownedProperty{
 	{space: photoshopNamespace, local: cityProperty, read: func(s *sidecarTags, p xmpProperty) { s.place.City = p.first() }},
 	{space: photoshopNamespace, local: stateProperty, read: func(s *sidecarTags, p xmpProperty) { s.place.State = p.first() }},
 	{space: photoshopNamespace, local: countryProperty, read: func(s *sidecarTags, p xmpProperty) { s.place.Country = p.first() }},
+	{space: photoNamespace, local: conceptProperty, read: func(s *sidecarTags, p xmpProperty) { s.concept = p.first() }},
 }
 
 func ownedByName(name xml.Name) (ownedProperty, bool) {
@@ -226,6 +231,11 @@ func parseSidecar(data []byte) (sidecarTags, error) {
 // GPS, photoshop:Headline, photoshop:Instructions,
 // Iptc4xmpCore:CreatorContactInfo and plus:ModelReleaseStatus - no field in the
 // app produces them; crs:* - Lightroom's develop settings, kept byte for byte.
+//
+// The concept is the note the tags were asked for, an input of ours rather than
+// anything an agency should be delivered, so it goes into a namespace of our own
+// instead of photoshop:Instructions or photoshop:Headline, which every stock
+// pipeline reads and publishes.
 type writtenProperty struct {
 	prefix    string
 	namespace string
@@ -250,6 +260,11 @@ var writtenProperties = []writtenProperty{
 		values: placeValues(func(p model.Place) string { return p.State }), emit: writeTextProperty},
 	{prefix: photoshopPrefix, namespace: photoshopNamespace, name: countryProperty,
 		values: placeValues(func(p model.Place) string { return p.Country }), emit: writeTextProperty},
+	// Last on purpose: ownDescriptionPattern spells the declarations in this
+	// order with every later one optional, so appending keeps the descriptions
+	// earlier versions wrote recognisable and edited in place.
+	{prefix: photoPrefix, namespace: photoNamespace, name: conceptProperty,
+		values: conceptValues, emit: writeTextProperty},
 }
 
 func titleValues(tags model.Tags) []string {
@@ -261,6 +276,13 @@ func titleValues(tags model.Tags) []string {
 
 func keywordValues(tags model.Tags) []string {
 	return tags.Keywords
+}
+
+func conceptValues(tags model.Tags) []string {
+	if concept := strings.TrimSpace(tags.Concept); len(concept) != 0 {
+		return []string{concept}
+	}
+	return nil
 }
 
 func placeValues(level func(model.Place) string) func(model.Tags) []string {

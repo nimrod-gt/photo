@@ -250,6 +250,25 @@ func TestTagger_Generate(t *testing.T) {
 		assert.ErrorContains(t, err, "claude returned no tags")
 	})
 
+	t.Run("returns the concept the user typed, trimmed", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest("Concept: tram 28 seen head-on")
+		req.Concept = "  tram 28 seen head-on  "
+
+		tags, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, "tram 28 seen head-on", tags.Concept)
+	})
+
+	t.Run("a concept alone is still a failed run", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[]}}`}
+		req := testRequest("")
+		req.Concept = "tram 28 seen head-on"
+
+		_, err := newTestTagger(run).Generate(t.Context(), req)
+		assert.ErrorContains(t, err, "claude returned no tags")
+	})
+
 	t.Run("keeps a response without keywords", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"Only a title"}}`}
 

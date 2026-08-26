@@ -39,10 +39,12 @@ const (
 // in the same breath as the save.
 type StockWrite struct {
 	Rewritten bool
-	// The EXIF has no field for a place, so the fallback path carries the title
-	// and the keywords and leaves the place behind. It survives in the sidecar
-	// beside the RAW pair, where nothing has to fit in a fixed space.
-	PlaceDropped bool
+	// The EXIF has no field for a place, nor for the concept, so the fallback
+	// path carries the title and the keywords and leaves those two behind. They
+	// survive in the sidecar beside the RAW pair, where nothing has to fit in a
+	// fixed space.
+	PlaceDropped   bool
+	ConceptDropped bool
 }
 
 // WriteStockTags puts the tags into the XMP packet of the JPEG in place when it
@@ -75,7 +77,11 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (StockWri
 		return StockWrite{}, fmt.Errorf("writing the tags of %s: %w", jpegPath, err)
 	}
 	rewritten, err := replaceIfChanged(jpegPath, original, updated)
-	return StockWrite{Rewritten: rewritten, PlaceDropped: !tags.Place.IsEmpty()}, err
+	return StockWrite{
+		Rewritten:      rewritten,
+		PlaceDropped:   !tags.Place.IsEmpty(),
+		ConceptDropped: len(strings.TrimSpace(tags.Concept)) != 0,
+	}, err
 }
 
 func replaceIfChanged(jpegPath string, original, updated []byte) (bool, error) {

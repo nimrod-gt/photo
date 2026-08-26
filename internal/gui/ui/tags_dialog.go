@@ -347,7 +347,7 @@ func (d *TagsDialog) Hide() {
 // Notes renders the optional inputs in the input format the prompt expects.
 func (d *TagsDialog) Notes() string {
 	var lines []string
-	if concept := strings.TrimSpace(d.concept.Text); len(concept) != 0 {
+	if concept := d.Concept(); len(concept) != 0 {
 		lines = append(lines, "Concept: "+concept)
 	}
 	if location := d.Location(); len(location) != 0 {
@@ -374,11 +374,16 @@ func (d *TagsDialog) Location() string {
 	return strings.TrimSpace(d.location.Text)
 }
 
+func (d *TagsDialog) Concept() string {
+	return strings.TrimSpace(d.concept.Text)
+}
+
 func (d *TagsDialog) Tags() model.Tags {
 	return model.Tags{
 		Title:    strings.TrimSpace(d.title.Text),
 		Keywords: model.ParseKeywordLine(d.keywords.Text),
 		Place:    d.place(),
+		Concept:  d.Concept(),
 	}
 }
 
@@ -406,12 +411,13 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if !d.resultUntouched() {
 		return
 	}
-	// A file can carry a place and no tags at all - a Lightroom sidecar with a
-	// location in it, or a photo whose location was typed and never generated
-	// from. The location is the user's own field and is filled either way; the
-	// result fields stay hidden while there is nothing to put in them.
+	// A file can carry a place or a concept and no tags at all - a Lightroom
+	// sidecar with a location in it, or a photo whose note was typed and never
+	// generated from. Those two are the user's own fields and are filled either
+	// way; the result fields stay hidden while there is nothing to put in them.
 	if existing.IsEmpty() {
 		d.takePlace(existing.Place)
+		d.takeConcept(existing.Concept)
 		return
 	}
 	d.showTags(existing)
@@ -455,6 +461,7 @@ func (d *TagsDialog) showTags(shown model.Tags) {
 	d.title.SetText(shown.Title)
 	d.keywords.SetText(shown.KeywordLine())
 	d.takePlace(shown.Place)
+	d.takeConcept(shown.Concept)
 	d.resultBox.Show()
 	d.refreshStatus()
 }
@@ -465,6 +472,14 @@ func (d *TagsDialog) takePlace(place model.Place) {
 	// split then no longer matches it and place() drops it.
 	if len(d.Location()) == 0 {
 		d.location.SetText(d.split.Location)
+	}
+}
+
+// Same rule as the location: a note typed while the run was going is the newer
+// one and is never written over by what the run hands back.
+func (d *TagsDialog) takeConcept(concept string) {
+	if len(d.Concept()) == 0 {
+		d.concept.SetText(strings.TrimSpace(concept))
 	}
 }
 

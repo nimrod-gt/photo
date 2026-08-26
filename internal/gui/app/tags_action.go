@@ -106,6 +106,7 @@ func (s *tagsSession) generate() {
 		Photo:      s.photo,
 		Notes:      s.dialog.Notes(),
 		Location:   s.dialog.Location(),
+		Concept:    s.dialog.Concept(),
 		ClaudePath: s.dialog.ClaudePath(),
 	})
 }
@@ -184,11 +185,11 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	})
 }
 
-// Tags.IsEmpty ignores the place on purpose - a place alone is not a result the
-// generator produced - but a location the user typed is worth a sidecar of its
-// own, with or without tags to go with it.
+// Tags.IsEmpty ignores the place and the concept on purpose - neither is a
+// result the generator produced - but text the user typed into either is worth a
+// sidecar of its own, with or without tags to go with it.
 func nothingToWrite(tags model.Tags) bool {
-	return tags.IsEmpty() && tags.Place.IsEmpty()
+	return tags.IsEmpty() && tags.Place.IsEmpty() && len(strings.TrimSpace(tags.Concept)) == 0
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A
@@ -197,9 +198,11 @@ func nothingToWrite(tags model.Tags) bool {
 // case is spelled out instead of passing as a plain success.
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
-// No EXIF tag holds a place, so the fallback the note above describes carries
-// the title and the keywords and leaves the location behind.
+// No EXIF tag holds a place or a concept, so the fallback the note above
+// describes carries the title and the keywords and leaves those two behind.
 const placeDroppedNote = "the location was not written: the XMP packet had no room and the EXIF has no field for a place"
+
+const conceptDroppedNote = "the concept was not written: the XMP packet had no room and the EXIF has no field for it"
 
 func (s *tagsSession) saveJPEG() {
 	taken := s.taken
@@ -220,6 +223,9 @@ func writeNote(write imaging.StockWrite) string {
 	}
 	if write.PlaceDropped {
 		notes = append(notes, placeDroppedNote)
+	}
+	if write.ConceptDropped {
+		notes = append(notes, conceptDroppedNote)
 	}
 	return strings.Join(notes, "; ")
 }
