@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	"github.com/go-gl/glfw/v3.4/glfw"
 
 	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
@@ -42,40 +43,43 @@ type TagsDialogOptions struct {
 	ClaudePath string
 	Date       time.Time
 	IsJPEG     bool
+	Keys       KeyMatcher
 }
 
 type TagsDialog struct {
 	dialog          *dialog.CustomDialog
 	window          fyne.Window
 	callbacks       TagsDialogCallbacks
-	concept         *escapeEntry
-	location        *escapeEntry
+	keys            KeyMatcher
+	concept         *dialogEntry
+	location        *dialogEntry
 	split           model.Place
-	editorial       *escapeCheck
-	date            *escapeDateEntry
+	editorial       *dialogCheck
+	date            *dialogDateEntry
 	dateRow         *fyne.Container
 	defaultDate     time.Time
-	pathEntry       *escapeEntry
+	pathEntry       *dialogEntry
 	pathRow         *fyne.Container
 	progress        *widget.ProgressBarInfinite
 	resultBox       *fyne.Container
-	title           *escapeEntry
-	keywords        *escapeEntry
+	title           *dialogEntry
+	keywords        *dialogEntry
 	status          *widget.Label
-	generateBtn     *widget.Button
-	copyTitleBtn    *widget.Button
-	copyKeywordsBtn *widget.Button
-	saveJPEGBtn     *widget.Button
-	closeBtn        *widget.Button
-	cancelRunBtn    *widget.Button
-	backgroundBtn   *widget.Button
+	generateBtn     *dialogButton
+	copyTitleBtn    *dialogButton
+	copyKeywordsBtn *dialogButton
+	saveJPEGBtn     *dialogButton
+	closeBtn        *dialogButton
+	cancelRunBtn    *dialogButton
+	backgroundBtn   *dialogButton
 	buttons         *fyne.Container
 	generating      bool
+	shown           bool
 	closed          bool
 }
 
 func NewTagsDialog(opts TagsDialogOptions, window fyne.Window, callbacks TagsDialogCallbacks) *TagsDialog {
-	d := &TagsDialog{window: window, callbacks: callbacks, defaultDate: opts.Date}
+	d := &TagsDialog{window: window, callbacks: callbacks, keys: opts.Keys, defaultDate: opts.Date}
 	d.build(opts, window)
 	return d
 }
@@ -117,40 +121,43 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 }
 
 func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
-	d.concept = newEscapeEntry(d.requestEscape)
+	d.concept = newDialogEntry(d.handleKey)
 	d.concept.SetPlaceHolder("What the photo is about, optional")
+	d.concept.OnSubmitted = d.submitted
 
-	d.location = newEscapeEntry(d.requestEscape)
+	d.location = newDialogEntry(d.handleKey)
 	d.location.SetPlaceHolder("City, country, optional")
+	d.location.OnSubmitted = d.submitted
 
-	d.date = newEscapeDateEntry(d.requestEscape)
+	d.date = newDialogDateEntry(d.handleKey)
 	if !opts.Date.IsZero() {
 		d.date.SetDate(&opts.Date)
 	}
 	d.dateRow = labeledRow("Date:", d.date)
 	d.dateRow.Hide()
 
-	d.editorial = newEscapeCheck("Editorial", func(checked bool) {
+	d.editorial = newDialogCheck("Editorial", func(checked bool) {
 		if checked {
 			d.dateRow.Show()
 			return
 		}
 		d.dateRow.Hide()
-	}, d.requestEscape)
+	}, d.handleCommandKey)
 
-	d.pathEntry = newEscapeEntry(d.requestEscape)
+	d.pathEntry = newDialogEntry(d.handleKey)
 	d.pathEntry.SetPlaceHolder("Path to the claude binary")
 	d.pathEntry.SetText(opts.ClaudePath)
+	d.pathEntry.OnSubmitted = d.submitted
 	d.pathRow = labeledRow("claude:", d.pathEntry)
 	d.pathRow.Hide()
 }
 
 func (d *TagsDialog) buildResult() {
-	d.title = newEscapeMultiLineEntry(titleRows, d.requestEscape)
+	d.title = newDialogMultiLineEntry(titleRows, d.handleKey)
 	d.title.SetPlaceHolder("Title")
 	d.title.OnChanged = func(string) { d.refreshStatus() }
 
-	d.keywords = newEscapeMultiLineEntry(keywordRows, d.requestEscape)
+	d.keywords = newDialogMultiLineEntry(keywordRows, d.handleKey)
 	d.keywords.SetPlaceHolder("Keywords, comma separated")
 	d.keywords.OnChanged = func(string) { d.refreshStatus() }
 
@@ -169,31 +176,43 @@ func labeledRow(text string, content fyne.CanvasObject) *fyne.Container {
 }
 
 func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
-	d.generateBtn = widget.NewButton("Generate", func() {
-		d.Generating()
-		call(d.callbacks.OnGenerate)
-	})
+	d.generateBtn = newDialogButton("Generate", d.startGenerate, d.handleCommandKey)
 	d.generateBtn.Importance = widget.HighImportance
 
-	d.copyTitleBtn = widget.NewButton("Copy title", func() { call(d.callbacks.OnCopyTitle) })
+	d.copyTitleBtn = newDialogButton("Copy title", func() { call(d.callbacks.OnCopyTitle) }, d.handleCommandKey)
 	d.copyTitleBtn.Disable()
 
-	d.copyKeywordsBtn = widget.NewButton("Copy keywords", func() { call(d.callbacks.OnCopyKeywords) })
+	d.copyKeywordsBtn = newDialogButton("Copy keywords", func() { call(d.callbacks.OnCopyKeywords) }, d.handleCommandKey)
 	d.copyKeywordsBtn.Disable()
 
 	if opts.IsJPEG {
-		d.saveJPEGBtn = widget.NewButton("Save JPEG", func() { call(d.callbacks.OnSaveJPEG) })
+		d.saveJPEGBtn = newDialogButton("Save JPEG", func() { call(d.callbacks.OnSaveJPEG) }, d.handleCommandKey)
 		d.saveJPEGBtn.Disable()
 	}
 
-	d.closeBtn = widget.NewButton("Close (ESC)", d.requestClose)
+	d.closeBtn = newDialogButton("Close (ESC)", d.requestClose, d.handleCommandKey)
 
-	d.cancelRunBtn = widget.NewButton("Cancel (N)", func() { call(d.callbacks.OnCancelRun) })
+	d.cancelRunBtn = newDialogButton("Cancel (N)", func() { call(d.callbacks.OnCancelRun) }, d.handleCommandKey)
 	d.cancelRunBtn.Importance = widget.DangerImportance
-	d.backgroundBtn = widget.NewButton("Background (B)", func() { call(d.callbacks.OnBackground) })
+	d.backgroundBtn = newDialogButton("Background (B)", func() { call(d.callbacks.OnBackground) }, d.handleCommandKey)
 
 	d.buttons = container.New(layout.NewGridLayout(1))
 	d.setGenerating(false)
+}
+
+func (d *TagsDialog) submitted(string) {
+	d.startGenerate()
+}
+
+// Enter starts a run from any of the single-line inputs, and the button leads
+// here too, so a second run cannot be started over the one already going - the
+// button is disabled then, and Enter would not know that on its own.
+func (d *TagsDialog) startGenerate() {
+	if d.generating || d.generateBtn.Disabled() {
+		return
+	}
+	d.Generating()
+	call(d.callbacks.OnGenerate)
 }
 
 // A run offers no way out but its own two: closing the dialog would have to
@@ -223,6 +242,37 @@ func (d *TagsDialog) requestClose() {
 	call(d.callbacks.OnClose)
 }
 
+// Every focusable widget of the dialog offers its keys here before handling
+// them itself, so the keys the dialog owns work wherever the focus sits.
+func (d *TagsDialog) handleKey(ev *fyne.KeyEvent) bool {
+	if ev.Name == fyne.KeyEscape {
+		d.requestEscape()
+		return true
+	}
+	return false
+}
+
+// The two letters that command a run are only offered to the widgets that take
+// no text: an entry is handed the rune of the key as well, so swallowing the
+// key there would leave the letter behind in the field.
+func (d *TagsDialog) handleCommandKey(ev *fyne.KeyEvent) bool {
+	if d.handleKey(ev) {
+		return true
+	}
+	if !d.generating {
+		return false
+	}
+	switch {
+	case d.keys.Matches(ev, glfw.KeyN, fyne.KeyN):
+		call(d.callbacks.OnCancelRun)
+	case d.keys.Matches(ev, glfw.KeyB, fyne.KeyB):
+		call(d.callbacks.OnBackground)
+	default:
+		return false
+	}
+	return true
+}
+
 // Escape is answered by the app rather than here, because a Fyne popup - the
 // calendar of the date entry - stacks its own overlay on top while the entry
 // below keeps the focus, and only the app can tell that it is there. The Close
@@ -237,10 +287,22 @@ func (d *TagsDialog) requestEscape() {
 
 func (d *TagsDialog) Show() {
 	d.dialog.Show()
+	d.shown = true
+	d.focus(d.concept)
+}
+
+// The canvas turns down a widget that is not on screen and logs the refusal, so
+// nothing is focused before the dialog is up.
+func (d *TagsDialog) focus(obj fyne.Focusable) {
+	if !d.shown {
+		return
+	}
+	d.window.Canvas().Focus(obj)
 }
 
 func (d *TagsDialog) Hide() {
 	d.closed = true
+	d.shown = false
 	d.progress.Stop()
 	d.dialog.Hide()
 }
@@ -332,6 +394,17 @@ func (d *TagsDialog) dateUntouched() bool {
 func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.finishRun()
 	d.showTags(generated)
+	d.focusAfterRun(d.title)
+}
+
+// A run lands up to a minute after it was started and the fields stay editable
+// meanwhile, so the caret is only moved when it sits on one of the buttons the
+// finished run takes out of the row and would otherwise leave it nowhere.
+func (d *TagsDialog) focusAfterRun(next fyne.Focusable) {
+	switch d.window.Canvas().Focused() {
+	case nil, fyne.Focusable(d.cancelRunBtn), fyne.Focusable(d.backgroundBtn):
+		d.focus(next)
+	}
 }
 
 func (d *TagsDialog) showTags(shown model.Tags) {
@@ -353,28 +426,37 @@ func (d *TagsDialog) takePlace(place model.Place) {
 
 func (d *TagsDialog) Fail(err error) {
 	d.finishRun()
+	next := fyne.Focusable(d.generateBtn)
+	// The path is the one thing the user can do something about, so a run that
+	// could not find the binary hands the keyboard straight to it.
 	if errors.Is(err, claudebin.ErrNotFound) {
 		d.pathRow.Show()
+		next = d.pathEntry
 	}
 	d.setStatus(err.Error())
+	d.focusAfterRun(next)
 }
 
 // Generating is also how a dialog reopened over a run that is still going
 // catches up with it, so the state it puts the dialog in belongs here rather
 // than in the Generate button.
 //
-// The focus goes with it: Cancel and Background are reached by their letters as
-// well, and a plain letter typed into an entry belongs to the entry, so the
-// canvas only sees those keys while nothing is focused.
+// The focus goes to Cancel with it: it is the button a run is most likely to be
+// interrupted by, and from there the letters of both buttons are read as the
+// commands they are rather than as text.
 func (d *TagsDialog) Generating() {
 	d.generateBtn.Disable()
 	d.setStatus("Generating, this takes up to a minute...")
 	d.progress.Show()
 	d.progress.Start()
 	d.setGenerating(true)
-	d.window.Canvas().Unfocus()
+	d.focus(d.cancelRunBtn)
 }
 
+// The button row is rebuilt here and the focus may be left on a button that is
+// no longer in it, with nothing for the keyboard to walk from; both callers
+// place it again through focusAfterRun once they have arranged what it can
+// land on.
 func (d *TagsDialog) finishRun() {
 	d.progress.Stop()
 	d.progress.Hide()
@@ -411,9 +493,13 @@ func (d *TagsDialog) refreshStatus() {
 }
 
 // A photo with no JPEG to write into has no button to enable.
-func setEnabled(button *widget.Button, enabled bool) {
+func setEnabled[T interface {
+	comparable
+	fyne.Disableable
+}](button T, enabled bool) {
+	var missing T
 	switch {
-	case button == nil:
+	case button == missing:
 	case enabled:
 		button.Enable()
 	default:

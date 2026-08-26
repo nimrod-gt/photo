@@ -45,6 +45,14 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `I` — toggle the tag overlay
 - Arrow keys — navigate photos
 
+The Tags dialog handles its own keys instead of relying on nothing holding focus:
+
+- `Tab`/`Shift+Tab` — move between the fields and the buttons
+- `Space`/`Enter` — press the focused button
+- `Enter` — start a generation from Concept, Location or the claude path field (in Title and Keywords it inserts a newline)
+- `Esc` — kill a running generation and close the dialog; it works from every field except the Date one while its calendar popup is open, which swallows the key
+- `B`/`N` — background or cancel a running generation, from a focused button or the Editorial checkbox; the text fields, the Date one included, take them as letters
+
 ### Tech Stack
 
 - Go + Fyne (GUI framework)

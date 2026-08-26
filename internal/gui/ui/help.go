@@ -51,6 +51,11 @@ var helpRight = []shortcutSection{
 	{
 		title: "Tags dialog",
 		entries: []shortcutEntry{
+			{"Tab", "Next field or button"},
+			{"⇧Tab", "Previous field or button"},
+			{"Space", "Press the focused button"},
+			{"↵", "Press the button, or generate from a single-line field"},
+			{"Esc", "Cancel the generation and close"},
 			{"B", "Generate in background"},
 			{"N", "Cancel generation"},
 		},

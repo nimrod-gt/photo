@@ -9,6 +9,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"github.com/go-gl/glfw/v3.4/glfw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -594,11 +595,11 @@ func TestTagsDialog_Escape(t *testing.T) {
 		assert.Equal(t, 0, closes, "the app decides whether the dialog closes")
 	})
 
-	t.Run("every escapable input takes the same route", func(t *testing.T) {
+	t.Run("every input takes the same route", func(t *testing.T) {
 		var escapes int
 		d := newTestTagsDialog(t, TagsDialogCallbacks{OnEscape: func() { escapes++ }})
 
-		for _, entry := range []*escapeEntry{d.concept, d.location, d.pathEntry, d.title, d.keywords} {
+		for _, entry := range []*dialogEntry{d.concept, d.location, d.pathEntry, d.title, d.keywords} {
 			entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
 		}
 		d.date.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
@@ -616,6 +617,13 @@ func TestTagsDialog_Escape(t *testing.T) {
 		assert.Equal(t, 1, closes)
 	})
 
+	t.Run("the multi-line fields let Tab traverse the dialog", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		assert.False(t, d.title.AcceptsTab())
+		assert.False(t, d.keywords.AcceptsTab())
+	})
+
 	t.Run("the Close button closes whatever else is on screen", func(t *testing.T) {
 		var escapes, closes int
 		d := newTestTagsDialog(t, TagsDialogCallbacks{
@@ -627,5 +635,278 @@ func TestTagsDialog_Escape(t *testing.T) {
 
 		assert.Equal(t, 1, closes)
 		assert.Equal(t, 0, escapes)
+	})
+}
+
+func TestTagsDialog_ButtonKeys(t *testing.T) {
+	t.Run("a focused button answers Space and Enter", func(t *testing.T) {
+		for name, key := range map[string]fyne.KeyName{
+			"space":  fyne.KeySpace,
+			"return": fyne.KeyReturn,
+			"enter":  fyne.KeyEnter,
+		} {
+			t.Run(name, func(t *testing.T) {
+				closes := 0
+				d := newTestTagsDialog(t, TagsDialogCallbacks{OnClose: func() { closes++ }})
+
+				d.closeBtn.TypedKey(&fyne.KeyEvent{Name: key})
+
+				assert.Equal(t, 1, closes)
+			})
+		}
+	})
+
+	t.Run("a disabled button stays silent", func(t *testing.T) {
+		copies := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnCopyTitle: func() { copies++ }})
+		require.True(t, d.copyTitleBtn.Disabled())
+
+		d.copyTitleBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeySpace})
+
+		assert.Equal(t, 0, copies)
+	})
+
+	t.Run("a button hands Escape to the app", func(t *testing.T) {
+		escapes := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnEscape: func() { escapes++ }})
+
+		d.generateBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+
+		assert.Equal(t, 1, escapes)
+	})
+
+	t.Run("the run is commanded from whatever button holds the focus", func(t *testing.T) {
+		var cancels, backgrounds int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCancelRun:  func() { cancels++ },
+			OnBackground: func() { backgrounds++ },
+		})
+		d.Generating()
+
+		d.cancelRunBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
+		d.backgroundBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
+
+		assert.Equal(t, 1, cancels)
+		assert.Equal(t, 1, backgrounds)
+	})
+
+	t.Run("the letters mean nothing while no run goes", func(t *testing.T) {
+		var cancels, backgrounds, closes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCancelRun:  func() { cancels++ },
+			OnBackground: func() { backgrounds++ },
+			OnClose:      func() { closes++ },
+		})
+
+		d.closeBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
+		d.closeBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
+
+		assert.Equal(t, 0, cancels)
+		assert.Equal(t, 0, backgrounds)
+		assert.Equal(t, 0, closes)
+	})
+
+	t.Run("a letter typed into an input is text and nothing else", func(t *testing.T) {
+		var cancels, backgrounds int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCancelRun:  func() { cancels++ },
+			OnBackground: func() { backgrounds++ },
+		})
+		d.Generating()
+		d.concept.SetText("castle")
+
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
+
+		assert.Equal(t, 0, cancels)
+		assert.Equal(t, 0, backgrounds)
+	})
+}
+
+func TestTagsDialog_Focus(t *testing.T) {
+	focused := func(d *TagsDialog) fyne.Focusable {
+		return d.window.Canvas().Focused()
+	}
+
+	t.Run("the dialog opens with the caret in the concept", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.Show()
+
+		assert.Same(t, d.concept, focused(d))
+	})
+
+	t.Run("a run moves the focus onto cancel", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Show()
+
+		d.Generating()
+
+		assert.Same(t, d.cancelRunBtn, focused(d))
+	})
+
+	t.Run("a hidden dialog focuses nothing", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.Generating()
+
+		assert.Nil(t, focused(d))
+	})
+
+	t.Run("a run landing while the user types leaves the caret alone", func(t *testing.T) {
+		for name, finish := range map[string]func(*TagsDialog){
+			"tags":    func(d *TagsDialog) { d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()}) },
+			"failure": func(d *TagsDialog) { d.Fail(errors.New("running claude: exit status 1")) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				d := newTestTagsDialog(t, TagsDialogCallbacks{})
+				d.Show()
+				d.Generating()
+				d.window.Canvas().Focus(d.location)
+
+				finish(d)
+
+				assert.Same(t, d.location, focused(d))
+			})
+		}
+	})
+
+	t.Run("a finished run passes the focus to what it left behind", func(t *testing.T) {
+		for name, expected := range map[string]func(*TagsDialog) (func(), fyne.Focusable){
+			"tags": func(d *TagsDialog) (func(), fyne.Focusable) {
+				return func() { d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()}) }, d.title
+			},
+			"failure": func(d *TagsDialog) (func(), fyne.Focusable) {
+				return func() { d.Fail(errors.New("running claude: exit status 1")) }, d.generateBtn
+			},
+			"missing binary": func(d *TagsDialog) (func(), fyne.Focusable) {
+				return func() { d.Fail(fmt.Errorf("looking for claude: %w", claudebin.ErrNotFound)) }, d.pathEntry
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				d := newTestTagsDialog(t, TagsDialogCallbacks{})
+				d.Show()
+				d.Generating()
+
+				finish, want := expected(d)
+				finish()
+
+				assert.Same(t, want, focused(d))
+			})
+		}
+	})
+}
+
+func TestTagsDialog_ShortcutRune(t *testing.T) {
+	t.Run("the letter that opened the dialog stays out of the concept", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.Show()
+		d.concept.TypedRune('t')
+
+		assert.Empty(t, d.concept.Text)
+	})
+
+	t.Run("what the user types afterwards is text", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Show()
+		d.concept.TypedRune('t')
+
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyT})
+		d.concept.TypedRune('t')
+
+		assert.Equal(t, "t", d.concept.Text)
+	})
+}
+
+func TestTagsDialog_Submit(t *testing.T) {
+	t.Run("Enter in a single-line input starts a run", func(t *testing.T) {
+		for name, entry := range map[string]func(*TagsDialog) *dialogEntry{
+			"concept":     func(d *TagsDialog) *dialogEntry { return d.concept },
+			"location":    func(d *TagsDialog) *dialogEntry { return d.location },
+			"claude path": func(d *TagsDialog) *dialogEntry { return d.pathEntry },
+		} {
+			t.Run(name, func(t *testing.T) {
+				calls := 0
+				d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
+
+				entry(d).OnSubmitted("")
+
+				assert.Equal(t, 1, calls)
+				assert.True(t, d.generateBtn.Disabled())
+				assert.True(t, d.progress.Visible())
+			})
+		}
+	})
+
+	t.Run("a run already going is not started again", func(t *testing.T) {
+		calls := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
+
+		d.concept.OnSubmitted("")
+		d.location.OnSubmitted("")
+
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("Enter in the result fields stays a newline", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		for _, entry := range []*dialogEntry{d.title, d.keywords} {
+			assert.True(t, entry.MultiLine)
+			assert.Nil(t, entry.OnSubmitted)
+		}
+	})
+}
+
+func TestTagsDialog_PhysicalKeys(t *testing.T) {
+	scancodes := map[glfw.Key]int{glfw.KeyN: 45, glfw.KeyB: 11}
+	keys := KeyMatcher{scancode: func(key glfw.Key) int { return scancodes[key] }}
+
+	t.Run("a run is commanded by the place of the key, not by the letter on it", func(t *testing.T) {
+		for name, expected := range map[string]struct {
+			scancode             int
+			cancels, backgrounds int
+		}{
+			"cancel":     {scancode: scancodes[glfw.KeyN], cancels: 1},
+			"background": {scancode: scancodes[glfw.KeyB], backgrounds: 1},
+		} {
+			t.Run(name, func(t *testing.T) {
+				var cancels, backgrounds int
+				d := newTestTagsDialogWith(t,
+					TagsDialogOptions{Filename: "DSC001.JPG", Keys: keys},
+					TagsDialogCallbacks{
+						OnCancelRun:  func() { cancels++ },
+						OnBackground: func() { backgrounds++ },
+					})
+				d.Generating()
+
+				// The name is the letter a Russian layout prints on the key, which
+				// is neither of the two the dialog answers to.
+				d.cancelRunBtn.TypedKey(&fyne.KeyEvent{
+					Name:     fyne.KeyName("Cyrillic"),
+					Physical: fyne.HardwareKey{ScanCode: expected.scancode},
+				})
+
+				assert.Equal(t, expected.cancels, cancels)
+				assert.Equal(t, expected.backgrounds, backgrounds)
+			})
+		}
+	})
+
+	t.Run("a key of another place is left alone", func(t *testing.T) {
+		var cancels, backgrounds int
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", Keys: keys},
+			TagsDialogCallbacks{
+				OnCancelRun:  func() { cancels++ },
+				OnBackground: func() { backgrounds++ },
+			})
+		d.Generating()
+
+		d.cancelRunBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN, Physical: fyne.HardwareKey{ScanCode: 8}})
+
+		assert.Equal(t, 0, cancels)
+		assert.Equal(t, 0, backgrounds)
 	})
 }

@@ -34,6 +34,7 @@ func (a *Application) handleTags() {
 		ClaudePath: prefs.String("claudePath"),
 		Date:       taken,
 		IsJPEG:     photo.IsJPEG(),
+		Keys:       a.keys,
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnEscape:     a.handleCancel,
 		OnGenerate:   session.generate,
