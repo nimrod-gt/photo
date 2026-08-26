@@ -46,6 +46,7 @@ type Request struct {
 	Photo      model.Photo
 	Notes      string
 	Location   string
+	Concept    string
 	ClaudePath string
 }
 
@@ -76,9 +77,10 @@ func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) 
 	generated, err := parseTagsResponse(out, t.now())
 	switch {
 	case err == nil:
-		// The free text is the user's own, so it is taken from the request
-		// rather than from the model's echo of it.
+		// The free text fields are the user's own, so they are taken from the
+		// request rather than from the model's echo of them.
 		generated.Place.Location = strings.TrimSpace(req.Location)
+		generated.Concept = strings.TrimSpace(req.Concept)
 		return generated, nil
 	case runErr == nil || !errors.Is(err, errNoReport):
 		return model.Tags{}, err

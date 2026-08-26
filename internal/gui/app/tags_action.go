@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -76,7 +77,11 @@ type tagsSession struct {
 	dialog *ui.TagsDialog
 	saved  model.Tags
 	taken  time.Time
-	seeded bool
+	// known says the session has been told what the files already hold. Until
+	// it has, everything on the dialog was typed into fields that were blank
+	// for want of a read rather than for want of tags, so a save from it adds
+	// to what is there instead of taking its place - see completed.
+	known bool
 }
 
 // Tags whole enough to show are already in the cache whenever the photo was
@@ -86,7 +91,7 @@ func (s *tagsSession) seed() {
 	if !ok {
 		return
 	}
-	s.seeded = true
+	s.known = true
 	s.saved = info.Tags
 	s.taken = info.Taken
 	s.dialog.SetPhotoInfo(info.Tags, info.Taken)
@@ -106,6 +111,7 @@ func (s *tagsSession) generate() {
 		Photo:      s.photo,
 		Notes:      s.dialog.Notes(),
 		Location:   s.dialog.Location(),
+		Concept:    s.dialog.Concept(),
 		ClaudePath: s.dialog.ClaudePath(),
 	})
 }
@@ -159,7 +165,7 @@ func (s *tagsSession) background() {
 // the run instead of racing it with a write of its own; the run keeps them if
 // it brings nothing better.
 func (s *tagsSession) saveSidecar(written model.Tags) {
-	if s.app.tagRuns.takeOver(s.photo.ImagePath, written) {
+	if s.app.tagRuns.takeOver(s.photo.ImagePath, written, s.known) {
 		return
 	}
 	if !s.photo.HasRAW() || written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
@@ -168,12 +174,17 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	previous := s.saved
 	s.saved = written
 	taken := s.taken
+	known := s.known
 	path := model.SidecarPath(s.photo.RAWPath)
 	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
-		if err := imaging.WriteSidecar(path, saved); err != nil {
+		complete, err := completed(path, saved, known)
+		if err != nil {
 			return "", err
 		}
-		s.storeStock(saved, taken)
+		if err := imaging.WriteSidecar(path, complete); err != nil {
+			return "", err
+		}
+		s.storeStock(complete, taken)
 		return "", nil
 	}, func() {
 		s.saved = previous
@@ -184,11 +195,28 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	})
 }
 
-// Tags.IsEmpty ignores the place on purpose - a place alone is not a result the
-// generator produced - but a location the user typed is worth a sidecar of its
-// own, with or without tags to go with it.
+// A dialog closed before the read of its photo landed knows nothing of what the
+// sidecar already holds: every field on it stood empty for want of that read
+// rather than for want of tags, so whatever was typed into one was added to
+// nothing. The save adds to the file in the same way, because emptying a field
+// is what puts a save in place of what is there, and no field on such a dialog
+// can have been emptied.
+func completed(path string, written model.Tags, known bool) (model.Tags, error) {
+	if known {
+		return written, nil
+	}
+	existing, err := imaging.ReadSidecar(path)
+	if err != nil {
+		return written, fmt.Errorf("reading %s before saving over it: %w", filepath.Base(path), err)
+	}
+	return imaging.FillMissing(written, existing), nil
+}
+
+// Tags.IsEmpty ignores the place and the concept on purpose - neither is a
+// result the generator produced - but text the user typed into either is worth a
+// sidecar of its own, with or without tags to go with it.
 func nothingToWrite(tags model.Tags) bool {
-	return tags.IsEmpty() && tags.Place.IsEmpty()
+	return tags.IsEmpty() && tags.Place.IsEmpty() && len(strings.TrimSpace(tags.Concept)) == 0
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A
@@ -197,9 +225,11 @@ func nothingToWrite(tags model.Tags) bool {
 // case is spelled out instead of passing as a plain success.
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
-// No EXIF tag holds a place, so the fallback the note above describes carries
-// the title and the keywords and leaves the location behind.
+// No EXIF tag holds a place or a concept, so the fallback the note above
+// describes carries the title and the keywords and leaves those two behind.
 const placeDroppedNote = "the location was not written: the XMP packet had no room and the EXIF has no field for a place"
+
+const conceptDroppedNote = "the concept was not written: the XMP packet had no room and the EXIF has no field for it"
 
 func (s *tagsSession) saveJPEG() {
 	taken := s.taken
@@ -221,6 +251,9 @@ func writeNote(write imaging.StockWrite) string {
 	if write.PlaceDropped {
 		notes = append(notes, placeDroppedNote)
 	}
+	if write.ConceptDropped {
+		notes = append(notes, conceptDroppedNote)
+	}
 	return strings.Join(notes, "; ")
 }
 
@@ -238,7 +271,7 @@ func (s *tagsSession) close() {
 // A run that finished before this read - the file may sit on a slow volume -
 // already wrote what the sidecar holds, so its tags are the ones kept.
 func (s *tagsSession) prefill() {
-	if s.seeded {
+	if s.known {
 		return
 	}
 	go func() {
@@ -250,6 +283,9 @@ func (s *tagsSession) prefill() {
 			if !s.app.dialogs.isCurrent(s.dialog) {
 				return
 			}
+			// A read that failed says nothing about the files, so the session
+			// stays in the dark and keeps adding to them rather than replacing.
+			s.known = err == nil
 			if s.saved.IsEmpty() {
 				s.saved = info.Tags
 			}

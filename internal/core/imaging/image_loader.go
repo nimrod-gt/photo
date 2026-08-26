@@ -104,7 +104,7 @@ func keptStock(fresh, old *StockInfo) *StockInfo {
 	if old.complete {
 		kept, filler = *old, *fresh
 	}
-	kept.Tags = fillMissing(kept.Tags, filler.Tags)
+	kept.Tags = FillMissing(kept.Tags, filler.Tags)
 	if kept.Taken.IsZero() {
 		kept.Taken = filler.Taken
 	}

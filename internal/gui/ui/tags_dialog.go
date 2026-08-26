@@ -347,7 +347,7 @@ func (d *TagsDialog) Hide() {
 // Notes renders the optional inputs in the input format the prompt expects.
 func (d *TagsDialog) Notes() string {
 	var lines []string
-	if concept := strings.TrimSpace(d.concept.Text); len(concept) != 0 {
+	if concept := d.Concept(); len(concept) != 0 {
 		lines = append(lines, "Concept: "+concept)
 	}
 	if location := d.Location(); len(location) != 0 {
@@ -374,11 +374,16 @@ func (d *TagsDialog) Location() string {
 	return strings.TrimSpace(d.location.Text)
 }
 
+func (d *TagsDialog) Concept() string {
+	return strings.TrimSpace(d.concept.Text)
+}
+
 func (d *TagsDialog) Tags() model.Tags {
 	return model.Tags{
 		Title:    strings.TrimSpace(d.title.Text),
 		Keywords: model.ParseKeywordLine(d.keywords.Text),
 		Place:    d.place(),
+		Concept:  d.Concept(),
 	}
 }
 
@@ -406,12 +411,13 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if !d.resultUntouched() {
 		return
 	}
-	// A file can carry a place and no tags at all - a Lightroom sidecar with a
-	// location in it, or a photo whose location was typed and never generated
-	// from. The location is the user's own field and is filled either way; the
-	// result fields stay hidden while there is nothing to put in them.
+	// A file can carry a place or a concept and no tags at all - a Lightroom
+	// sidecar with a location in it, or a photo whose note was typed and never
+	// generated from. Those two are the user's own fields and are filled either
+	// way; the result fields stay hidden while there is nothing to put in them.
 	if existing.IsEmpty() {
 		d.takePlace(existing.Place)
+		d.takeConcept(existing.Concept)
 		return
 	}
 	d.showTags(existing)
@@ -428,17 +434,30 @@ func (d *TagsDialog) dateUntouched() bool {
 	return d.date.Date.Equal(d.defaultDate)
 }
 
+// The location and the concept are left exactly as they are: a run echoes back
+// the free text it was asked with, so it has nothing to add to either, and
+// filling them again would undo an edit made in the minute it took to answer -
+// a note cleared while the run went would come straight back.
 func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.finishRun()
-	d.showTags(generated)
+	d.split = generated.Place.Trimmed()
+	d.showResult(generated)
 	d.focusAfterRun(d.title)
 }
 
 // RestoreTags puts back what a dialog closing over a run handed to it, leaving
 // the run itself alone: the fields are on screen and editable again while the
 // generation that owns them still goes.
+//
+// The dialog that closed handed over the whole of what it held, and held it
+// later than the file did, so every field is put back over the seed this one
+// read out of the cache a moment ago rather than only filling what that left
+// empty.
 func (d *TagsDialog) RestoreTags(handed model.Tags) {
-	d.showTags(handed)
+	d.split = handed.Place.Trimmed()
+	d.location.SetText(d.split.Location)
+	d.concept.SetText(strings.TrimSpace(handed.Concept))
+	d.showResult(handed)
 }
 
 // A run lands up to a minute after it was started and the fields stay editable
@@ -451,20 +470,35 @@ func (d *TagsDialog) focusAfterRun(next fyne.Focusable) {
 	}
 }
 
+// What the file already holds, which is the older of the two whenever the user
+// has typed anything: it fills the free text fields only while they are empty.
 func (d *TagsDialog) showTags(shown model.Tags) {
+	d.takePlace(shown.Place)
+	d.takeConcept(shown.Concept)
+	d.showResult(shown)
+}
+
+func (d *TagsDialog) showResult(shown model.Tags) {
 	d.title.SetText(shown.Title)
 	d.keywords.SetText(shown.KeywordLine())
-	d.takePlace(shown.Place)
 	d.resultBox.Show()
 	d.refreshStatus()
 }
 
 func (d *TagsDialog) takePlace(place model.Place) {
 	d.split = place.Trimmed()
-	// A location typed while the run was going is the newer one and stays; the
+	// A location typed before the read landed is the newer one and stays; the
 	// split then no longer matches it and place() drops it.
 	if len(d.Location()) == 0 {
 		d.location.SetText(d.split.Location)
+	}
+}
+
+// Same rule as the location: a note typed before the read landed is the newer
+// one and is never written over by what the file had.
+func (d *TagsDialog) takeConcept(concept string) {
+	if len(d.Concept()) == 0 {
+		d.concept.SetText(strings.TrimSpace(concept))
 	}
 }
 

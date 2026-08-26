@@ -145,27 +145,6 @@
       "created_at": "2026-08-26T09:52:00Z",
       "updated_at": "2026-08-26T09:52:00Z",
       "plan": null
-    },
-    {
-      "id": 15,
-      "description": "Save the original concept.",
-      "context": "The Tags dialog's optional \"Concept\" free-text note (internal/gui/ui/tags_dialog.go, the `concept` dialogEntry) is only rendered into the prompt via TagsDialog.Notes() and passed to the claude CLI as tags.Request.Notes from tagsSession.generate in internal/gui/app/tags_action.go; nothing persists it, so reopening the dialog on the same photo shows an empty Concept field. Location, by contrast, is already carried end-to-end: TagsDialog.Location()/place() -> model.Tags.Place (internal/core/model/tags.go) -> XMP sidecar and in-place JPEG writes (internal/core/imaging/sidecar.go property table, exif_write.go) and back into the dialog through imaging.StockInfo + Provider.PeekStockInfo/StoreStockInfo, seeded by tagsSession.seed -> TagsDialog.SetPhotoInfo/takePlace. A persisted concept would naturally follow that same Place-shaped path (model.Tags field, sidecar/StockInfo round-trip, dialog seeding), noting that Tags.IsEmpty/Equal/Problems deliberately ignore non-result fields like Place.",
-      "docs": [
-        "internal/gui/ui/tags_dialog.go",
-        "internal/gui/app/tags_action.go",
-        "internal/core/model/tags.go",
-        "internal/core/imaging/sidecar.go",
-        "internal/core/imaging/stock_info.go",
-        "internal/core/imaging/exif_write.go",
-        "internal/gui/ui/tags_dialog_test.go",
-        "internal/gui/app/tags_action_test.go"
-      ],
-      "depends_on": [],
-      "status": "open",
-      "branch": null,
-      "created_at": "2026-08-26T10:51:19Z",
-      "updated_at": "2026-08-26T10:51:19Z",
-      "plan": null
     }
   ]
 }
