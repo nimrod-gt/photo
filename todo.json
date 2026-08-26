@@ -1,108 +1,7 @@
 {
   "version": 1,
-  "next_id": 15,
+  "next_id": 16,
   "todos": [
-    {
-      "id": 10,
-      "description": "Improve keyboard navigation in the Tags dialog",
-      "context": "In the Tags dialog (internal/gui/ui/tags_dialog.go) the button row is rebuilt by setGenerating(bool): while a run is in flight it shows Cancel (N) | Background (B) | disabled Generate, idle it shows Close (ESC) | Copy title | Copy keywords | [Save JPEG] | Generate; N and B are not handled by the dialog but by global GLFW scancode shortcuts on the canvas (internal/gui/ui/shortcuts.go, mapped to OnCancel/OnBlue and dispatched through internal/gui/app/actions.go + tags_action.go, gated by shortcutsBlocked), so they only fire when nothing holds focus and Generating() calls window.Canvas().Unfocus() as a workaround. Escape is already solved separately by the escapeEntry/escapeDateEntry/escapeCheck wrappers in internal/gui/ui/escapable.go, which intercept Escape in TypedKey and forward it to TagsDialogCallbacks.OnEscape because a Fyne calendar popup can stack over the dialog; the dialog otherwise relies on default Fyne Tab traversal across Concept, Location, Editorial, Date, claude path, Title, Keywords and the buttons, and this fragile letter-key/focus interaction is what prompted the task.",
-      "docs": [
-        "internal/gui/ui/tags_dialog.go",
-        "internal/gui/ui/escapable.go",
-        "internal/gui/ui/tags_dialog_test.go",
-        "internal/gui/ui/shortcuts.go",
-        "internal/gui/ui/callbacks.go",
-        "internal/gui/app/actions.go",
-        "internal/gui/app/tags_action.go",
-        "internal/gui/ui/help.go"
-      ],
-      "depends_on": [],
-      "status": "in_progress",
-      "branch": "todo/10-tags-dialog-keyboard",
-      "created_at": "2026-08-25T08:52:45Z",
-      "updated_at": "2026-08-26T08:37:35Z",
-      "plan": {
-        "created_at": "2026-08-25T11:03:29Z",
-        "revised_at": "2026-08-26T08:37:35Z",
-        "base_commit": "4f402c4",
-        "summary": "Move the Tags dialog's keyboard handling into the dialog itself so it no longer depends on canvas-level GLFW scancode shortcuts firing only while nothing holds focus (and on the `window.Canvas().Unfocus()` workaround in `Generating()`). The escape wrappers in internal/gui/ui/escapable.go become a general key router that every focusable widget of the dialog (entries, date entry, check, and a new button wrapper) consults before the embedded widget sees the key; multi-line entries stop swallowing Tab, so Tab traversal actually walks the whole dialog; buttons answer Return as well as Space and, while a run is going, N/B by physical key; and focus is placed deliberately (Concept on open, Cancel while a run goes, a sensible field when the run ends) instead of being cleared. Help text and CLAUDE.md are updated last. The app-side plumbing (actions.go, tags_action.go, shortcuts.go) keeps working unchanged as a fallback for when nothing in the dialog holds focus.",
-        "steps": [
-          {
-            "title": "Turn the escape wrappers into a key router and let Tab leave the multi-line fields",
-            "details": "In internal/gui/ui/escapable.go replace the `onEscape func()` field of `escapeEntry`, `escapeDateEntry` and `escapeCheck` with `onKey func(*fyne.KeyEvent) bool`: `TypedKey` calls it first and returns when it reports the key as consumed, otherwise it forwards to the embedded widget. Rename the three types to `dialogEntry`, `dialogDateEntry`, `dialogCheck` (file name stays escapable.go) and rewrite the file header comment: it is no longer only about Escape. Add `func (e *dialogEntry) AcceptsTab() bool { return false }` — the GLFW driver checks `fyne.Tabbable.AcceptsTab()` in `capturesTab` *before* `TypedKey`, so a multi-line `widget.Entry` (Title, Keywords) currently eats Tab and cannot be left by keyboard; overriding it is the only way to make Tab traverse. In internal/gui/ui/tags_dialog.go add `func (d *TagsDialog) handleKey(ev *fyne.KeyEvent) bool` that consumes `fyne.KeyEscape` by calling `d.requestEscape()` and returns false otherwise, and pass `d.handleKey` to every constructor in `buildInputs`/`buildResult`; update the struct field types. In internal/gui/ui/tags_dialog_test.go update the `[]*escapeEntry` loop in TestTagsDialog_Escape to `[]*dialogEntry` and add cases: Tab is not accepted by title/keywords (`assert.False(t, d.keywords.AcceptsTab())`) and a non-Escape key still reaches the widget (the existing \"other keys still reach the input\" case covers the latter).",
-            "files": [
-              "internal/gui/ui/escapable.go",
-              "internal/gui/ui/tags_dialog.go",
-              "internal/gui/ui/tags_dialog_test.go"
-            ]
-          },
-          {
-            "title": "Give the dialog buttons keyboard activation and the run's command keys",
-            "details": "Add a `dialogButton` wrapper to internal/gui/ui/escapable.go embedding `widget.Button` with an `onKey func(*fyne.KeyEvent) bool`: `TypedKey` asks the dialog first, then treats `fyne.KeyReturn`/`fyne.KeyEnter` as a tap (Fyne's Button only answers Space), then falls through to `widget.Button.TypedKey`. Add a helper to internal/gui/ui/shortcuts.go, e.g. `func physicalKey(ev *fyne.KeyEvent, key glfw.Key, name fyne.KeyName) bool`, matching `ev.Physical.ScanCode == glfw.GetKeyScancode(key)` or `ev.Name == name` — the scancode form keeps the letters layout-independent like the canvas shortcuts, the name form is the fallback where GLFW is not initialised (it returns -1 then, which would make N and B collide). In internal/gui/ui/tags_dialog.go build every button (`generateBtn`, `copyTitleBtn`, `copyKeywordsBtn`, `saveJPEGBtn`, `closeBtn`, `cancelRunBtn`, `backgroundBtn`) as `*dialogButton`, change `setEnabled(button *widget.Button, ...)` to take `*dialogButton`, and add `func (d *TagsDialog) handleCommandKey(ev *fyne.KeyEvent) bool` = `handleKey` plus, while `d.generating`, N -> `call(d.callbacks.OnCancelRun)` and B -> `call(d.callbacks.OnBackground)`; hand `handleCommandKey` to the buttons and to `dialogCheck` (neither consumes runes, so intercepting bare letters there is safe, unlike in a text entry where the character still arrives through TypedRune). Tests in internal/gui/ui/tags_dialog_test.go: N and B on the focused `cancelRunBtn` reach OnCancelRun/OnBackground only while generating; Return on a focused button taps it; N typed into `d.concept` triggers no callback.",
-            "files": [
-              "internal/gui/ui/escapable.go",
-              "internal/gui/ui/shortcuts.go",
-              "internal/gui/ui/tags_dialog.go",
-              "internal/gui/ui/tags_dialog_test.go"
-            ]
-          },
-          {
-            "title": "Place focus deliberately instead of clearing it",
-            "details": "In internal/gui/ui/tags_dialog.go add a `shown bool` field set in `Show()` (cleared in `Hide()`) and a small `func (d *TagsDialog) focus(obj fyne.Focusable)` that no-ops unless the dialog is shown — `canvas.Focus` logs \"Failed to focus object which is not part of the canvas' content, menu or overlays\" for an object in an unshown dialog. `Show()` focuses `d.concept` so the dialog opens ready for typing. `Generating()` drops `d.window.Canvas().Unfocus()` and instead focuses `d.cancelRunBtn` after `setGenerating(true)`, so N/B/Space/Return all act on the run without the unfocus trick; update the comment above it, which explains the workaround. `finishRun()` must move focus off the button that is about to leave the row (the focus manager keeps a pointer to a removed object and keys then go nowhere): focus `d.pathEntry` when `Fail` revealed `pathRow`, `d.title` when tags arrived, else `d.generateBtn`; the simplest shape is for `SetTags`/`Fail` to pass the target into `finishRun`. Tests: after `d.Show()` the canvas focus is the concept entry; after `Generating()` it is `cancelRunBtn`; after `SetTags`/`Fail` it is no longer a button that left `d.buttons.Objects`.",
-            "files": [
-              "internal/gui/ui/tags_dialog.go",
-              "internal/gui/ui/tags_dialog_test.go"
-            ]
-          },
-          {
-            "title": "Enter in the single-line inputs starts a run",
-            "details": "In internal/gui/ui/tags_dialog.go extract the Generate button's body into `func (d *TagsDialog) startGenerate()` (guarding `d.generating` and `d.generateBtn.Disabled()`), use it for the button and set it as `OnSubmitted` of `d.concept`, `d.location` and `d.pathEntry` — Fyne fires `OnSubmitted` on Return for single-line entries, so a user can type a concept and press Enter without reaching for the mouse, while Return in the multi-line Title/Keywords keeps inserting a newline. Tests in internal/gui/ui/tags_dialog_test.go: `d.concept.OnSubmitted(\"x\")` (or a Return key event on the entry) runs OnGenerate once and puts the dialog into the generating state; a second submission while generating does nothing.",
-            "files": [
-              "internal/gui/ui/tags_dialog.go",
-              "internal/gui/ui/tags_dialog_test.go"
-            ]
-          },
-          {
-            "title": "Document the dialog's keys",
-            "details": "Extend the \"Tags dialog\" section of `helpRight` in internal/gui/ui/help.go with the keys the dialog now owns: `Tab`/`Shift+Tab` move between fields and buttons, `Space`/`Enter` press the focused button, `Enter` in Concept/Location starts a run, `Esc` closes, and keep `B`/`N` for background/cancel of a running generation. Mirror the same list in the \"Keyboard Shortcuts\" section of CLAUDE.md (the `B` and `N` bullets currently say \"Tags dialog only\" without saying that they now work from the dialog itself).",
-            "files": [
-              "internal/gui/ui/help.go",
-              "CLAUDE.md"
-            ]
-          }
-        ],
-        "questions": [
-          {
-            "question": "Should the dialog focus the Concept field when it opens? It makes typing immediate but means the canvas letter shortcuts no longer reach the app while the dialog is up (they are blocked by shortcutsBlocked anyway). Assume yes unless told otherwise. Affects step 3.",
-            "answer": "Yes - focus Concept on open."
-          },
-          {
-            "question": "Should Tab move out of the multi-line Title/Keywords fields, giving up the ability to type a literal tab character there? Assume yes unless told otherwise. Affects step 1.",
-            "answer": "Yes - Tab traverses; a literal tab in Title/Keywords is given up."
-          },
-          {
-            "question": "Should Enter in Concept/Location/claude-path start a generation? Assume yes unless told otherwise. Affects step 4.",
-            "answer": "Yes - Enter in the single-line entries starts a run."
-          },
-          {
-            "question": "Keep the global fallback (ui/shortcuts.go OnCancel/OnBlue -> app.handleCancel/handleBlue) now that the dialog answers N/B itself, or delete the tags branch of handleBlue? Assume keep — it still fires when a mouse click has left nothing focused. Affects step 2.",
-            "answer": "Keep the global fallback."
-          },
-          {
-            "question": "Keep the current button order (Close, Copy title, Copy keywords, Save JPEG, Generate), which is also the Tab order, or should Generate come first? Assume keep — the existing test asserts that exact slice. Affects steps 2 and 3.",
-            "answer": "Keep the current button order."
-          }
-        ],
-        "risks": [
-          "glfw.GetKeyScancode returns -1 when GLFW is not initialised (unit tests, headless CI), so a scancode-only match would make N and B indistinguishable; the helper must also compare fyne.KeyName.",
-          "Bare letters cannot be intercepted inside a text entry: the driver delivers TypedKey and TypedRune separately, so swallowing KeyN in TypedKey would still insert 'n'. Only the buttons and the check may claim letters.",
-          "The button row is rebuilt by setGenerating; if focus stays on a button that was removed from the container, the focus manager keeps pointing at it and keys silently go nowhere.",
-          "canvas.Focus on a widget whose dialog is not shown logs an error - the focus helper must be a no-op until Show().",
-          "Escape from the date entry while the Fyne calendar popup is stacked on top must keep going through OnEscape -> app.handleCancel, which is the only place that can see the foreign overlay.",
-          "Existing tests compare d.buttons.Objects by identity and call test.Tap on the buttons; changing the field type to *dialogButton keeps both working only if the wrapper embeds widget.Button and calls ExtendBaseWidget."
-        ]
-      }
-    },
     {
       "id": 12,
       "description": "Copy stock tags from one photo to another",
@@ -336,6 +235,27 @@
       "branch": null,
       "created_at": "2026-08-26T09:52:00Z",
       "updated_at": "2026-08-26T09:52:00Z",
+      "plan": null
+    },
+    {
+      "id": 15,
+      "description": "Save the original concept.",
+      "context": "The Tags dialog's optional \"Concept\" free-text note (internal/gui/ui/tags_dialog.go, the `concept` dialogEntry) is only rendered into the prompt via TagsDialog.Notes() and passed to the claude CLI as tags.Request.Notes from tagsSession.generate in internal/gui/app/tags_action.go; nothing persists it, so reopening the dialog on the same photo shows an empty Concept field. Location, by contrast, is already carried end-to-end: TagsDialog.Location()/place() -> model.Tags.Place (internal/core/model/tags.go) -> XMP sidecar and in-place JPEG writes (internal/core/imaging/sidecar.go property table, exif_write.go) and back into the dialog through imaging.StockInfo + Provider.PeekStockInfo/StoreStockInfo, seeded by tagsSession.seed -> TagsDialog.SetPhotoInfo/takePlace. A persisted concept would naturally follow that same Place-shaped path (model.Tags field, sidecar/StockInfo round-trip, dialog seeding), noting that Tags.IsEmpty/Equal/Problems deliberately ignore non-result fields like Place.",
+      "docs": [
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/app/tags_action.go",
+        "internal/core/model/tags.go",
+        "internal/core/imaging/sidecar.go",
+        "internal/core/imaging/stock_info.go",
+        "internal/core/imaging/exif_write.go",
+        "internal/gui/ui/tags_dialog_test.go",
+        "internal/gui/app/tags_action_test.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-26T10:51:19Z",
+      "updated_at": "2026-08-26T10:51:19Z",
       "plan": null
     }
   ]

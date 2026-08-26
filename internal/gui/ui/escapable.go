@@ -27,9 +27,10 @@ type dialogEntry struct {
 	keys dialogKeys
 	// The key that opened the dialog is still in flight while the dialog places
 	// its first focus: the rune of that key is delivered afterwards and would
-	// land in the field as text. Every real keystroke reaches the focused widget
-	// as a key event before its rune does, so a rune with no key event in front
-	// of it is the leftover one.
+	// land in the field as text. Every real keystroke announces itself to the
+	// focused widget before its rune arrives - as a key event, or as a shortcut
+	// when a modifier the driver keeps to itself is held - so a rune with
+	// nothing in front of it is the leftover one.
 	strayRune bool
 }
 
@@ -64,6 +65,7 @@ func (e *dialogEntry) TypedKey(ev *fyne.KeyEvent) {
 }
 
 func (e *dialogEntry) TypedShortcut(shortcut fyne.Shortcut) {
+	e.strayRune = false
 	if e.keys.handleShortcut(shortcut) {
 		return
 	}
@@ -164,7 +166,18 @@ func (c *dialogCheck) KeyUp(ev *fyne.KeyEvent) {
 
 type dialogButton struct {
 	widget.Button
-	keys dialogKeys
+	keys  dialogKeys
+	label string
+}
+
+// A button with an icon and no text is announced by the name of that icon, and
+// the two copy buttons carry the same one; a label of its own says what the
+// button copies instead.
+func (b *dialogButton) AccessibilityLabel() string {
+	if len(b.label) != 0 {
+		return b.label
+	}
+	return b.Button.AccessibilityLabel()
 }
 
 func newDialogButton(label string, tapped func(), keys dialogKeys) *dialogButton {

@@ -116,7 +116,7 @@ func (a *Application) openTestTagsDialog(t *testing.T, photo model.Photo) *tagsS
 	session := &tagsSession{app: a, photo: photo, taken: taken}
 	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{Filename: photo.Name}, a.mainWindow.Window(),
 		ui.TagsDialogCallbacks{})
-	a.dialogs.open(dialogTags, session.dialog, session.cancelRun)
+	a.dialogs.openSelfClosing(dialogTags, session.dialog, session.escape)
 	return session
 }
 
@@ -209,7 +209,7 @@ func TestTagRunner(t *testing.T) {
 
 		a.tagRuns.start(session, tags.Request{Photo: photo})
 		<-held.started
-		session.cancelRun()
+		session.stopRun()
 
 		// Asked the way a reopened dialog asks it, which is also the only way
 		// to read the registry while the run goroutine may still be in it.
@@ -322,5 +322,33 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, taken, info.Taken)
 		assert.Equal(t, generatedTags(), info.Tags)
+	})
+
+	t.Run("Escape over a running generation stops it and keeps the dialog", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.dialog.Generating()
+		a.handleCancel()
+
+		assert.False(t, session.dialog.IsGenerating(), "the dialog must come back from the run it stopped")
+		assert.True(t, a.dialogs.isCurrent(session.dialog), "everything typed into the dialog stays on screen")
+
+		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
+		assert.NoFileExists(t, model.SidecarPath(photo.RAWPath))
+	})
+
+	t.Run("Escape over an idle dialog closes it", func(t *testing.T) {
+		a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+		session := a.openTestTagsDialog(t, testPhoto(t, false))
+
+		a.handleCancel()
+
+		assert.False(t, a.dialogs.anyOpen(), "a dialog with no run left to stop closes")
+		assert.False(t, a.dialogs.isCurrent(session.dialog))
 	})
 }

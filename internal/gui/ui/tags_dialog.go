@@ -162,8 +162,8 @@ func (d *TagsDialog) buildResult() {
 	d.keywords.SetPlaceHolder("Keywords, comma separated")
 	d.keywords.OnChanged = func(string) { d.refreshStatus() }
 
-	d.copyTitleBtn = newCopyButton(func() { call(d.callbacks.OnCopyTitle) }, d)
-	d.copyKeywordsBtn = newCopyButton(func() { call(d.callbacks.OnCopyKeywords) }, d)
+	d.copyTitleBtn = newCopyButton("Copy title", func() { call(d.callbacks.OnCopyTitle) }, d)
+	d.copyKeywordsBtn = newCopyButton("Copy keywords", func() { call(d.callbacks.OnCopyKeywords) }, d)
 
 	d.resultBox = container.NewVBox(
 		copyableField(d.title, d.copyTitleBtn),
@@ -176,8 +176,9 @@ func (d *TagsDialog) buildResult() {
 	d.status.Hide()
 }
 
-func newCopyButton(tapped func(), keys dialogKeys) *dialogButton {
+func newCopyButton(label string, tapped func(), keys dialogKeys) *dialogButton {
 	button := newDialogButton("", tapped, keys)
+	button.label = label
 	button.SetIcon(theme.ContentCopyIcon())
 	button.Importance = widget.LowImportance
 	button.Disable()
@@ -482,9 +483,13 @@ func (d *TagsDialog) Generating() {
 	d.progress.Show()
 	d.progress.Start()
 	d.setGenerating(true)
-	// A disabled widget keeps the focus it already has and the Tab walk passes
-	// it by, so the keyboard would be left outside the row it stands in.
-	if d.window.Canvas().Focused() == fyne.Focusable(d.generateBtn) {
+	// The row is rebuilt around a run and the focus may be left where nothing
+	// can be done with it: on Generate, which is disabled now and which the Tab
+	// walk goes past, or on Save JPEG, which is out of the row while Space would
+	// still press it. A mouse press on Generate leaves no focus at all, and the
+	// dialog would then hear none of the chords its buttons are named after.
+	switch d.window.Canvas().Focused() {
+	case nil, fyne.Focusable(d.generateBtn), fyne.Focusable(d.saveJPEGBtn):
 		d.focus(d.backgroundBtn)
 	}
 }
@@ -494,10 +499,12 @@ func (d *TagsDialog) IsGenerating() bool {
 }
 
 // A stopped run brought no tags, so the Generate button keeps its own name and
-// the line that announced the run goes with it.
+// the line that announced the run gives way to what the fields say about
+// themselves - which for tags that were there before the run is the count the
+// status line held all along.
 func (d *TagsDialog) StopGenerating() {
 	d.endRun()
-	d.setStatus("")
+	d.refreshStatus()
 	d.focusAfterRun(d.generateBtn)
 }
 

@@ -39,7 +39,6 @@ type Application struct {
 	gridViewer       *ui.GridViewer
 	mainWindow       *ui.MainWindow
 	dialogs          dialogManager
-	keys             ui.KeyMatcher
 	fullImageSize    func() int
 	sortOrder        library.SortOrder
 	sortDescending   bool
@@ -147,11 +146,11 @@ func (a *Application) Run() {
 	// created it, which the loop does on its way to the first frame.
 	fyneApp.Lifecycle().SetOnStarted(a.mainWindow.Maximize)
 
-	a.keys = ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
+	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
 		OnFavorite:       a.handleFavorite,
 		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:           a.handleBlue,
+		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
 		OnDelete:         a.handleDelete,
 		OnCopy:           a.handleCopy,
 		OnCancel:         a.handleCancel,

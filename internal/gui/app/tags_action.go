@@ -37,7 +37,7 @@ func (a *Application) handleTags() {
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnEscape:     a.handleCancel,
 		OnGenerate:   session.generate,
-		OnStopRun:    session.cancelRun,
+		OnStopRun:    session.stopRun,
 		OnBackground: session.background,
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)
@@ -51,7 +51,7 @@ func (a *Application) handleTags() {
 		OnClose:    session.close,
 	})
 
-	a.dialogs.open(dialogTags, session.dialog, session.cancelRun)
+	a.dialogs.openSelfClosing(dialogTags, session.dialog, session.escape)
 	session.dialog.Show()
 	session.seed()
 	// A run that is still going fills the result fields itself when it lands.
@@ -116,29 +116,27 @@ func (s *tagsSession) runFinished(generated model.Tags, err error) {
 	s.saveSidecar(generated)
 }
 
-// Escape means cancel throughout the app, so it does here what the Cancel
-// button does: the run dies with the dialog. Background is the way to keep one.
-func (s *tagsSession) cancelRun() {
-	s.app.tagRuns.cancel(s.photo.ImagePath)
+// Escape means cancel throughout the app, and what it cancels here is the run
+// rather than the dialog: the tags it would have brought are gone either way,
+// but everything typed to ask for them stays, so a second attempt starts where
+// the first one did. With no run going there is nothing left to cancel but the
+// dialog itself.
+func (s *tagsSession) escape() {
+	if s.dialog.IsGenerating() {
+		s.stopRun()
+		return
+	}
 	s.close()
+}
+
+func (s *tagsSession) stopRun() {
+	s.app.tagRuns.cancel(s.photo.ImagePath)
+	s.dialog.StopGenerating()
 }
 
 func (s *tagsSession) background() {
 	s.app.tagRuns.background(s.photo.ImagePath)
 	s.close()
-}
-
-// B is the Blue label everywhere else, and a dialog on screen blocks that
-// anyway; over a running generation it is the Background button instead, so the
-// key and the button say the same thing.
-func (a *Application) handleBlue() {
-	if session, ok := a.tagRuns.visible(); ok {
-		if !a.foreignOverlayOnTop() {
-			session.background()
-		}
-		return
-	}
-	a.handleColorToggle(model.ColorBlue)
 }
 
 // The sidecar belongs to us alone, so it is written without asking - right

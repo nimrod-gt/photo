@@ -168,6 +168,13 @@ func TestTagsDialog(t *testing.T) {
 			d.buttons.Objects)
 	})
 
+	t.Run("each copy button says what it copies", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		assert.Equal(t, "Copy title", d.copyTitleBtn.AccessibilityLabel())
+		assert.Equal(t, "Copy keywords", d.copyKeywordsBtn.AccessibilityLabel())
+	})
+
 	t.Run("copying sits beside the field it copies", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
@@ -280,6 +287,18 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t,
 			[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn},
 			d.buttons.Objects)
+	})
+
+	t.Run("a stopped regeneration gets the status of the tags it kept back", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+		status := d.status.Text
+		require.NotEmpty(t, status)
+		test.Tap(d.generateBtn)
+
+		d.StopGenerating()
+
+		assert.Equal(t, status, d.status.Text)
 	})
 
 	t.Run("failure re-enables generate and keeps the path entry hidden", func(t *testing.T) {
@@ -750,6 +769,31 @@ func TestTagsDialog_Focus(t *testing.T) {
 		assert.Same(t, d.backgroundBtn, focused(d))
 	})
 
+	t.Run("a run takes the focus off a button that left the row", func(t *testing.T) {
+		d := newTestTagsDialogWith(t,
+			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+		d.Show()
+		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+		require.False(t, d.saveJPEGBtn.Disabled(), "the button has to be one the keyboard can reach")
+		d.window.Canvas().Focus(d.saveJPEGBtn)
+
+		d.Generating()
+
+		assert.NotContains(t, d.buttons.Objects, fyne.CanvasObject(d.saveJPEGBtn))
+		assert.Same(t, d.backgroundBtn, focused(d), "Space must not press a button that is off screen")
+	})
+
+	t.Run("a run started with the mouse gives the dialog the keyboard back", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Show()
+		// A tap drops the canvas focus on its way past the button it presses.
+		d.window.Canvas().Unfocus()
+
+		d.Generating()
+
+		assert.Same(t, d.backgroundBtn, focused(d))
+	})
+
 	t.Run("a run leaves a caret in a field where it is", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		d.Show()
@@ -831,6 +875,19 @@ func TestTagsDialog_ShortcutRune(t *testing.T) {
 		d.concept.TypedRune('t')
 
 		assert.Equal(t, "t", d.concept.Text)
+	})
+
+	// A character behind a modifier - AltGr+8 for [ on a German keyboard,
+	// Option+8 for the bullet on a Mac - never arrives as a key event: the driver
+	// turns the chord into a shortcut and delivers the rune alone afterwards.
+	t.Run("a character typed with a modifier is text", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Show()
+
+		d.concept.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.Key8, Modifier: fyne.KeyModifierAlt})
+		d.concept.TypedRune('[')
+
+		assert.Equal(t, "[", d.concept.Text)
 	})
 }
 

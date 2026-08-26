@@ -20,6 +20,15 @@ type shortcutSection struct {
 
 var helpLeft = []shortcutSection{
 	{
+		title: "Navigation",
+		entries: []shortcutEntry{
+			{"← ↑", "Previous photo"},
+			{"→ ↓ 🖱", "Next photo"},
+			{"+ 🖲↑", "Zoom in"},
+			{"- 🖲↓", "Zoom out"},
+		},
+	},
+	{
 		title: "Actions",
 		entries: []shortcutEntry{
 			{"F", "Toggle favorite"},
@@ -40,12 +49,13 @@ var helpLeft = []shortcutSection{
 
 var helpRight = []shortcutSection{
 	{
-		title: "Navigation",
+		title: "Sort & Filter",
 		entries: []shortcutEntry{
-			{"← ↑", "Previous photo"},
-			{"→ ↓ 🖱", "Next photo"},
-			{"+ 🖲↑", "Zoom in"},
-			{"- 🖲↓", "Zoom out"},
+			{"S", "Cycle sort order"},
+			{"1", "Filter by favorite"},
+			{"2", "Filter by red"},
+			{"3", "Filter by green"},
+			{"4", "Filter by blue"},
 		},
 	},
 	{
@@ -54,20 +64,10 @@ var helpRight = []shortcutSection{
 			{"Tab", "Next field or button"},
 			{"⇧Tab", "Previous field or button"},
 			{"Space", "Press the focused button"},
-			{"↵", "Press the button, or generate from a single-line field"},
-			{"Esc", "Cancel the generation and close"},
-			{"B", "Generate in background"},
-			{"N", "Cancel generation"},
-		},
-	},
-	{
-		title: "Sort & Filter",
-		entries: []shortcutEntry{
-			{"S", "Cycle sort order"},
-			{"1", "Filter by favorite"},
-			{"2", "Filter by red"},
-			{"3", "Filter by green"},
-			{"4", "Filter by blue"},
+			{"↵", "Press the button, or a newline in Title/Keywords"},
+			{"⇧↵", "Generate"},
+			{"⌃↵", "Generate in background"},
+			{"Esc", "Stop the generation, or close"},
 		},
 	},
 }

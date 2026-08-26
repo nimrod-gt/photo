@@ -31,22 +31,9 @@ type ShortcutCallbacks struct {
 }
 
 // A shortcut is bound to the place of the key on the keyboard rather than to
-// the letter a layout prints on it. GLFW knows those places only once it is
-// initialised, which happens behind a real window, so the lookup is handed over
-// by whoever wired the canvas up; a matcher without one reads the name of the
-// key instead, and that is what keeps N and B apart under test.
-type KeyMatcher struct {
-	scancode func(glfw.Key) int
-}
-
-func (m KeyMatcher) Matches(ev *fyne.KeyEvent, key glfw.Key, name fyne.KeyName) bool {
-	if m.scancode == nil {
-		return ev.Name == name
-	}
-	return ev.Physical.ScanCode == m.scancode(key)
-}
-
-func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) KeyMatcher {
+// the letter a layout prints on it, so the keys mean the same thing whatever
+// layout the user types in.
+func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 	scanActions := map[int]func(){
 		glfw.GetKeyScancode(glfw.KeyF): callbacks.OnFavorite,
 		glfw.GetKeyScancode(glfw.KeyR): callbacks.OnRed,
@@ -91,6 +78,4 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) KeyMatcher 
 			callbacks.OnPrevious()
 		}
 	})
-
-	return KeyMatcher{scancode: glfw.GetKeyScancode}
 }

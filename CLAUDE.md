@@ -22,7 +22,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - **Favorites**: Toggles `xmp:Rating` (5 / 0) in place inside the XMP packet the camera embeds in the JPEG (visible in OS file explorer, Lightroom and on camera). JPEG only; a JPEG without a writable XMP packet is reported and left untouched. Read back as XMP first, EXIF Rating second.
 - **Color labels (RGB)**: Toggle Red/Green/Blue labels per photo. A file can have multiple colors simultaneously (e.g., Red + Green). Stored in a `.photo-colors.json` file per folder (maps filenames to color arrays).
 - **Color filters**: File browser supports filtering by color — show only files with a specific color label or combination. Filter buttons in the toolbar or left panel.
-- **Stock tags**: `T` opens the Tags dialog; Generate runs the claude CLI. While a run is going the dialog offers only Cancel (`N`), which kills it and closes, and Background (`B`), which hides the dialog and lets the run finish. A backgrounded run updates the cache and the tag overlay, writes the XMP sidecar of the RAW pair (a JPEG without a RAW pair is never written to on its own — that stays behind Save JPEG) and reports itself through a notification. Pressing `T` on a photo whose run is still going re-attaches the dialog to it. Copying a photo whose run is still going waits for it, so the sidecar goes with the copy; deleting one kills the run and waits for it to let the files go, so no orphan sidecar is left behind. Every run is cancelled when the app exits.
+- **Stock tags**: `T` opens the Tags dialog; Generate (`Shift+Enter`) runs the claude CLI. While a run is going the row offers Stop (`Esc`), which kills the run and leaves the dialog standing with everything typed into it, and Background (`Ctrl+Enter`), which hides the dialog and lets the run finish; Background over an idle dialog starts a run and sends it away in the same press. A backgrounded run updates the cache and the tag overlay, writes the XMP sidecar of the RAW pair (a JPEG without a RAW pair is never written to on its own — that stays behind Save JPEG) and reports itself through a notification. Pressing `T` on a photo whose run is still going re-attaches the dialog to it. Copying a photo whose run is still going waits for it, so the sidecar goes with the copy; deleting one kills the run and waits for it to let the files go, so no orphan sidecar is left behind. Every run is cancelled when the app exits.
 - **Delete**: Deletes both JPEG and RAW pair. Always asks for confirmation.
 - **Settings**: Sort order and direction, and whether the tag overlay is shown, are remembered between launches. The window always opens maximized.
 - **Navigation**: Arrow keys (Right/Down = next, Left/Up = previous) and left mouse click on photo = next. Stays on last/first photo at boundaries.
@@ -40,18 +40,16 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 - `+`/`-` — zoom in/out
 - `L` — toggle grid view
 - `T` — generate stock tags for the current photo
-- `B` — send a running generation to the background (Tags dialog only)
-- `N` — cancel a running generation (Tags dialog only)
 - `I` — toggle the tag overlay
 - Arrow keys — navigate photos
 
 The Tags dialog handles its own keys instead of relying on nothing holding focus:
 
-- `Tab`/`Shift+Tab` — move between the fields and the buttons
-- `Space`/`Enter` — press the focused button
-- `Enter` — start a generation from Concept, Location or the claude path field (in Title and Keywords it inserts a newline)
-- `Esc` — kill a running generation and close the dialog; it works from every field except the Date one while its calendar popup is open, which swallows the key
-- `B`/`N` — background or cancel a running generation, from a focused button or the Editorial checkbox; the text fields, the Date one included, take them as letters
+- `Tab`/`Shift+Tab` — move between the fields and the buttons; Cancel and Stop are skipped, since `Esc` is their key
+- `Space`/`Enter` — press the focused button, and nothing else: `Enter` in a field never starts a generation, and in Title and Keywords it inserts a newline
+- `Shift+Enter` — generate, from anywhere in the dialog
+- `Ctrl+Enter` — background the running generation, or start one and background it at once (`Cmd` counts as `Ctrl` here)
+- `Esc` — stop a running generation and keep the dialog, or close it when nothing is running; it works from every field except the Date one while its calendar popup is open, which swallows the key
 
 ### Tech Stack
 

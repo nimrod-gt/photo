@@ -274,21 +274,6 @@ func (r *tagRunner) background(path string) {
 	}
 }
 
-// visible answers with the session of the run the user is looking at - the one
-// the Background key means. At most one dialog is open, so at most one run can
-// be that one.
-func (r *tagRunner) visible() (*tagsSession, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	for _, run := range r.runs {
-		if run.session != nil && r.app.dialogs.isCurrent(run.session.dialog) {
-			return run.session, true
-		}
-	}
-	return nil, false
-}
-
 // A cancelled run keeps its entry until it lets go of the files, so a delete
 // can wait for it; attach refuses it meanwhile, which is what keeps a dialog
 // reopened on the photo from sitting at "Generating" for good.
