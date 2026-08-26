@@ -48,6 +48,7 @@ type tagRun struct {
 	taken     time.Time
 	stop      context.CancelFunc
 	session   *tagsSession
+	typed     model.Tags
 	done      chan struct{}
 	cancelled bool
 	landed    bool
@@ -81,6 +82,34 @@ func (r *tagRunner) pending(path string) bool {
 
 	_, ok := r.runs[path]
 	return ok
+}
+
+// takeOver hands the fields of a dialog closing over a running generation to
+// the run, which writes the sidecar itself when it lands: one writer instead of
+// two racing for the same file with different tags. The run replaces them with
+// what it generated and falls back to them when it generates nothing, so
+// nothing typed is lost either way.
+//
+// A run that was cancelled writes nothing, and one that already landed is
+// writing what it has right now, so both refuse and leave the save where it
+// was - which is why pending, true for all three, cannot answer this.
+func (r *tagRunner) takeOver(path string, tags model.Tags) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	run, ok := r.runs[path]
+	if !ok || run.landed || run.cancelled {
+		return false
+	}
+	run.typed = tags
+	return true
+}
+
+func (r *tagRunner) typedTags(run *tagRun) model.Tags {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return run.typed
 }
 
 // wait returns once the run for this photo has let go of its files, or at once
@@ -210,8 +239,10 @@ func (r *tagRunner) release(run *tagRun) {
 // from writing them again, so a failed write must leave nothing behind.
 func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error) {
 	if err != nil {
-		r.release(run)
 		r.app.showError("Failed to generate tags for "+run.photo.Name, err)
+		// A generation that brought nothing still owes the sidecar the fields
+		// the dialog handed over when it closed, which are all the photo has.
+		r.saveTyped(run)
 		return
 	}
 
@@ -221,15 +252,26 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 		r.release(run)
 		return
 	}
+	r.saveSidecar(run, generated, taken, true)
+}
 
-	// A delete cancels the run it is about to remove the files of, and that can
-	// land while the write below is going. What it says about the photo is then
-	// about a file that is on its way out: the cache would keep tags no file
-	// holds, and the notification would name a photo the user just deleted.
+func (r *tagRunner) saveTyped(run *tagRun) {
+	typed := r.typedTags(run)
+	if !run.photo.HasRAW() || nothingToWrite(typed) {
+		r.release(run)
+		return
+	}
+	r.saveSidecar(run, typed, run.dateAt(r.app), false)
+}
 
+// A delete cancels the run it is about to remove the files of, and that can
+// land while the write below is going. What it says about the photo is then
+// about a file that is on its way out: the cache would keep tags no file holds,
+// and the notification would name a photo the user just deleted.
+func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time, generated bool) {
 	path := model.SidecarPath(run.photo.RAWPath)
 	go func() {
-		err := imaging.WriteSidecar(path, generated)
+		err := imaging.WriteSidecar(path, written)
 		// Freed by the file being on disk, not by the UI goroutine being free:
 		// a copy waiting on this run needs the sidecar, not the notification.
 		r.release(run)
@@ -241,15 +283,24 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 				r.app.showError("Failed to save tags to "+filepath.Base(path), err)
 				return
 			}
-			r.report(run, generated, taken)
+			if generated {
+				r.report(run, written, taken)
+				return
+			}
+			r.store(run, written, taken)
+			r.app.mainWindow.ShowNotification("Tags saved to " + filepath.Base(path))
 		})
 	}()
 }
 
 func (r *tagRunner) report(run *tagRun, generated model.Tags, taken time.Time) {
-	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: generated, Taken: taken})
-	r.app.setTagsIfCurrent(run.photo.ImagePath, generated)
+	r.store(run, generated, taken)
 	r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+}
+
+func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time) {
+	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
+	r.app.setTagsIfCurrent(run.photo.ImagePath, written)
 }
 
 // The date the run started with is the one the cache held then, which for a

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -120,6 +121,29 @@ func (a *Application) openTestTagsDialog(t *testing.T, photo model.Photo) *tagsS
 	return session
 }
 
+func typedTags() model.Tags {
+	return model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"tram", "hill"}}
+}
+
+// The dialog's entries belong to the ui package, so what the user types is put
+// there the same way a file read puts it: into the very fields the caret sits
+// in, which is what the dialog hands over when it closes.
+func typeIntoDialog(session *tagsSession, typed model.Tags) {
+	session.dialog.SetPhotoInfo(typed, time.Time{})
+}
+
+func sidecarTags(t *testing.T, photo model.Photo) model.Tags {
+	t.Helper()
+	path := model.SidecarPath(photo.RAWPath)
+	require.Eventually(t, func() bool {
+		written, err := imaging.ReadSidecar(path)
+		return err == nil && !written.IsEmpty()
+	}, time.Second, 5*time.Millisecond, "the sidecar was never written")
+	written, err := imaging.ReadSidecar(path)
+	require.NoError(t, err)
+	return written
+}
+
 func TestTagRunner(t *testing.T) {
 	t.Run("a run that keeps its dialog reports to it", func(t *testing.T) {
 		held := newHeldTagger(generatedTags(), nil)
@@ -133,6 +157,59 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), info.Tags)
 		assert.Equal(t, generatedTags(), session.dialog.Tags())
+	})
+
+	t.Run("a dialog closing over a run leaves the sidecar to it", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+		require.Equal(t, typedTags(), a.tagRuns.runs[photo.ImagePath].typed,
+			"the dialog handed its fields over instead of writing them itself")
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
+			"the run writes what it generated, whatever the dialog held when it closed")
+	})
+
+	t.Run("a run that brought nothing writes what the dialog handed over", func(t *testing.T) {
+		held := newHeldTagger(model.Tags{}, errors.New("claude fell over"))
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+
+		close(held.release)
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a failed run still owes the sidecar the fields it took over")
+	})
+
+	t.Run("a stopped run leaves its tags to the dialog", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.stopRun()
+		typeIntoDialog(session, typedTags())
+		session.close()
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a run that writes nothing must not take the save away from the dialog")
+		close(held.release)
 	})
 
 	t.Run("a backgrounded run keeps going and saves what it found", func(t *testing.T) {

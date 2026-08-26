@@ -148,7 +148,14 @@ func (s *tagsSession) background() {
 // The tags count as saved before the write finishes, so a second close does not
 // repeat it, and a failed write puts the previous ones back so the next close
 // tries again.
+// A generation that is still going writes the same file when it lands, so the
+// dialog closing over it - backgrounded, or clicked away - hands its fields to
+// the run instead of racing it with a write of its own; the run keeps them if
+// it brings nothing better.
 func (s *tagsSession) saveSidecar(written model.Tags) {
+	if s.app.tagRuns.takeOver(s.photo.ImagePath, written) {
+		return
+	}
 	if !s.photo.HasRAW() || written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
 		return
 	}
