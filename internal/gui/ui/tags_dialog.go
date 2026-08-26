@@ -434,6 +434,13 @@ func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.focusAfterRun(d.title)
 }
 
+// RestoreTags puts back what a dialog closing over a run handed to it, leaving
+// the run itself alone: the fields are on screen and editable again while the
+// generation that owns them still goes.
+func (d *TagsDialog) RestoreTags(handed model.Tags) {
+	d.showTags(handed)
+}
+
 // A run lands up to a minute after it was started and the fields stay editable
 // meanwhile, so the caret is only moved when it sits on one of the buttons the
 // finished run takes out of the row and would otherwise leave it nowhere.

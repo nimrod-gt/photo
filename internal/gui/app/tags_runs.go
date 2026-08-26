@@ -48,9 +48,11 @@ type tagRun struct {
 	taken     time.Time
 	stop      context.CancelFunc
 	session   *tagsSession
+	typed     model.Tags
 	done      chan struct{}
 	cancelled bool
 	landed    bool
+	writing   bool
 	released  bool
 }
 
@@ -62,17 +64,19 @@ func newTagRunner(app *Application) *tagRunner {
 
 // attach hands a run that is still going to the dialog just opened over it, so
 // pressing T on that photo again picks the run up instead of paying for a
-// second one.
-func (r *tagRunner) attach(session *tagsSession) bool {
+// second one. The fields an earlier dialog left with the run come back with it:
+// the run answers to a dialog again and writes nothing of its own, so what was
+// typed would be gone if it stayed here.
+func (r *tagRunner) attach(session *tagsSession) (model.Tags, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	run, ok := r.runs[session.photo.ImagePath]
 	if !ok || run.landed || run.cancelled {
-		return false
+		return model.Tags{}, false
 	}
 	run.session = session
-	return true
+	return run.typed, true
 }
 
 func (r *tagRunner) pending(path string) bool {
@@ -81,6 +85,34 @@ func (r *tagRunner) pending(path string) bool {
 
 	_, ok := r.runs[path]
 	return ok
+}
+
+// takeOver hands the fields of a dialog closing over a running generation to
+// the run, which writes the sidecar itself when it lands: one writer instead of
+// two racing for the same file with different tags. The run replaces them with
+// what it generated and falls back to them when it generates nothing, so
+// nothing typed is lost either way.
+//
+// A run that was cancelled writes nothing, and one that already landed is
+// writing what it has right now, so both refuse and leave the save where it
+// was - which is why pending, true for all three, cannot answer this.
+func (r *tagRunner) takeOver(path string, tags model.Tags) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	run, ok := r.runs[path]
+	if !ok || run.landed || run.cancelled {
+		return false
+	}
+	run.typed = tags
+	return true
+}
+
+func (r *tagRunner) typedTags(run *tagRun) model.Tags {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return run.typed
 }
 
 // wait returns once the run for this photo has let go of its files, or at once
@@ -210,8 +242,7 @@ func (r *tagRunner) release(run *tagRun) {
 // from writing them again, so a failed write must leave nothing behind.
 func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error) {
 	if err != nil {
-		r.release(run)
-		r.app.showError("Failed to generate tags for "+run.photo.Name, err)
+		r.saveTyped(run, err)
 		return
 	}
 
@@ -221,15 +252,38 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 		r.release(run)
 		return
 	}
+	r.saveSidecar(run, generated, taken, func() {
+		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+	})
+}
 
-	// A delete cancels the run it is about to remove the files of, and that can
-	// land while the write below is going. What it says about the photo is then
-	// about a file that is on its way out: the cache would keep tags no file
-	// holds, and the notification would name a photo the user just deleted.
+// A generation that brought nothing still owes the sidecar the fields the
+// dialog handed over when it closed, which are all the photo has. The failure
+// is what the user is told, and only once that write is over: the notifier
+// holds one message at a time, so a save nobody asked for announcing itself
+// would push the error that explains it off the screen.
+func (r *tagRunner) saveTyped(run *tagRun, failure error) {
+	typed := r.typedTags(run)
+	if !run.photo.HasRAW() || nothingToWrite(typed) {
+		r.release(run)
+		r.app.showError("Failed to generate tags for "+run.photo.Name, failure)
+		return
+	}
+	name := filepath.Base(model.SidecarPath(run.photo.RAWPath))
+	r.saveSidecar(run, typed, run.dateAt(r.app), func() {
+		r.app.showError("Failed to generate tags for "+run.photo.Name+", kept what was typed in "+name, failure)
+	})
+}
 
+// A delete cancels the run it is about to remove the files of, and that can
+// land while the write below is going. What it says about the photo is then
+// about a file that is on its way out: the cache would keep tags no file holds,
+// and the notification would name a photo the user just deleted.
+func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time, saved func()) {
 	path := model.SidecarPath(run.photo.RAWPath)
+	r.writeStarted(run)
 	go func() {
-		err := imaging.WriteSidecar(path, generated)
+		err := imaging.WriteSidecar(path, written)
 		// Freed by the file being on disk, not by the UI goroutine being free:
 		// a copy waiting on this run needs the sidecar, not the notification.
 		r.release(run)
@@ -241,15 +295,29 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 				r.app.showError("Failed to save tags to "+filepath.Base(path), err)
 				return
 			}
-			r.report(run, generated, taken)
+			r.store(run, written, taken)
+			saved()
 		})
 	}()
 }
 
+// The run is the sidecar's writer from here on, which is what keeps the exit
+// flush from putting the fields it was handed on top of what it found.
+func (r *tagRunner) writeStarted(run *tagRun) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	run.writing = true
+}
+
 func (r *tagRunner) report(run *tagRun, generated model.Tags, taken time.Time) {
-	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: generated, Taken: taken})
-	r.app.setTagsIfCurrent(run.photo.ImagePath, generated)
+	r.store(run, generated, taken)
 	r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+}
+
+func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time) {
+	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
+	r.app.setTagsIfCurrent(run.photo.ImagePath, written)
 }
 
 // The date the run started with is the one the cache held then, which for a
@@ -318,7 +386,8 @@ func (a *Application) stopTags(photo model.Photo) {
 // behind for the rest of its three minutes.
 func (r *tagRunner) stopAll() {
 	r.mu.Lock()
-	for _, run := range r.runs {
+	stopped := slices.Collect(maps.Values(r.runs))
+	for _, run := range stopped {
 		run.cancelled = true
 		run.stop()
 	}
@@ -335,13 +404,39 @@ func (r *tagRunner) stopAll() {
 		log.Println("Gave up waiting for tag generation to stop")
 	}
 
+	// The runs are taken from before the kill rather than from the registry
+	// now: a run that answered meanwhile dropped itself out of it, and the
+	// fields it was handed are still owed a file.
+	//
 	// A run is released where it reports itself, which needs a UI goroutine
-	// that is going away, so these runs would never let go on their own and
-	// anything still waiting on one would wait for the process to die.
-	r.mu.Lock()
-	left := slices.Collect(maps.Values(r.runs))
-	r.mu.Unlock()
-	for _, run := range left {
+	// that is going away, so runs still in the registry would never let go on
+	// their own and anything waiting on one would wait for the process to die.
+	for _, run := range stopped {
+		r.flushTyped(run)
 		r.release(run)
 	}
+}
+
+// A dialog that closed over a run left its fields with it, and the run was
+// going to write them when it landed - which it never will now. The write is
+// done here instead, on the way out and on this goroutine, because what would
+// hold a written file is gone with the UI.
+//
+// A run that started its own write is left alone: putting the older fields on
+// top of what it found is the very race the hand-over exists to stop.
+func (r *tagRunner) flushTyped(run *tagRun) {
+	typed, ok := r.unwrittenTyped(run)
+	if !ok || !run.photo.HasRAW() || nothingToWrite(typed) {
+		return
+	}
+	if err := imaging.WriteSidecar(model.SidecarPath(run.photo.RAWPath), typed); err != nil {
+		log.Println("Failed to save tags on the way out:", err)
+	}
+}
+
+func (r *tagRunner) unwrittenTyped(run *tagRun) (model.Tags, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return run.typed, !run.writing
 }

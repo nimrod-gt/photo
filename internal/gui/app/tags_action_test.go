@@ -42,3 +42,16 @@ func TestWriteNote(t *testing.T) {
 	assert.Equal(t, rewrittenNote+"; "+placeDroppedNote,
 		writeNote(imaging.StockWrite{Rewritten: true, PlaceDropped: true}))
 }
+
+// The Fyne test driver keeps global state, so this one shares the app the
+// runner tests use and does not run in parallel.
+func TestTagsSessionClose(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	typeIntoDialog(session, typedTags())
+	session.close()
+
+	assert.Equal(t, typedTags(), sidecarTags(t, photo))
+}

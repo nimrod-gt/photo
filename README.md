@@ -27,9 +27,10 @@ Photoshop. What the app writes, and where:
 | Location | `Iptc4xmpCore:Location` | The free text typed in the Tags dialog |
 | Location, split | `photoshop:City`, `photoshop:State`, `photoshop:Country` | Only when the generator manages to split the free text; a level it is unsure of stays empty |
 
-Title, keywords and location go into the JPEG's XMP packet when it has room, and into the `.xmp`
-sidecar beside the RAW pair. Where the packet has no room the title and keywords fall back to the
-EXIF (`ImageDescription`, `XPTitle`, `XPKeywords`) and the whole file is rewritten, which is reported.
+Title, keywords and location go into the `.xmp` sidecar beside the RAW pair on their own, and into the
+JPEG's XMP packet when Save JPEG is pressed. Where the packet has no room the title and keywords fall
+back to the EXIF (`ImageDescription`, `XPTitle`, `XPKeywords`) and the whole file is rewritten, which
+is reported.
 There is no EXIF tag for a place, so on that path the location reaches the sidecar only, and the app
 says so.
 

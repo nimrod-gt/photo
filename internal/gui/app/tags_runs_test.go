@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -120,6 +121,29 @@ func (a *Application) openTestTagsDialog(t *testing.T, photo model.Photo) *tagsS
 	return session
 }
 
+func typedTags() model.Tags {
+	return model.Tags{Title: "A tram climbs the hill.", Keywords: []string{"tram", "hill"}}
+}
+
+// The dialog's entries belong to the ui package, so what the user types is put
+// there the same way a file read puts it: into the very fields the caret sits
+// in, which is what the dialog hands over when it closes.
+func typeIntoDialog(session *tagsSession, typed model.Tags) {
+	session.dialog.SetPhotoInfo(typed, time.Time{})
+}
+
+func sidecarTags(t *testing.T, photo model.Photo) model.Tags {
+	t.Helper()
+	path := model.SidecarPath(photo.RAWPath)
+	require.Eventually(t, func() bool {
+		written, err := imaging.ReadSidecar(path)
+		return err == nil && !written.IsEmpty()
+	}, time.Second, 5*time.Millisecond, "the sidecar was never written")
+	written, err := imaging.ReadSidecar(path)
+	require.NoError(t, err)
+	return written
+}
+
 func TestTagRunner(t *testing.T) {
 	t.Run("a run that keeps its dialog reports to it", func(t *testing.T) {
 		held := newHeldTagger(generatedTags(), nil)
@@ -133,6 +157,103 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), info.Tags)
 		assert.Equal(t, generatedTags(), session.dialog.Tags())
+	})
+
+	t.Run("a dialog closing over a run leaves the sidecar to it", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+		require.Equal(t, typedTags(), a.tagRuns.runs[photo.ImagePath].typed,
+			"the dialog handed its fields over instead of writing them itself")
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
+			"the run writes what it generated, whatever the dialog held when it closed")
+	})
+
+	t.Run("a run that brought nothing writes what the dialog handed over", func(t *testing.T) {
+		held := newHeldTagger(model.Tags{}, errors.New("claude fell over"))
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+
+		close(held.release)
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a failed run still owes the sidecar the fields it took over")
+	})
+
+	t.Run("a run still going when the app closes writes what it was handed", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+
+		a.tagRuns.stopAll()
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"the run it was handed to never lands, so the exit is the last chance to write it")
+	})
+
+	t.Run("a reopened dialog takes back the fields it handed over", func(t *testing.T) {
+		held := newHeldTagger(model.Tags{}, errors.New("claude fell over"))
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		first := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(first, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(first, typedTags())
+		first.background()
+
+		second := a.openTestTagsDialog(t, photo)
+		handed, ok := a.tagRuns.attach(second)
+		require.True(t, ok)
+		second.dialog.RestoreTags(handed)
+
+		assert.Equal(t, typedTags(), second.dialog.Tags(),
+			"a run with a dialog again writes nothing, so the fields belong on screen")
+
+		// Stopped rather than answered: a run that lands fills the dialog from
+		// its own goroutine, which under the test driver is a second painter
+		// for widgets the next case is already using.
+		second.stopRun()
+		close(held.release)
+		a.tagRuns.running.Wait()
+	})
+
+	t.Run("a stopped run leaves its tags to the dialog", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.stopRun()
+		typeIntoDialog(session, typedTags())
+		session.close()
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a run that writes nothing must not take the save away from the dialog")
+		close(held.release)
 	})
 
 	t.Run("a backgrounded run keeps going and saves what it found", func(t *testing.T) {
@@ -213,7 +334,9 @@ func TestTagRunner(t *testing.T) {
 
 		// Asked the way a reopened dialog asks it, which is also the only way
 		// to read the registry while the run goroutine may still be in it.
-		assert.False(t, a.tagRuns.attach(session), "a dialog reopened now must not wait on a dead run")
+		attached, ok := a.tagRuns.attach(session)
+		assert.False(t, ok, "a dialog reopened now must not wait on a dead run")
+		assert.True(t, attached.IsEmpty())
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
 
@@ -231,7 +354,8 @@ func TestTagRunner(t *testing.T) {
 		first.background()
 
 		second := a.openTestTagsDialog(t, photo)
-		require.True(t, a.tagRuns.attach(second))
+		_, ok := a.tagRuns.attach(second)
+		require.True(t, ok)
 		assert.Same(t, second, a.tagRuns.runs[photo.ImagePath].session)
 
 		held.answerWithTags(t, a, photo.ImagePath)
@@ -297,7 +421,8 @@ func TestTagRunner(t *testing.T) {
 	t.Run("attaches to nothing when no run is going", func(t *testing.T) {
 		a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
 
-		assert.False(t, a.tagRuns.attach(a.openTestTagsDialog(t, testPhoto(t, false))))
+		_, ok := a.tagRuns.attach(a.openTestTagsDialog(t, testPhoto(t, false)))
+		assert.False(t, ok)
 	})
 
 	t.Run("a date read while the run went beats the one it started with", func(t *testing.T) {
