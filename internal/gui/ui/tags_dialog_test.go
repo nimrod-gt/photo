@@ -696,9 +696,13 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "fog over the lake", d.Tags().Concept)
 	})
 
-	t.Run("a generated concept fills the entry it was emptied out of", func(t *testing.T) {
+	// A run only ever echoes back the note it was asked with, so a note deleted
+	// while it went is the user's answer and the landing run leaves it deleted.
+	t.Run("a concept cleared during the run is not filled back in", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.concept.SetText("tram 28 seen head-on")
 		d.Generating()
+		d.concept.SetText("")
 
 		d.SetTags(model.Tags{
 			Title:    "A calm morning.",
@@ -706,7 +710,59 @@ func TestTagsDialog(t *testing.T) {
 			Concept:  "tram 28 seen head-on",
 		})
 
-		assert.Equal(t, "tram 28 seen head-on", d.concept.Text)
+		assert.Empty(t, d.concept.Text)
+		assert.Empty(t, d.Tags().Concept)
+	})
+
+	t.Run("a location cleared during the run is not filled back in", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.location.SetText("Lisbon")
+		d.Generating()
+		d.location.SetText("")
+
+		d.SetTags(model.Tags{
+			Title:    "A calm morning.",
+			Keywords: fullKeywords(),
+			Place:    model.Place{Location: "Lisbon", City: "Lisbon", Country: "Portugal"},
+		})
+
+		assert.Empty(t, d.location.Text)
+		assert.Empty(t, d.Tags().Place.Location)
+	})
+
+	// The dialog that closed handed over everything it held, so what comes back
+	// goes in whole - over the seed this one read out of the cache, which is the
+	// older of the two.
+	t.Run("restored fields replace the ones seeded from the file", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetPhotoInfo(model.Tags{
+			Title:    "The old title.",
+			Keywords: fullKeywords(),
+			Place:    model.Place{Location: "Porto", City: "Porto"},
+			Concept:  "the old note",
+		}, time.Time{})
+		d.Generating()
+
+		d.RestoreTags(model.Tags{
+			Title:    "The handed title.",
+			Keywords: []string{"tram"},
+			Place:    model.Place{Location: "Lisbon"},
+			Concept:  "the handed note",
+		})
+
+		assert.Equal(t, "Lisbon", d.location.Text)
+		assert.Equal(t, "the handed note", d.concept.Text)
+		assert.Equal(t, "The handed title.", d.title.Text)
+	})
+
+	t.Run("a restored dialog that handed over an empty field leaves it empty", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetPhotoInfo(model.Tags{Concept: "the old note"}, time.Time{})
+		d.Generating()
+
+		d.RestoreTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
+
+		assert.Empty(t, d.concept.Text)
 	})
 }
 

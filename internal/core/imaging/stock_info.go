@@ -74,7 +74,7 @@ func mergedWithSidecar(info StockInfo, photo model.Photo) (StockInfo, error) {
 	if err != nil {
 		return info, err
 	}
-	info.Tags = fillMissing(sidecar, info.Tags)
+	info.Tags = FillMissing(sidecar, info.Tags)
 	return info, nil
 }
 
@@ -104,11 +104,13 @@ func stockInfoFromSegments(sl *jpegstructure.SegmentList, source string) (StockI
 	if err != nil {
 		return info, fmt.Errorf("parsing the XMP of %s: %w", source, err)
 	}
-	info.Tags = fillMissing(parsed.tags(), info.Tags)
+	info.Tags = FillMissing(parsed.tags(), info.Tags)
 	return info, nil
 }
 
-func fillMissing(tags, fallback model.Tags) model.Tags {
+// FillMissing completes one set of tags from another: a field the newer set
+// leaves empty keeps whatever the older one had for it, level by level.
+func FillMissing(tags, fallback model.Tags) model.Tags {
 	tags.Title = orFallback(tags.Title, fallback.Title)
 	if len(tags.Keywords) == 0 {
 		tags.Keywords = fallback.Keywords
