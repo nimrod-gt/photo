@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,19 +92,47 @@ func newTestApplication(t *testing.T, generator tagGenerator) *Application {
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{})
 	a.gridViewer = ui.NewGridViewer(a.imageProvider, ui.GridViewerCallbacks{})
 	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, ui.NewNotifier())
+	// The corner ticks for as long as a run is listed, and under the test driver
+	// the tick draws where it stands: a test that walks away from a generation it
+	// left hanging would keep relabelling a plate next to the test after it.
+	t.Cleanup(a.tagRuns.stopAll)
 	return a
 }
 
 func testPhoto(t *testing.T, withRAW bool) model.Photo {
 	t.Helper()
-	dir := t.TempDir()
-	photo := model.Photo{Name: "DSC001.JPG", ImagePath: filepath.Join(dir, "DSC001.JPG")}
-	require.NoError(t, os.WriteFile(photo.ImagePath, []byte("not really a jpeg"), 0o600))
+	photo := testPhotoNamed(t, "DSC001.JPG")
 	if withRAW {
-		photo.RAWPath = filepath.Join(dir, "DSC001.ARW")
+		photo.RAWPath = strings.TrimSuffix(photo.ImagePath, ".JPG") + ".ARW"
 		require.NoError(t, os.WriteFile(photo.RAWPath, []byte("not really a raw"), 0o600))
 	}
 	return photo
+}
+
+func testPhotoNamed(t *testing.T, name string) model.Photo {
+	t.Helper()
+	photo := model.Photo{Name: name, ImagePath: filepath.Join(t.TempDir(), name)}
+	require.NoError(t, os.WriteFile(photo.ImagePath, []byte("not really a jpeg"), 0o600))
+	return photo
+}
+
+// The report a run makes on its way out touches the corner, and under the test
+// driver it does so on the run's own goroutine: a subtest that walks away while
+// that is going leaves it drawing text next to the one after it.
+func settleRuns(t *testing.T, a *Application, paths ...string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return !slices.ContainsFunc(paths, a.tagRuns.pending)
+	}, time.Second, 5*time.Millisecond, "a run outlived the test that started it")
+}
+
+func runningNames(a *Application) []string {
+	listed := a.tagRuns.live()
+	names := make([]string, 0, len(listed))
+	for _, item := range listed {
+		names = append(names, item.Name)
+	}
+	return names
 }
 
 func generatedTags() model.Tags {
@@ -475,5 +505,72 @@ func TestTagRunner(t *testing.T) {
 
 		assert.False(t, a.dialogs.anyOpen(), "a dialog with no run left to stop closes")
 		assert.False(t, a.dialogs.isCurrent(session.dialog))
+	})
+}
+
+func TestTagRunnerCorner(t *testing.T) {
+	t.Run("a run that started is listed", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+
+		listed := a.tagRuns.live()
+		require.Len(t, listed, 1)
+		assert.Equal(t, photo.Name, listed[0].Name)
+		assert.False(t, listed[0].Since.IsZero(), "the corner counts from the moment the run started")
+
+		held.answerWithTags(t, a, photo.ImagePath)
+		settleRuns(t, a, photo.ImagePath)
+	})
+
+	t.Run("a run that landed is gone from the list", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Empty(t, a.tagRuns.live(), "a generation that answered is only writing its file")
+		settleRuns(t, a, photo.ImagePath)
+	})
+
+	t.Run("a cancelled run is gone from the list before it lets go", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.stopRun()
+
+		assert.Empty(t, a.tagRuns.live(), "a cancelled run is off the corner before it lets go of its files")
+
+		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
+		settleRuns(t, a, photo.ImagePath)
+	})
+
+	t.Run("the runs are listed oldest first", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		first := testPhotoNamed(t, "DSC001.JPG")
+		second := testPhotoNamed(t, "DSC002.JPG")
+
+		a.tagRuns.start(a.openTestTagsDialog(t, first), tags.Request{Photo: first})
+		<-held.started
+		a.tagRuns.start(a.openTestTagsDialog(t, second), tags.Request{Photo: second})
+		<-held.started
+
+		assert.Equal(t, []string{first.Name, second.Name}, runningNames(a))
+
+		close(held.release)
+		settleRuns(t, a, first.ImagePath, second.ImagePath)
 	})
 }
