@@ -8,8 +8,8 @@ import (
 	"unicode"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/test"
-	"github.com/go-gl/glfw/v3.4/glfw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -66,7 +66,7 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.status.Visible())
 		assert.Contains(t, d.status.Text, "50 keywords")
 		assert.False(t, d.progress.Visible())
-		assert.Equal(t, "Regenerate", d.generateBtn.Text)
+		assert.Equal(t, regenerateLabel, d.generateBtn.Text)
 	})
 
 	t.Run("reports problems while the user edits", func(t *testing.T) {
@@ -154,18 +154,37 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.progress.Visible())
 	})
 
-	t.Run("a run leaves no way out but cancelling or backgrounding it", func(t *testing.T) {
+	t.Run("a run takes the JPEG out of the row and leaves the rest in place", func(t *testing.T) {
 		d := newTestTagsDialogWith(t,
 			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
 		assert.Equal(t,
-			[]fyne.CanvasObject{d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.saveJPEGBtn, d.generateBtn},
+			[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn, d.saveJPEGBtn},
 			d.buttons.Objects)
 
 		test.Tap(d.generateBtn)
 
 		assert.Equal(t,
-			[]fyne.CanvasObject{d.cancelRunBtn, d.backgroundBtn, d.generateBtn},
+			[]fyne.CanvasObject{d.stopBtn, d.generateBtn, d.backgroundBtn},
 			d.buttons.Objects)
+	})
+
+	t.Run("copying sits beside the field it copies", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		for i, want := range []fyne.CanvasObject{d.copyTitleBtn, d.copyKeywordsBtn} {
+			row, ok := d.resultBox.Objects[i].(*fyne.Container)
+			require.True(t, ok)
+			assert.Same(t, []fyne.CanvasObject{d.title, d.keywords}[i], row.Objects[0])
+			assert.Same(t, want, row.Objects[1].(*fyne.Container).Objects[0])
+			assert.NotContains(t, d.buttons.Objects, want)
+		}
+	})
+
+	t.Run("Cancel and Stop are not walked to", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		assert.NotImplements(t, (*fyne.Focusable)(nil), d.closeBtn)
+		assert.NotImplements(t, (*fyne.Focusable)(nil), d.stopBtn)
 	})
 
 	t.Run("a finished run brings the other buttons back", func(t *testing.T) {
@@ -180,7 +199,7 @@ func TestTagsDialog(t *testing.T) {
 				finish(d)
 
 				assert.Equal(t,
-					[]fyne.CanvasObject{d.closeBtn, d.copyTitleBtn, d.copyKeywordsBtn, d.generateBtn},
+					[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn},
 					d.buttons.Objects)
 			})
 		}
@@ -195,7 +214,7 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.progress.Visible())
 		assert.Contains(t, d.status.Text, "Generating")
 		assert.Equal(t,
-			[]fyne.CanvasObject{d.cancelRunBtn, d.backgroundBtn, d.generateBtn},
+			[]fyne.CanvasObject{d.stopBtn, d.generateBtn, d.backgroundBtn},
 			d.buttons.Objects)
 	})
 
@@ -215,21 +234,52 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "running claude: exit status 1", d.status.Text)
 	})
 
-	t.Run("cancel and background report to the app", func(t *testing.T) {
-		var cancels, backgrounds, closes int
+	t.Run("stop and background report to the app", func(t *testing.T) {
+		var stops, backgrounds, closes int
 		d := newTestTagsDialog(t, TagsDialogCallbacks{
-			OnCancelRun:  func() { cancels++ },
+			OnStopRun:    func() { stops++ },
 			OnBackground: func() { backgrounds++ },
 			OnClose:      func() { closes++ },
 		})
 		test.Tap(d.generateBtn)
 
-		test.Tap(d.cancelRunBtn)
+		test.Tap(d.stopBtn)
 		test.Tap(d.backgroundBtn)
 
-		assert.Equal(t, 1, cancels)
+		assert.Equal(t, 1, stops)
 		assert.Equal(t, 1, backgrounds)
 		assert.Equal(t, 0, closes, "the app decides what closing means for a run")
+	})
+
+	t.Run("Background over an idle dialog starts a run and lets it go at once", func(t *testing.T) {
+		var generates, backgrounds int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnGenerate:   func() { generates++ },
+			OnBackground: func() { backgrounds++ },
+		})
+
+		test.Tap(d.backgroundBtn)
+
+		assert.Equal(t, 1, generates)
+		assert.Equal(t, 1, backgrounds)
+	})
+
+	t.Run("a stopped run leaves the fields and the Generate button as they were", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.concept.SetText("a quiet street")
+		test.Tap(d.generateBtn)
+
+		d.StopGenerating()
+
+		assert.False(t, d.IsGenerating())
+		assert.Equal(t, generateLabel, d.generateBtn.Text)
+		assert.False(t, d.generateBtn.Disabled())
+		assert.False(t, d.progress.Visible())
+		assert.Empty(t, d.status.Text)
+		assert.Equal(t, "a quiet street", d.concept.Text)
+		assert.Equal(t,
+			[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn},
+			d.buttons.Objects)
 	})
 
 	t.Run("failure re-enables generate and keeps the path entry hidden", func(t *testing.T) {
@@ -646,12 +696,12 @@ func TestTagsDialog_ButtonKeys(t *testing.T) {
 			"enter":  fyne.KeyEnter,
 		} {
 			t.Run(name, func(t *testing.T) {
-				closes := 0
-				d := newTestTagsDialog(t, TagsDialogCallbacks{OnClose: func() { closes++ }})
+				generates := 0
+				d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { generates++ }})
 
-				d.closeBtn.TypedKey(&fyne.KeyEvent{Name: key})
+				d.generateBtn.TypedKey(&fyne.KeyEvent{Name: key})
 
-				assert.Equal(t, 1, closes)
+				assert.Equal(t, 1, generates)
 			})
 		}
 	})
@@ -675,52 +725,6 @@ func TestTagsDialog_ButtonKeys(t *testing.T) {
 		assert.Equal(t, 1, escapes)
 	})
 
-	t.Run("the run is commanded from whatever button holds the focus", func(t *testing.T) {
-		var cancels, backgrounds int
-		d := newTestTagsDialog(t, TagsDialogCallbacks{
-			OnCancelRun:  func() { cancels++ },
-			OnBackground: func() { backgrounds++ },
-		})
-		d.Generating()
-
-		d.cancelRunBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
-		d.backgroundBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
-
-		assert.Equal(t, 1, cancels)
-		assert.Equal(t, 1, backgrounds)
-	})
-
-	t.Run("the letters mean nothing while no run goes", func(t *testing.T) {
-		var cancels, backgrounds, closes int
-		d := newTestTagsDialog(t, TagsDialogCallbacks{
-			OnCancelRun:  func() { cancels++ },
-			OnBackground: func() { backgrounds++ },
-			OnClose:      func() { closes++ },
-		})
-
-		d.closeBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
-		d.closeBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
-
-		assert.Equal(t, 0, cancels)
-		assert.Equal(t, 0, backgrounds)
-		assert.Equal(t, 0, closes)
-	})
-
-	t.Run("a letter typed into an input is text and nothing else", func(t *testing.T) {
-		var cancels, backgrounds int
-		d := newTestTagsDialog(t, TagsDialogCallbacks{
-			OnCancelRun:  func() { cancels++ },
-			OnBackground: func() { backgrounds++ },
-		})
-		d.Generating()
-		d.concept.SetText("castle")
-
-		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN})
-		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyB})
-
-		assert.Equal(t, 0, cancels)
-		assert.Equal(t, 0, backgrounds)
-	})
 }
 
 func TestTagsDialog_Focus(t *testing.T) {
@@ -736,13 +740,23 @@ func TestTagsDialog_Focus(t *testing.T) {
 		assert.Same(t, d.concept, focused(d))
 	})
 
-	t.Run("a run moves the focus onto cancel", func(t *testing.T) {
+	t.Run("a run takes the focus off the button it disables", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.Show()
+		d.window.Canvas().Focus(d.generateBtn)
+
+		d.Generating()
+
+		assert.Same(t, d.backgroundBtn, focused(d))
+	})
+
+	t.Run("a run leaves a caret in a field where it is", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		d.Show()
 
 		d.Generating()
 
-		assert.Same(t, d.cancelRunBtn, focused(d))
+		assert.Same(t, d.concept, focused(d))
 	})
 
 	t.Run("a hidden dialog focuses nothing", func(t *testing.T) {
@@ -787,6 +801,7 @@ func TestTagsDialog_Focus(t *testing.T) {
 				d := newTestTagsDialog(t, TagsDialogCallbacks{})
 				d.Show()
 				d.Generating()
+				d.window.Canvas().Focus(d.backgroundBtn)
 
 				finish, want := expected(d)
 				finish()
@@ -819,18 +834,28 @@ func TestTagsDialog_ShortcutRune(t *testing.T) {
 	})
 }
 
-func TestTagsDialog_Submit(t *testing.T) {
-	t.Run("Enter in a single-line input starts a run", func(t *testing.T) {
-		for name, entry := range map[string]func(*TagsDialog) *dialogEntry{
-			"concept":     func(d *TagsDialog) *dialogEntry { return d.concept },
-			"location":    func(d *TagsDialog) *dialogEntry { return d.location },
-			"claude path": func(d *TagsDialog) *dialogEntry { return d.pathEntry },
+func TestTagsDialog_Chords(t *testing.T) {
+	shift := &fyne.KeyEvent{Name: desktop.KeyShiftLeft}
+	enter := &fyne.KeyEvent{Name: fyne.KeyReturn}
+	chord := func(modifier fyne.KeyModifier, key fyne.KeyName) *desktop.CustomShortcut {
+		return &desktop.CustomShortcut{KeyName: key, Modifier: modifier}
+	}
+
+	t.Run("Shift+Enter starts a run wherever the focus sits", func(t *testing.T) {
+		for name, press := range map[string]func(*TagsDialog){
+			"concept":   func(d *TagsDialog) { d.concept.KeyDown(shift); d.concept.TypedKey(enter) },
+			"keywords":  func(d *TagsDialog) { d.keywords.KeyDown(shift); d.keywords.TypedKey(enter) },
+			"editorial": func(d *TagsDialog) { d.editorial.KeyDown(shift); d.editorial.TypedKey(enter) },
+			// The Shift and the Enter need not be heard by the same widget: the
+			// button takes the modifier, and the field the key that follows it.
+			"a button": func(d *TagsDialog) { d.generateBtn.KeyDown(shift); d.concept.TypedKey(enter) },
 		} {
 			t.Run(name, func(t *testing.T) {
 				calls := 0
 				d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
+				d.Show()
 
-				entry(d).OnSubmitted("")
+				press(d)
 
 				assert.Equal(t, 1, calls)
 				assert.True(t, d.generateBtn.Disabled())
@@ -839,74 +864,127 @@ func TestTagsDialog_Submit(t *testing.T) {
 		}
 	})
 
+	t.Run("a bare Enter starts nothing", func(t *testing.T) {
+		calls := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
+		d.Show()
+
+		d.concept.TypedKey(enter)
+
+		assert.Equal(t, 0, calls)
+	})
+
 	t.Run("a run already going is not started again", func(t *testing.T) {
 		calls := 0
 		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
 
-		d.concept.OnSubmitted("")
-		d.location.OnSubmitted("")
+		d.Show()
+
+		d.concept.KeyDown(shift)
+		d.concept.TypedKey(enter)
+		d.concept.KeyDown(shift)
+		d.concept.TypedKey(enter)
 
 		assert.Equal(t, 1, calls)
 	})
 
-	t.Run("Enter in the result fields stays a newline", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+	t.Run("the Shift is forgotten when it goes up", func(t *testing.T) {
+		calls := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
 
-		for _, entry := range []*dialogEntry{d.title, d.keywords} {
-			assert.True(t, entry.MultiLine)
-			assert.Nil(t, entry.OnSubmitted)
-		}
+		d.Show()
+
+		d.concept.KeyDown(shift)
+		d.concept.KeyUp(shift)
+		d.concept.TypedKey(enter)
+
+		assert.Equal(t, 0, calls)
 	})
-}
 
-func TestTagsDialog_PhysicalKeys(t *testing.T) {
-	scancodes := map[glfw.Key]int{glfw.KeyN: 45, glfw.KeyB: 11}
-	keys := KeyMatcher{scancode: func(key glfw.Key) int { return scancodes[key] }}
+	t.Run("the Shift released over another widget is forgotten", func(t *testing.T) {
+		calls := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
 
-	t.Run("a run is commanded by the place of the key, not by the letter on it", func(t *testing.T) {
-		for name, expected := range map[string]struct {
-			scancode             int
-			cancels, backgrounds int
-		}{
-			"cancel":     {scancode: scancodes[glfw.KeyN], cancels: 1},
-			"background": {scancode: scancodes[glfw.KeyB], backgrounds: 1},
+		d.Show()
+
+		d.concept.KeyDown(shift)
+		d.location.KeyUp(shift)
+		d.location.TypedKey(enter)
+
+		assert.Equal(t, 0, calls)
+	})
+
+	// Shift+Tab is answered by the driver itself, so the field the focus leaves
+	// never hears the Tab and the Shift is still down where the focus lands.
+	t.Run("a Shift held across a walk backwards still generates", func(t *testing.T) {
+		calls := 0
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnGenerate: func() { calls++ }})
+
+		d.Show()
+
+		d.location.KeyDown(shift)
+		d.location.FocusLost()
+		d.concept.FocusGained()
+		d.concept.TypedKey(enter)
+
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("Ctrl+Enter lets a running generation go", func(t *testing.T) {
+		for name, modifier := range map[string]fyne.KeyModifier{
+			"control": fyne.KeyModifierControl,
+			"command": fyne.KeyModifierSuper,
 		} {
 			t.Run(name, func(t *testing.T) {
-				var cancels, backgrounds int
-				d := newTestTagsDialogWith(t,
-					TagsDialogOptions{Filename: "DSC001.JPG", Keys: keys},
-					TagsDialogCallbacks{
-						OnCancelRun:  func() { cancels++ },
-						OnBackground: func() { backgrounds++ },
-					})
+				var generates, backgrounds int
+				d := newTestTagsDialog(t, TagsDialogCallbacks{
+					OnGenerate:   func() { generates++ },
+					OnBackground: func() { backgrounds++ },
+				})
 				d.Generating()
 
-				// The name is the letter a Russian layout prints on the key, which
-				// is neither of the two the dialog answers to.
-				d.cancelRunBtn.TypedKey(&fyne.KeyEvent{
-					Name:     fyne.KeyName("Cyrillic"),
-					Physical: fyne.HardwareKey{ScanCode: expected.scancode},
-				})
+				d.concept.TypedShortcut(chord(modifier, fyne.KeyReturn))
 
-				assert.Equal(t, expected.cancels, cancels)
-				assert.Equal(t, expected.backgrounds, backgrounds)
+				assert.Equal(t, 0, generates, "the run that is going is the one let go of")
+				assert.Equal(t, 1, backgrounds)
 			})
 		}
 	})
 
-	t.Run("a key of another place is left alone", func(t *testing.T) {
-		var cancels, backgrounds int
-		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", Keys: keys},
-			TagsDialogCallbacks{
-				OnCancelRun:  func() { cancels++ },
-				OnBackground: func() { backgrounds++ },
+	t.Run("Ctrl+Enter over an idle dialog starts a run and lets it go at once", func(t *testing.T) {
+		for name, widget := range map[string]func(*TagsDialog, fyne.Shortcut){
+			"an input": func(d *TagsDialog, s fyne.Shortcut) { d.concept.TypedShortcut(s) },
+			"a check":  func(d *TagsDialog, s fyne.Shortcut) { d.editorial.TypedShortcut(s) },
+			"a button": func(d *TagsDialog, s fyne.Shortcut) { d.generateBtn.TypedShortcut(s) },
+			"the date": func(d *TagsDialog, s fyne.Shortcut) { d.date.TypedShortcut(s) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				var generates, backgrounds int
+				d := newTestTagsDialog(t, TagsDialogCallbacks{
+					OnGenerate:   func() { generates++ },
+					OnBackground: func() { backgrounds++ },
+				})
+
+				widget(d, chord(fyne.KeyModifierControl, fyne.KeyReturn))
+
+				assert.Equal(t, 1, generates)
+				assert.Equal(t, 1, backgrounds)
 			})
-		d.Generating()
+		}
+	})
 
-		d.cancelRunBtn.TypedKey(&fyne.KeyEvent{Name: fyne.KeyN, Physical: fyne.HardwareKey{ScanCode: 8}})
+	t.Run("a chord of another key is left to the input", func(t *testing.T) {
+		var generates, backgrounds int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnGenerate:   func() { generates++ },
+			OnBackground: func() { backgrounds++ },
+		})
+		d.concept.SetText("castle")
 
-		assert.Equal(t, 0, cancels)
+		d.concept.TypedShortcut(&fyne.ShortcutSelectAll{})
+
+		assert.Equal(t, "castle", d.concept.SelectedText())
+		assert.Equal(t, 0, generates)
 		assert.Equal(t, 0, backgrounds)
 	})
 }

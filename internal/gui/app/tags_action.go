@@ -34,11 +34,10 @@ func (a *Application) handleTags() {
 		ClaudePath: prefs.String("claudePath"),
 		Date:       taken,
 		IsJPEG:     photo.IsJPEG(),
-		Keys:       a.keys,
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnEscape:     a.handleCancel,
 		OnGenerate:   session.generate,
-		OnCancelRun:  session.cancelRun,
+		OnStopRun:    session.cancelRun,
 		OnBackground: session.background,
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)

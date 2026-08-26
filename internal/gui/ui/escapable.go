@@ -7,13 +7,24 @@ import (
 
 // Fyne delivers key events to the focused widget and only falls back to the
 // canvas handler when nothing holds focus, so a dialog full of inputs never
-// sees the keys it owns - Escape, and the letters that command a running
-// generation. These wrappers offer every key to the dialog first and forward
-// the rest.
+// sees the keys it owns - Escape, and the chords that command a generation.
+// These wrappers offer every key to the dialog first and forward the rest.
+//
+// A modifier arrives apart from the key it belongs to. A chord holding Ctrl
+// comes as a shortcut, but Shift alone never does: the driver passes the bare
+// key on and says nothing about the Shift, so the wrappers report the modifier
+// keys going down and up as well. Every widget of the dialog reports them, so
+// one held across a Shift+Tab - which the driver answers itself, without the
+// widget hearing the Tab - is still known about where the focus lands.
+type dialogKeys interface {
+	handleKey(*fyne.KeyEvent) bool
+	handleShortcut(fyne.Shortcut) bool
+	trackModifier(ev *fyne.KeyEvent, down bool)
+}
 
 type dialogEntry struct {
 	widget.Entry
-	onKey func(*fyne.KeyEvent) bool
+	keys dialogKeys
 	// The key that opened the dialog is still in flight while the dialog places
 	// its first focus: the rune of that key is delivered afterwards and would
 	// land in the field as text. Every real keystroke reaches the focused widget
@@ -22,14 +33,14 @@ type dialogEntry struct {
 	strayRune bool
 }
 
-func newDialogEntry(onKey func(*fyne.KeyEvent) bool) *dialogEntry {
-	e := &dialogEntry{onKey: onKey}
+func newDialogEntry(keys dialogKeys) *dialogEntry {
+	e := &dialogEntry{keys: keys}
 	e.ExtendBaseWidget(e)
 	return e
 }
 
-func newDialogMultiLineEntry(rows int, onKey func(*fyne.KeyEvent) bool) *dialogEntry {
-	e := &dialogEntry{onKey: onKey}
+func newDialogMultiLineEntry(rows int, keys dialogKeys) *dialogEntry {
+	e := &dialogEntry{keys: keys}
 	e.MultiLine = true
 	e.Wrapping = fyne.TextWrapWord
 	e.ExtendBaseWidget(e)
@@ -46,10 +57,27 @@ func (e *dialogEntry) AcceptsTab() bool {
 
 func (e *dialogEntry) TypedKey(ev *fyne.KeyEvent) {
 	e.strayRune = false
-	if e.onKey(ev) {
+	if e.keys.handleKey(ev) {
 		return
 	}
 	e.Entry.TypedKey(ev)
+}
+
+func (e *dialogEntry) TypedShortcut(shortcut fyne.Shortcut) {
+	if e.keys.handleShortcut(shortcut) {
+		return
+	}
+	e.Entry.TypedShortcut(shortcut)
+}
+
+func (e *dialogEntry) KeyDown(ev *fyne.KeyEvent) {
+	e.keys.trackModifier(ev, true)
+	e.Entry.KeyDown(ev)
+}
+
+func (e *dialogEntry) KeyUp(ev *fyne.KeyEvent) {
+	e.keys.trackModifier(ev, false)
+	e.Entry.KeyUp(ev)
 }
 
 func (e *dialogEntry) FocusGained() {
@@ -67,30 +95,47 @@ func (e *dialogEntry) TypedRune(r rune) {
 
 type dialogDateEntry struct {
 	widget.DateEntry
-	onKey func(*fyne.KeyEvent) bool
+	keys dialogKeys
 }
 
-func newDialogDateEntry(onKey func(*fyne.KeyEvent) bool) *dialogDateEntry {
-	e := &dialogDateEntry{onKey: onKey}
+func newDialogDateEntry(keys dialogKeys) *dialogDateEntry {
+	e := &dialogDateEntry{keys: keys}
 	e.ExtendBaseWidget(e)
 	e.Wrapping = fyne.TextWrap(fyne.TextTruncateClip)
 	return e
 }
 
 func (e *dialogDateEntry) TypedKey(ev *fyne.KeyEvent) {
-	if e.onKey(ev) {
+	if e.keys.handleKey(ev) {
 		return
 	}
 	e.DateEntry.TypedKey(ev)
 }
 
-type dialogCheck struct {
-	widget.Check
-	onKey func(*fyne.KeyEvent) bool
+func (e *dialogDateEntry) TypedShortcut(shortcut fyne.Shortcut) {
+	if e.keys.handleShortcut(shortcut) {
+		return
+	}
+	e.DateEntry.TypedShortcut(shortcut)
 }
 
-func newDialogCheck(label string, changed func(bool), onKey func(*fyne.KeyEvent) bool) *dialogCheck {
-	c := &dialogCheck{onKey: onKey}
+func (e *dialogDateEntry) KeyDown(ev *fyne.KeyEvent) {
+	e.keys.trackModifier(ev, true)
+	e.DateEntry.KeyDown(ev)
+}
+
+func (e *dialogDateEntry) KeyUp(ev *fyne.KeyEvent) {
+	e.keys.trackModifier(ev, false)
+	e.DateEntry.KeyUp(ev)
+}
+
+type dialogCheck struct {
+	widget.Check
+	keys dialogKeys
+}
+
+func newDialogCheck(label string, changed func(bool), keys dialogKeys) *dialogCheck {
+	c := &dialogCheck{keys: keys}
 	c.Text = label
 	c.OnChanged = changed
 	c.ExtendBaseWidget(c)
@@ -98,19 +143,32 @@ func newDialogCheck(label string, changed func(bool), onKey func(*fyne.KeyEvent)
 }
 
 func (c *dialogCheck) TypedKey(ev *fyne.KeyEvent) {
-	if c.onKey(ev) {
+	if c.keys.handleKey(ev) {
 		return
 	}
 	c.Check.TypedKey(ev)
 }
 
-type dialogButton struct {
-	widget.Button
-	onKey func(*fyne.KeyEvent) bool
+// A check takes no shortcut of its own, so what the dialog turns down is over.
+func (c *dialogCheck) TypedShortcut(shortcut fyne.Shortcut) {
+	c.keys.handleShortcut(shortcut)
 }
 
-func newDialogButton(label string, tapped func(), onKey func(*fyne.KeyEvent) bool) *dialogButton {
-	b := &dialogButton{onKey: onKey}
+func (c *dialogCheck) KeyDown(ev *fyne.KeyEvent) {
+	c.keys.trackModifier(ev, true)
+}
+
+func (c *dialogCheck) KeyUp(ev *fyne.KeyEvent) {
+	c.keys.trackModifier(ev, false)
+}
+
+type dialogButton struct {
+	widget.Button
+	keys dialogKeys
+}
+
+func newDialogButton(label string, tapped func(), keys dialogKeys) *dialogButton {
+	b := &dialogButton{keys: keys}
 	b.Text = label
 	b.OnTapped = tapped
 	b.ExtendBaseWidget(b)
@@ -121,7 +179,7 @@ func newDialogButton(label string, tapped func(), onKey func(*fyne.KeyEvent) boo
 // the canvas focus on its way past - the keyboard would lose the dialog on
 // every press. Enter joins Space here and neither of them moves the focus.
 func (b *dialogButton) TypedKey(ev *fyne.KeyEvent) {
-	if b.onKey(ev) {
+	if b.keys.handleKey(ev) {
 		return
 	}
 	switch ev.Name {
@@ -131,3 +189,33 @@ func (b *dialogButton) TypedKey(ev *fyne.KeyEvent) {
 		}
 	}
 }
+
+func (b *dialogButton) TypedShortcut(shortcut fyne.Shortcut) {
+	b.keys.handleShortcut(shortcut)
+}
+
+func (b *dialogButton) KeyDown(ev *fyne.KeyEvent) {
+	b.keys.trackModifier(ev, true)
+}
+
+func (b *dialogButton) KeyUp(ev *fyne.KeyEvent) {
+	b.keys.trackModifier(ev, false)
+}
+
+type unfocusableButton struct {
+	widget.Button
+}
+
+func newUnfocusableButton(label string, tapped func()) *unfocusableButton {
+	b := &unfocusableButton{}
+	b.Text = label
+	b.OnTapped = tapped
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+// Escape presses this button, so the Tab walk has nothing to stop here for.
+// Fyne has no way of being told that: the focus manager takes every visible
+// widget implementing fyne.Focusable, so the interface is broken on purpose - a
+// FocusGained of another shape hides the one the button would answer with.
+func (b *unfocusableButton) FocusGained(bool) {}

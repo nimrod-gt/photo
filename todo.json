@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 14,
+  "next_id": 15,
   "todos": [
     {
       "id": 10,
@@ -317,6 +317,26 @@
           "Todo #12 (copy stock tags between photos) will likely want the same `writeTags` helper; naming and signature should be kept general enough not to be rewritten there."
         ]
       }
+    },
+    {
+      "id": 14,
+      "description": "Show a list of the running background stock tag generations in the top right corner",
+      "context": "A run sent to the background (tagRunner.background, the Tags dialog Background button) currently only announces itself when it finishes through mainWindow.ShowNotification, so the user is blind to what is still in flight. The live runs are the entries of tagRunner.runs in internal/gui/app/tags_runs.go, a map keyed by photo image path and guarded by a mutex, filled in start and dropped in release. The Notifier (internal/gui/ui/notifier.go), stacked over the right panel in MainWindow.build, is the closest precedent for an overlay pinned to a corner by a custom layout.",
+      "docs": [
+        "internal/gui/app/tags_runs.go",
+        "internal/gui/app/tags_runs_test.go",
+        "internal/gui/ui/notifier.go",
+        "internal/gui/ui/window.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/app.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-26T09:52:00Z",
+      "updated_at": "2026-08-26T09:52:00Z",
+      "plan": null
     }
   ]
 }
