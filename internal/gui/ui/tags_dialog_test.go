@@ -1174,3 +1174,111 @@ func TestTagsDialog_Chords(t *testing.T) {
 		assert.Equal(t, 0, backgrounds)
 	})
 }
+
+func TestTagsDialog_TagChords(t *testing.T) {
+	chord := func(key fyne.KeyName) *desktop.CustomShortcut {
+		return &desktop.CustomShortcut{KeyName: key, Modifier: fyne.KeyModifierAlt}
+	}
+
+	t.Run("Alt+C and Alt+V reach the app wherever the focus sits", func(t *testing.T) {
+		for name, press := range map[string]func(*TagsDialog, fyne.Shortcut){
+			"an input": func(d *TagsDialog, s fyne.Shortcut) { d.concept.TypedShortcut(s) },
+			"a check":  func(d *TagsDialog, s fyne.Shortcut) { d.editorial.TypedShortcut(s) },
+			"a button": func(d *TagsDialog, s fyne.Shortcut) { d.generateBtn.TypedShortcut(s) },
+			"the date": func(d *TagsDialog, s fyne.Shortcut) { d.date.TypedShortcut(s) },
+		} {
+			t.Run(name, func(t *testing.T) {
+				var copies, pastes int
+				d := newTestTagsDialog(t, TagsDialogCallbacks{
+					OnCopyTags:  func() { copies++ },
+					OnPasteTags: func() { pastes++ },
+				})
+
+				press(d, chord(fyne.KeyC))
+				press(d, chord(fyne.KeyV))
+
+				assert.Equal(t, 1, copies)
+				assert.Equal(t, 1, pastes)
+			})
+		}
+	})
+
+	// Option+C is how a Mac keyboard types ç: the driver reports the chord and
+	// the character it composed both, and the character must not land in the
+	// field the chord was pressed over.
+	t.Run("the character the chord composes stays out of the field", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnCopyTags: func() {}})
+		d.Show()
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyT})
+
+		d.concept.TypedShortcut(chord(fyne.KeyC))
+		d.concept.TypedRune('ç')
+
+		assert.Empty(t, d.concept.Text)
+	})
+
+	// Windows and Linux compose nothing from Alt+C, so nothing is left over
+	// there; the letter typed next announces itself as a key event first, which
+	// is what tells the field the rune behind it is a real one.
+	t.Run("the letter typed after the chord is text", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{OnCopyTags: func() {}})
+		d.Show()
+
+		d.concept.TypedShortcut(chord(fyne.KeyC))
+		d.concept.TypedKey(&fyne.KeyEvent{Name: fyne.KeyA})
+		d.concept.TypedRune('a')
+
+		assert.Equal(t, "a", d.concept.Text)
+	})
+
+	t.Run("a chord nothing answers is left to the input", func(t *testing.T) {
+		var copies, pastes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCopyTags:  func() { copies++ },
+			OnPasteTags: func() { pastes++ },
+		})
+
+		d.concept.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyC, Modifier: fyne.KeyModifierControl})
+
+		assert.Equal(t, 0, copies, "Ctrl+C belongs to the text in the field")
+		assert.Equal(t, 0, pastes)
+	})
+}
+
+func TestTagsDialog_PasteTags(t *testing.T) {
+	pasted := model.Tags{Title: "A calm morning by the lake.", Keywords: fullKeywords()}
+
+	t.Run("fills the result fields and leaves the free text alone", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.concept.SetText("a note of its own")
+		d.location.SetText("Riga, Latvia")
+
+		d.PasteTags(pasted)
+
+		assert.Equal(t, pasted.Title, d.title.Text)
+		assert.Equal(t, pasted.KeywordLine(), d.keywords.Text)
+		assert.Equal(t, "a note of its own", d.concept.Text)
+		assert.Equal(t, "Riga, Latvia", d.location.Text)
+		assert.True(t, d.resultBox.Visible())
+		assert.Contains(t, d.status.Text, "50 keywords")
+	})
+
+	// The Generate button is a run's to rename; a paste is not a run.
+	t.Run("leaves the buttons where a run would have moved them", func(t *testing.T) {
+		d := newTestTagsDialogWith(t, TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+
+		d.PasteTags(pasted)
+
+		assert.Equal(t, generateLabel, d.generateBtn.Text)
+		assert.False(t, d.saveJPEGBtn.Disabled(), "the pasted tags are ready to upload")
+	})
+
+	t.Run("reports whether a paste would replace anything", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		assert.False(t, d.HasTags())
+
+		d.PasteTags(pasted)
+
+		assert.True(t, d.HasTags())
+	})
+}

@@ -64,11 +64,16 @@ func (e *dialogEntry) TypedKey(ev *fyne.KeyEvent) {
 	e.Entry.TypedKey(ev)
 }
 
+// A chord the dialog answers leaves a rune behind on macOS, where Option+C is
+// how a keyboard types ç: the driver reports the chord and the character it
+// composed both, and the character would land in the field the chord was
+// pressed over. It is the same leftover the flag was made for.
 func (e *dialogEntry) TypedShortcut(shortcut fyne.Shortcut) {
-	e.strayRune = false
 	if e.keys.handleShortcut(shortcut) {
+		e.strayRune = true
 		return
 	}
+	e.strayRune = false
 	e.Entry.TypedShortcut(shortcut)
 }
 

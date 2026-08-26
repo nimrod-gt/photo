@@ -48,8 +48,10 @@ func (a *Application) handleTags() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().KeywordLine())
 			a.mainWindow.ShowNotification("Keywords copied to clipboard")
 		},
-		OnSaveJPEG: session.saveJPEG,
-		OnClose:    session.close,
+		OnCopyTags:  session.copyTags,
+		OnPasteTags: session.pasteTags,
+		OnSaveJPEG:  session.saveJPEG,
+		OnClose:     session.close,
 	})
 
 	a.dialogs.openSelfClosing(dialogTags, session.dialog, session.escape)

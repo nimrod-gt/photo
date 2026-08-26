@@ -45,6 +45,8 @@ type Application struct {
 	gridMode         bool
 	showTags         bool
 	tagGeneration    int
+	tagsCopy         model.Tags
+	tagsCopied       bool
 }
 
 func New() *Application {
