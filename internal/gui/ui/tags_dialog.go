@@ -39,6 +39,8 @@ type TagsDialogCallbacks struct {
 	OnBackground   func()
 	OnCopyTitle    func()
 	OnCopyKeywords func()
+	OnCopyTags     func()
+	OnPasteTags    func()
 	OnSaveJPEG     func()
 	OnClose        func()
 }
@@ -272,18 +274,31 @@ func (d *TagsDialog) handleKey(ev *fyne.KeyEvent) bool {
 	return true
 }
 
-// Ctrl+Enter is the one chord the driver reports as a shortcut. macOS names the
-// Command key Super and leaves Ctrl as it is, so both count: the dialog asks
-// for the place of the chord rather than for the key a platform calls its own.
+// The chords the dialog answers wherever the focus sits. macOS names the
+// Command key Super and leaves Ctrl as it is, so both count for the background
+// chord: the dialog asks for the place of the chord rather than for the key a
+// platform calls its own.
+//
+// Alt carries the two tag chords because Ctrl+C and Ctrl+V belong to the fields.
+// Every widget of the dialog offers its shortcuts here before handling them
+// itself, so taking those two would leave no way to copy a piece of a title.
 func (d *TagsDialog) handleShortcut(shortcut fyne.Shortcut) bool {
 	chord, ok := shortcut.(*desktop.CustomShortcut)
-	if !ok || !isReturn(chord.KeyName) {
+	if !ok {
 		return false
 	}
-	if chord.Modifier&(fyne.KeyModifierControl|fyne.KeyModifierSuper) == 0 {
+	switch {
+	case isReturn(chord.KeyName) && chord.Modifier&(fyne.KeyModifierControl|fyne.KeyModifierSuper) != 0:
+		d.startBackground()
+	case chord.Modifier&fyne.KeyModifierAlt == 0:
+		return false
+	case chord.KeyName == fyne.KeyC:
+		call(d.callbacks.OnCopyTags)
+	case chord.KeyName == fyne.KeyV:
+		call(d.callbacks.OnPasteTags)
+	default:
 		return false
 	}
-	d.startBackground()
 	return true
 }
 
@@ -458,6 +473,19 @@ func (d *TagsDialog) RestoreTags(handed model.Tags) {
 	d.location.SetText(d.split.Location)
 	d.concept.SetText(strings.TrimSpace(handed.Concept))
 	d.showResult(handed)
+}
+
+// PasteTags puts the tags copied out of another photo's dialog into the result
+// fields and nothing else: the place and the note belong to the photo in front
+// of the user, not to the one the tags came from.
+func (d *TagsDialog) PasteTags(pasted model.Tags) {
+	d.showResult(pasted)
+}
+
+// HasTags says whether a paste would replace anything, which is what decides
+// between pasting and asking first.
+func (d *TagsDialog) HasTags() bool {
+	return !d.resultUntouched()
 }
 
 // A run lands up to a minute after it was started and the fields stay editable
