@@ -7,6 +7,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"photo/internal/core/imaging"
 	"photo/internal/core/model"
 	"photo/internal/core/tags"
+	"photo/internal/gui/ui"
 )
 
 // The tagger is held as what a run asks of it, so a test can hand the runner a
@@ -45,6 +47,7 @@ type tagRunner struct {
 // a sidecar written after they touched the files, not a claude process.
 type tagRun struct {
 	photo   model.Photo
+	started time.Time
 	taken   time.Time
 	stop    context.CancelFunc
 	session *tagsSession
@@ -146,6 +149,7 @@ func (r *tagRunner) start(session *tagsSession, req tags.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	run := &tagRun{
 		photo:   session.photo,
+		started: time.Now(),
 		taken:   session.taken,
 		stop:    cancel,
 		session: session,
@@ -155,6 +159,7 @@ func (r *tagRunner) start(session *tagsSession, req tags.Request) {
 	r.mu.Lock()
 	r.runs[path] = run
 	r.mu.Unlock()
+	r.reportRuns()
 
 	r.running.Add(1)
 	go func() {
@@ -174,6 +179,7 @@ func (r *tagRunner) start(session *tagsSession, req tags.Request) {
 // to keep - which is why the flag is asked about and not only the error.
 func (r *tagRunner) finish(run *tagRun, claudePath string, generated model.Tags, err error) {
 	cancelled, session := r.unregister(run)
+	r.reportRuns()
 	if cancelled || errors.Is(err, context.Canceled) {
 		r.release(run)
 		return
@@ -357,12 +363,51 @@ func (r *tagRunner) background(path string) {
 // reopened on the photo from sitting at "Generating" for good.
 func (r *tagRunner) cancel(path string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if run, ok := r.runs[path]; ok {
 		run.cancelled = true
 		run.stop()
 	}
+	r.mu.Unlock()
+
+	r.reportRuns()
+}
+
+// What the corner shows is every generation still in flight: a run that landed
+// is only writing its file, and a cancelled one is only letting go of it, so
+// neither is worth a plate any more. The order is the order they started in,
+// because the registry is a map and would hand them over in a different one
+// every time.
+func (r *tagRunner) live() []ui.RunItem {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	items := make([]ui.RunItem, 0, len(r.runs))
+	for _, run := range r.runs {
+		if run.landed || run.cancelled {
+			continue
+		}
+		items = append(items, ui.RunItem{Name: run.photo.Name, Since: run.started})
+	}
+	slices.SortFunc(items, func(a, b ui.RunItem) int {
+		if order := a.Since.Compare(b.Since); order != 0 {
+			return order
+		}
+		return strings.Compare(a.Name, b.Name)
+	})
+	return items
+}
+
+// The list is taken on the other side of the hop rather than here: a report from
+// a worker goroutine - a delete stopping a run - would otherwise carry what the
+// registry held before it queued, and land behind a newer one that already
+// showed a run it knew nothing about.
+//
+// stopAll is no caller of this: the window is on its way out there, and what it
+// kills has nowhere left to be shown.
+func (r *tagRunner) reportRuns() {
+	fyne.Do(func() {
+		r.app.mainWindow.SetRunningTags(r.live())
+	})
 }
 
 // awaitTags holds the caller until nothing is going to write for this photo any
@@ -402,6 +447,12 @@ func (r *tagRunner) stopAll() {
 		run.stop()
 	}
 	r.mu.Unlock()
+
+	// Straight to the window rather than through reportRuns: the loop that would
+	// carry the hop is over, and a corner left with a plate on it keeps arming a
+	// tick for a run that was just killed. It comes after the kill, so a run that
+	// answers in the meantime finds itself cancelled and puts nothing back.
+	r.app.mainWindow.SetRunningTags(nil)
 
 	done := make(chan struct{})
 	go func() {

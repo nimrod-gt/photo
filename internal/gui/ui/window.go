@@ -22,6 +22,7 @@ type MainWindow struct {
 	gridViewer  *GridViewer
 	notifier    *Notifier
 	tagBar      *TagBar
+	runBar      *RunBar
 	viewStack   *fyne.Container
 }
 
@@ -37,6 +38,7 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 		gridViewer:  gridViewer,
 		notifier:    notifier,
 		tagBar:      NewTagBar(),
+		runBar:      NewRunBar(),
 	}
 	mw.build()
 	return mw
@@ -66,6 +68,10 @@ func (mw *MainWindow) ClearPhotoTags() {
 	mw.tagBar.Clear()
 }
 
+func (mw *MainWindow) SetRunningTags(items []RunItem) {
+	mw.runBar.SetRuns(items)
+}
+
 func (mw *MainWindow) SetTagsVisible(visible bool) {
 	mw.tagBar.SetEnabled(visible)
 }
@@ -93,7 +99,7 @@ func (mw *MainWindow) SetGridMode(grid bool) {
 
 func (mw *MainWindow) build() {
 	mw.viewStack = container.NewStack(mw.viewer.Container())
-	withTags := container.NewStack(mw.viewStack, mw.tagBar.Container())
+	withTags := container.NewStack(mw.viewStack, mw.tagBar.Container(), mw.runBar.Container())
 	rightPanel := container.NewBorder(mw.actionPanel.Container(), nil, nil, nil, withTags)
 	rightWithNotifier := container.NewStack(rightPanel, mw.notifier.Container())
 
