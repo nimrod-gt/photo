@@ -5,6 +5,10 @@ import (
 	"github.com/go-gl/glfw/v3.4/glfw"
 )
 
+// Taken as a variable so a test can stand in for GLFW, which reports no scan
+// code at all until a window has been opened.
+var keyScanCode = glfw.GetKeyScancode
+
 type ShortcutCallbacks struct {
 	OnFavorite       func()
 	OnRed            func()
@@ -35,24 +39,24 @@ type ShortcutCallbacks struct {
 // layout the user types in.
 func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 	scanActions := map[int]func(){
-		glfw.GetKeyScancode(glfw.KeyF): callbacks.OnFavorite,
-		glfw.GetKeyScancode(glfw.KeyR): callbacks.OnRed,
-		glfw.GetKeyScancode(glfw.KeyG): callbacks.OnGreen,
-		glfw.GetKeyScancode(glfw.KeyB): callbacks.OnBlue,
-		glfw.GetKeyScancode(glfw.KeyD): callbacks.OnDelete,
-		glfw.GetKeyScancode(glfw.KeyC): callbacks.OnCopy,
-		glfw.GetKeyScancode(glfw.KeyN): callbacks.OnCancel,
-		glfw.GetKeyScancode(glfw.KeyS): callbacks.OnSort,
-		glfw.GetKeyScancode(glfw.Key1): callbacks.OnFilterFavorite,
-		glfw.GetKeyScancode(glfw.Key2): callbacks.OnFilterRed,
-		glfw.GetKeyScancode(glfw.Key3): callbacks.OnFilterGreen,
-		glfw.GetKeyScancode(glfw.Key4): callbacks.OnFilterBlue,
-		glfw.GetKeyScancode(glfw.KeyH): callbacks.OnHelp,
-		glfw.GetKeyScancode(glfw.KeyY): callbacks.OnCopyClipboard,
-		glfw.GetKeyScancode(glfw.KeyL): callbacks.OnToggleGrid,
-		glfw.GetKeyScancode(glfw.KeyZ): callbacks.OnZoomReset,
-		glfw.GetKeyScancode(glfw.KeyT): callbacks.OnTags,
-		glfw.GetKeyScancode(glfw.KeyI): callbacks.OnToggleTags,
+		keyScanCode(glfw.KeyF): callbacks.OnFavorite,
+		keyScanCode(glfw.KeyR): callbacks.OnRed,
+		keyScanCode(glfw.KeyG): callbacks.OnGreen,
+		keyScanCode(glfw.KeyB): callbacks.OnBlue,
+		keyScanCode(glfw.KeyD): callbacks.OnDelete,
+		keyScanCode(glfw.KeyC): callbacks.OnCopy,
+		keyScanCode(glfw.KeyN): callbacks.OnCancel,
+		keyScanCode(glfw.KeyS): callbacks.OnSort,
+		keyScanCode(glfw.Key1): callbacks.OnFilterFavorite,
+		keyScanCode(glfw.Key2): callbacks.OnFilterRed,
+		keyScanCode(glfw.Key3): callbacks.OnFilterGreen,
+		keyScanCode(glfw.Key4): callbacks.OnFilterBlue,
+		keyScanCode(glfw.KeyH): callbacks.OnHelp,
+		keyScanCode(glfw.KeyY): callbacks.OnCopyClipboard,
+		keyScanCode(glfw.KeyL): callbacks.OnToggleGrid,
+		keyScanCode(glfw.KeyZ): callbacks.OnZoomReset,
+		keyScanCode(glfw.KeyT): callbacks.OnTags,
+		keyScanCode(glfw.KeyI): callbacks.OnToggleTags,
 	}
 
 	keyActions := map[fyne.KeyName]func(){

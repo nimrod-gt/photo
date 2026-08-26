@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/go-gl/glfw/v3.4/glfw"
 
 	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
@@ -79,6 +80,7 @@ type TagsDialog struct {
 	backgroundBtn   *dialogButton
 	buttons         *fyne.Container
 	generating      bool
+	lastScanCode    int
 	shiftDown       bool
 	shown           bool
 	closed          bool
@@ -292,9 +294,9 @@ func (d *TagsDialog) handleShortcut(shortcut fyne.Shortcut) bool {
 		d.startBackground()
 	case chord.Modifier&fyne.KeyModifierAlt == 0:
 		return false
-	case chord.KeyName == fyne.KeyC:
+	case d.chordOn(chord, fyne.KeyC, glfw.KeyC):
 		call(d.callbacks.OnCopyTags)
-	case chord.KeyName == fyne.KeyV:
+	case d.chordOn(chord, fyne.KeyV, glfw.KeyV):
 		call(d.callbacks.OnPasteTags)
 	default:
 		return false
@@ -302,11 +304,26 @@ func (d *TagsDialog) handleShortcut(shortcut fyne.Shortcut) bool {
 	return true
 }
 
+// Fyne names the key of a chord after the letter the layout prints on it, and
+// only falls back to the ASCII key for the ctrl modifier, so an Alt chord typed
+// in Cyrillic arrives with no name at all. The place of the key on the keyboard
+// is what the rest of the app binds to, and the key going down brought it.
+func (d *TagsDialog) chordOn(chord *desktop.CustomShortcut, name fyne.KeyName, place glfw.Key) bool {
+	if chord.KeyName == name {
+		return true
+	}
+	return chord.KeyName == fyne.KeyUnknown && d.lastScanCode != 0 && d.lastScanCode == keyScanCode(place)
+}
+
 // Shift is the only modifier the dialog has to remember: it never reaches a
-// widget as part of the key it modifies.
-func (d *TagsDialog) trackModifier(ev *fyne.KeyEvent, down bool) {
+// widget as part of the key it modifies. The scan code is remembered for the
+// chords, which arrive without one.
+func (d *TagsDialog) trackKey(ev *fyne.KeyEvent, down bool) {
 	if ev.Name == desktop.KeyShiftLeft || ev.Name == desktop.KeyShiftRight {
 		d.shiftDown = down
+	}
+	if down {
+		d.lastScanCode = ev.Physical.ScanCode
 	}
 }
 

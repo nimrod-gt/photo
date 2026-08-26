@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/test"
+	"github.com/go-gl/glfw/v3.4/glfw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1243,6 +1244,81 @@ func TestTagsDialog_TagChords(t *testing.T) {
 		assert.Equal(t, 0, copies, "Ctrl+C belongs to the text in the field")
 		assert.Equal(t, 0, pastes)
 	})
+
+	// Fyne names the key of a chord after the letter the layout prints on it and
+	// gives up when that letter is not ASCII, so a Cyrillic layout sends the
+	// chord along with no name; the place of the key is what it is answered by.
+	t.Run("a chord typed in another layout goes by the place of the key", func(t *testing.T) {
+		stubScanCodes(t)
+		var copies, pastes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCopyTags:  func() { copies++ },
+			OnPasteTags: func() { pastes++ },
+		})
+
+		pressPlace(d, scanCodeC)
+		pressPlace(d, scanCodeV)
+
+		assert.Equal(t, 1, copies)
+		assert.Equal(t, 1, pastes)
+	})
+
+	t.Run("a nameless chord over another key is left to the input", func(t *testing.T) {
+		stubScanCodes(t)
+		var copies, pastes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCopyTags:  func() { copies++ },
+			OnPasteTags: func() { pastes++ },
+		})
+
+		pressPlace(d, scanCodeC+scanCodeV)
+
+		assert.Equal(t, 0, copies)
+		assert.Equal(t, 0, pastes)
+	})
+
+	// A driver that reports no scan code at all would otherwise have every
+	// nameless chord answered as the key whose place is unknown too.
+	t.Run("a nameless chord with no key behind it does nothing", func(t *testing.T) {
+		stubScanCodes(t)
+		var copies, pastes int
+		d := newTestTagsDialog(t, TagsDialogCallbacks{
+			OnCopyTags:  func() { copies++ },
+			OnPasteTags: func() { pastes++ },
+		})
+
+		d.concept.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyUnknown, Modifier: fyne.KeyModifierAlt})
+
+		assert.Equal(t, 0, copies)
+		assert.Equal(t, 0, pastes)
+	})
+}
+
+const (
+	scanCodeC = 8
+	scanCodeV = 9
+)
+
+// GLFW answers with nothing until a window of its own is open, which no test has.
+func stubScanCodes(t *testing.T) {
+	t.Helper()
+	previous := keyScanCode
+	keyScanCode = func(key glfw.Key) int {
+		switch key {
+		case glfw.KeyC:
+			return scanCodeC
+		case glfw.KeyV:
+			return scanCodeV
+		}
+		return 0
+	}
+	t.Cleanup(func() { keyScanCode = previous })
+}
+
+func pressPlace(d *TagsDialog, scanCode int) {
+	d.concept.KeyDown(&fyne.KeyEvent{Name: fyne.KeyUnknown, Physical: fyne.HardwareKey{ScanCode: scanCode}})
+	d.concept.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyUnknown, Modifier: fyne.KeyModifierAlt})
+	d.concept.KeyUp(&fyne.KeyEvent{Name: fyne.KeyUnknown, Physical: fyne.HardwareKey{ScanCode: scanCode}})
 }
 
 func TestTagsDialog_PasteTags(t *testing.T) {

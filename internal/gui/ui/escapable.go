@@ -15,11 +15,13 @@ import (
 // key on and says nothing about the Shift, so the wrappers report the modifier
 // keys going down and up as well. Every widget of the dialog reports them, so
 // one held across a Shift+Tab - which the driver answers itself, without the
-// widget hearing the Tab - is still known about where the focus lands.
+// widget hearing the Tab - is still known about where the focus lands. The key
+// going down carries the place it holds on the keyboard, which a chord no
+// longer says anything about by the time it arrives.
 type dialogKeys interface {
 	handleKey(*fyne.KeyEvent) bool
 	handleShortcut(fyne.Shortcut) bool
-	trackModifier(ev *fyne.KeyEvent, down bool)
+	trackKey(ev *fyne.KeyEvent, down bool)
 }
 
 type dialogEntry struct {
@@ -78,12 +80,12 @@ func (e *dialogEntry) TypedShortcut(shortcut fyne.Shortcut) {
 }
 
 func (e *dialogEntry) KeyDown(ev *fyne.KeyEvent) {
-	e.keys.trackModifier(ev, true)
+	e.keys.trackKey(ev, true)
 	e.Entry.KeyDown(ev)
 }
 
 func (e *dialogEntry) KeyUp(ev *fyne.KeyEvent) {
-	e.keys.trackModifier(ev, false)
+	e.keys.trackKey(ev, false)
 	e.Entry.KeyUp(ev)
 }
 
@@ -127,12 +129,12 @@ func (e *dialogDateEntry) TypedShortcut(shortcut fyne.Shortcut) {
 }
 
 func (e *dialogDateEntry) KeyDown(ev *fyne.KeyEvent) {
-	e.keys.trackModifier(ev, true)
+	e.keys.trackKey(ev, true)
 	e.DateEntry.KeyDown(ev)
 }
 
 func (e *dialogDateEntry) KeyUp(ev *fyne.KeyEvent) {
-	e.keys.trackModifier(ev, false)
+	e.keys.trackKey(ev, false)
 	e.DateEntry.KeyUp(ev)
 }
 
@@ -162,11 +164,11 @@ func (c *dialogCheck) TypedShortcut(shortcut fyne.Shortcut) {
 }
 
 func (c *dialogCheck) KeyDown(ev *fyne.KeyEvent) {
-	c.keys.trackModifier(ev, true)
+	c.keys.trackKey(ev, true)
 }
 
 func (c *dialogCheck) KeyUp(ev *fyne.KeyEvent) {
-	c.keys.trackModifier(ev, false)
+	c.keys.trackKey(ev, false)
 }
 
 type dialogButton struct {
@@ -213,11 +215,11 @@ func (b *dialogButton) TypedShortcut(shortcut fyne.Shortcut) {
 }
 
 func (b *dialogButton) KeyDown(ev *fyne.KeyEvent) {
-	b.keys.trackModifier(ev, true)
+	b.keys.trackKey(ev, true)
 }
 
 func (b *dialogButton) KeyUp(ev *fyne.KeyEvent) {
-	b.keys.trackModifier(ev, false)
+	b.keys.trackKey(ev, false)
 }
 
 type unfocusableButton struct {
