@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -14,10 +15,41 @@ const (
 )
 
 type Tags struct {
-	Title    string
-	Keywords []string
-	Place    Place
-	Concept  string
+	Title     string
+	Keywords  []string
+	Place     Place
+	Concept   string
+	Editorial Editorial
+}
+
+// Editorial is the mark stock sites ask for on a photo that may only be sold as
+// editorial content, together with the day it was taken - the caption they want
+// names it.
+type Editorial struct {
+	Marked bool
+	Date   time.Time
+}
+
+// Normalized cuts the day out of the date and throws away everything an
+// unmarked flag has no use for, so a value read back from a file compares equal
+// to the one the dialog holds. A full timestamp never would - the calendar
+// gives a local midnight, the file a parsed day - and every dialog close would
+// rewrite the sidecar over a difference nothing shows.
+func (e Editorial) Normalized() Editorial {
+	if !e.Marked {
+		return Editorial{}
+	}
+	if e.Date.IsZero() {
+		return Editorial{Marked: true}
+	}
+	year, month, day := e.Date.Date()
+	return Editorial{Marked: true, Date: time.Date(year, month, day, 0, 0, 0, 0, time.UTC)}
+}
+
+// A date without the mark is nothing to write: the day alone says neither that
+// the photo is editorial nor that it is not.
+func (e Editorial) IsEmpty() bool {
+	return !e.Marked
 }
 
 // Place is the location the user typed in the Tags dialog plus the split the
@@ -47,16 +79,17 @@ func (t Tags) KeywordLine() string {
 	return strings.Join(t.Keywords, ", ")
 }
 
-// Neither the place nor the concept is looked at: callers read IsEmpty as "the
-// generator produced nothing", and neither of them is something it produces - a
-// place or a note alone must not pass for a result, or an empty run would
-// overwrite a sidecar or blank the dialog.
+// Neither the place, the concept nor the editorial flag is looked at: callers
+// read IsEmpty as "the generator produced nothing", and none of the three is
+// something it produces - a place, a note or a mark alone must not pass for a
+// result, or an empty run would overwrite a sidecar or blank the dialog.
 func (t Tags) IsEmpty() bool {
 	return len(strings.TrimSpace(t.Title)) == 0 && len(t.Keywords) == 0
 }
 
 func (t Tags) Equal(other Tags) bool {
 	return t.Title == other.Title && t.Place == other.Place && t.Concept == other.Concept &&
+		t.Editorial.Normalized() == other.Editorial.Normalized() &&
 		slices.Equal(t.Keywords, other.Keywords)
 }
 

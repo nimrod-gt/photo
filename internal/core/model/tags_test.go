@@ -4,8 +4,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func validKeywords() []string {
@@ -154,6 +156,7 @@ func TestTags_IsEmpty(t *testing.T) {
 	assert.False(t, Tags{Keywords: []string{"lake"}}.IsEmpty())
 	assert.True(t, Tags{Place: Place{Location: "Cascais, Portugal"}}.IsEmpty(), "a place alone is not a result")
 	assert.True(t, Tags{Concept: "fog over the lake"}.IsEmpty(), "a concept alone is not a result")
+	assert.True(t, Tags{Editorial: Editorial{Marked: true}}.IsEmpty(), "a mark alone is not a result")
 }
 
 func TestTags_Equal(t *testing.T) {
@@ -176,6 +179,71 @@ func TestTags_Equal(t *testing.T) {
 	assert.True(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the lake"}))
 	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the sea"}))
 	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+
+	day := time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)
+	marked := Tags{Title: "A title.", Keywords: []string{"lake"}, Editorial: Editorial{Marked: true, Date: day}}
+	assert.True(t, marked.Equal(Tags{Title: "A title.", Keywords: []string{"lake"},
+		Editorial: Editorial{Marked: true, Date: day.Add(11 * time.Hour)}}), "the time of day is not part of the value")
+	assert.False(t, marked.Equal(Tags{Title: "A title.", Keywords: []string{"lake"},
+		Editorial: Editorial{Marked: true, Date: day.AddDate(0, 0, 1)}}))
+	assert.False(t, marked.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+	assert.True(t, Tags{Editorial: Editorial{Date: day}}.Equal(Tags{}), "a date without the mark is no difference")
+}
+
+func TestEditorial_Normalized(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)
+	lisbon, err := time.LoadLocation("Europe/Lisbon")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		editorial Editorial
+		want      Editorial
+	}{
+		{name: "zero value", editorial: Editorial{}, want: Editorial{}},
+		{
+			name:      "unmarked drops the date",
+			editorial: Editorial{Date: day},
+			want:      Editorial{},
+		},
+		{
+			name:      "marked without a date",
+			editorial: Editorial{Marked: true},
+			want:      Editorial{Marked: true},
+		},
+		{
+			name:      "drops the time of day",
+			editorial: Editorial{Marked: true, Date: day.Add(23*time.Hour + 59*time.Minute)},
+			want:      Editorial{Marked: true, Date: day},
+		},
+		{
+			name:      "a local midnight is the same day",
+			editorial: Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, lisbon)},
+			want:      Editorial{Marked: true, Date: day},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.editorial.Normalized())
+			assert.Equal(t, tt.want, tt.editorial.Normalized(), "the value must compare with ==")
+		})
+	}
+}
+
+func TestEditorial_IsEmpty(t *testing.T) {
+	t.Parallel()
+
+	day := time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)
+
+	assert.True(t, Editorial{}.IsEmpty())
+	assert.True(t, Editorial{Date: day}.IsEmpty(), "a date alone says nothing")
+	assert.False(t, Editorial{Marked: true}.IsEmpty())
+	assert.False(t, Editorial{Marked: true, Date: day}.IsEmpty())
 }
 
 func TestPlace_Trimmed(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"photo/internal/core/model"
 )
@@ -29,6 +30,9 @@ const (
 	stateProperty    = "State"
 	countryProperty  = "Country"
 	conceptProperty  = "Concept"
+
+	editorialProperty     = "Editorial"
+	editorialDateProperty = "EditorialDate"
 
 	dcPrefix        = "dc"
 	iptcCorePrefix  = "Iptc4xmpCore"
@@ -76,6 +80,7 @@ type sidecarTags struct {
 	keywords    []string
 	place       model.Place
 	concept     string
+	editorial   model.Editorial
 	rating      int
 	rated       bool
 }
@@ -85,7 +90,8 @@ func (s sidecarTags) tags() model.Tags {
 	if len(title) == 0 {
 		title = s.description
 	}
-	return model.Tags{Title: title, Keywords: s.keywords, Place: s.place, Concept: s.concept}
+	return model.Tags{Title: title, Keywords: s.keywords, Place: s.place, Concept: s.concept,
+		Editorial: s.editorial.Normalized()}
 }
 
 // The properties the app reads back out of a document. Everything else - the
@@ -109,6 +115,9 @@ var ownedProperties = []ownedProperty{
 	{space: photoshopNamespace, local: stateProperty, read: func(s *sidecarTags, p xmpProperty) { s.place.State = p.first() }},
 	{space: photoshopNamespace, local: countryProperty, read: func(s *sidecarTags, p xmpProperty) { s.place.Country = p.first() }},
 	{space: photoNamespace, local: conceptProperty, read: func(s *sidecarTags, p xmpProperty) { s.concept = p.first() }},
+	{space: photoNamespace, local: editorialProperty, read: func(s *sidecarTags, p xmpProperty) { s.setEditorial(p.first()) }},
+	{space: photoNamespace, local: editorialDateProperty,
+		read: func(s *sidecarTags, p xmpProperty) { s.setEditorialDate(p.first()) }},
 }
 
 func ownedByName(name xml.Name) (ownedProperty, bool) {
@@ -137,6 +146,25 @@ func (o ownedProperty) attributeValue(value string) xmpProperty {
 		return xmpProperty{Bag: model.ParseKeywordLine(value)}
 	}
 	return xmpProperty{Text: value}
+}
+
+func (s *sidecarTags) setEditorial(text string) {
+	if marked, err := strconv.ParseBool(strings.TrimSpace(text)); err == nil {
+		s.editorial.Marked = marked
+	}
+}
+
+// The day is written bare, but another tool is free to have put a whole
+// timestamp there, and the date is cut down to the day it names either way.
+// Text that is neither is no date at all and leaves the one already read alone.
+func (s *sidecarTags) setEditorialDate(text string) {
+	text = strings.TrimSpace(text)
+	for _, layout := range []string{time.DateOnly, time.RFC3339} {
+		if date, err := time.Parse(layout, text); err == nil {
+			s.editorial.Date = date
+			return
+		}
+	}
 }
 
 func (s *sidecarTags) setRating(text string) {
@@ -262,9 +290,15 @@ var writtenProperties = []writtenProperty{
 		values: placeValues(func(p model.Place) string { return p.Country }), emit: writeTextProperty},
 	// Last on purpose: ownDescriptionPattern spells the declarations in this
 	// order with every later one optional, so appending keeps the descriptions
-	// earlier versions wrote recognisable and edited in place.
+	// earlier versions wrote recognisable and edited in place. The properties of
+	// our own namespace are the ones that grow, and they all go in this block for
+	// that reason: another prefix after them would change the order.
 	{prefix: photoPrefix, namespace: photoNamespace, name: conceptProperty,
 		values: conceptValues, emit: writeTextProperty},
+	{prefix: photoPrefix, namespace: photoNamespace, name: editorialProperty,
+		values: editorialValues, emit: writeTextProperty},
+	{prefix: photoPrefix, namespace: photoNamespace, name: editorialDateProperty,
+		values: editorialDateValues, emit: writeTextProperty},
 }
 
 func titleValues(tags model.Tags) []string {
@@ -283,6 +317,24 @@ func conceptValues(tags model.Tags) []string {
 		return []string{concept}
 	}
 	return nil
+}
+
+// The mark is what says the photo is editorial, so an unmarked one writes
+// neither property rather than a False nobody reads: the absence is the answer,
+// and a date on its own would outlive the mark it belongs to.
+func editorialValues(tags model.Tags) []string {
+	if tags.Editorial.Normalized().Marked {
+		return []string{"True"}
+	}
+	return nil
+}
+
+func editorialDateValues(tags model.Tags) []string {
+	editorial := tags.Editorial.Normalized()
+	if !editorial.Marked || editorial.Date.IsZero() {
+		return nil
+	}
+	return []string{editorial.Date.Format(time.DateOnly)}
 }
 
 func placeValues(level func(model.Place) string) func(model.Tags) []string {

@@ -47,6 +47,7 @@ type Request struct {
 	Notes      string
 	Location   string
 	Concept    string
+	Editorial  model.Editorial
 	ClaudePath string
 }
 
@@ -77,10 +78,13 @@ func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) 
 	generated, err := parseTagsResponse(out, t.now())
 	switch {
 	case err == nil:
-		// The free text fields are the user's own, so they are taken from the
-		// request rather than from the model's echo of them.
+		// The fields the user filled in are the user's own, so they are taken from
+		// the request rather than from the model's echo of them. The mark is
+		// carried along rather than left out: a run writes the tags it generated
+		// and nothing else, so a mark it dropped would go missing from the file.
 		generated.Place.Location = strings.TrimSpace(req.Location)
 		generated.Concept = strings.TrimSpace(req.Concept)
+		generated.Editorial = req.Editorial.Normalized()
 		return generated, nil
 	case runErr == nil || !errors.Is(err, errNoReport):
 		return model.Tags{}, err

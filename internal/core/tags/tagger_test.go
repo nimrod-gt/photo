@@ -269,6 +269,34 @@ func TestTagger_Generate(t *testing.T) {
 		assert.ErrorContains(t, err, "claude returned no tags")
 	})
 
+	t.Run("returns the editorial mark the user ticked", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest("Editorial: June 13, 2026")
+		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 9, 41, 0, 0, time.UTC)}
+
+		tags, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)},
+			tags.Editorial, "the time of day is cut off, so the value round-trips through the sidecar")
+	})
+
+	t.Run("leaves the mark out when the dialog made none", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		require.NoError(t, err)
+		assert.Equal(t, model.Editorial{}, tags.Editorial)
+	})
+
+	t.Run("a mark alone is still a failed run", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[]}}`}
+		req := testRequest("")
+		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}
+
+		_, err := newTestTagger(run).Generate(t.Context(), req)
+		assert.ErrorContains(t, err, "claude returned no tags")
+	})
+
 	t.Run("keeps a response without keywords", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"Only a title"}}`}
 

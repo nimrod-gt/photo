@@ -187,6 +187,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), info.Tags)
 		assert.Equal(t, generatedTags(), session.dialog.Tags())
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo), "the dialog saves what the run brought it")
 	})
 
 	t.Run("a dialog closing over a run leaves the sidecar to it", func(t *testing.T) {
@@ -425,6 +426,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), second.dialog.Tags())
 		assert.Empty(t, first.dialog.Tags().Title, "the dialog that let the run go keeps nothing")
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("waiting on a photo no run touches ends at once", func(t *testing.T) {
@@ -479,6 +481,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.True(t, a.tagRuns.pending(photo.ImagePath), "the run must keep going without its waiter")
 		held.answerWithTags(t, a, photo.ImagePath)
+		settleRuns(t, a, photo.ImagePath)
 	})
 
 	t.Run("attaches to nothing when no run is going", func(t *testing.T) {
@@ -558,6 +561,7 @@ func TestTagRunnerCorner(t *testing.T) {
 
 		held.answerWithTags(t, a, photo.ImagePath)
 		settleRuns(t, a, photo.ImagePath)
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("a run that landed is gone from the list", func(t *testing.T) {
@@ -572,6 +576,7 @@ func TestTagRunnerCorner(t *testing.T) {
 
 		assert.Empty(t, a.tagRuns.live(), "a generation that answered is only writing its file")
 		settleRuns(t, a, photo.ImagePath)
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("a cancelled run is gone from the list before it lets go", func(t *testing.T) {

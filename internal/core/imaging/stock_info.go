@@ -114,7 +114,22 @@ func FillMissing(tags, fallback model.Tags) model.Tags {
 	}
 	tags.Place = fillMissingPlace(tags.Place, fallback.Place)
 	tags.Concept = orFallback(tags.Concept, fallback.Concept)
+	tags.Editorial = fillMissingEditorial(tags.Editorial, fallback.Editorial)
 	return tags
+}
+
+// The mark and the day are filled apart, the way the place is: a sidecar that
+// says the photo is editorial without naming a day keeps the day the packet
+// carries. A mark the newer set does not make is one it does not answer either
+// - nothing spells an unmarked photo - so the older one still speaks.
+func fillMissingEditorial(editorial, fallback model.Editorial) model.Editorial {
+	if !editorial.Marked {
+		editorial.Marked = fallback.Marked
+	}
+	if editorial.Date.IsZero() {
+		editorial.Date = fallback.Date
+	}
+	return editorial.Normalized()
 }
 
 // Level by level: a sidecar that names the country but not the city is no reason

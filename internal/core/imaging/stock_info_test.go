@@ -352,6 +352,55 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, "the sidecar's idea", info.Tags.Concept)
 	})
 
+	// The mark rides with the tags the same way, so a JPEG saved with Save JPEG
+	// carries it in its packet even when no sidecar was ever written.
+	t.Run("reads the editorial mark out of the packet", func(t *testing.T) {
+		t.Parallel()
+		marked := model.Tags{Title: "From the packet.", Editorial: model.Editorial{
+			Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}}
+		path := writeJPEGWithPacket(t, t.TempDir(), "DSC040.jpg", exifTags, packetWith(t, marked))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, marked.Editorial, info.Tags.Editorial)
+	})
+
+	// A sidecar written before the mark was persisted says nothing about it, and
+	// the packet is then the only file that remembers.
+	t.Run("fills from the packet the mark the sidecar lacks", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		marked := model.Tags{Title: "From the packet.", Editorial: model.Editorial{
+			Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}}
+		path := writeJPEGWithPacket(t, dir, "DSC041.jpg", exifTags, packetWith(t, marked))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC041.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC041.xmp"), model.Tags{Title: "From the sidecar."}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "From the sidecar.", info.Tags.Title)
+		assert.Equal(t, marked.Editorial, info.Tags.Editorial)
+	})
+
+	t.Run("prefers the day of the sidecar over the one in the packet", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		marked := model.Tags{Title: "From the packet.", Editorial: model.Editorial{
+			Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}}
+		path := writeJPEGWithPacket(t, dir, "DSC042.jpg", exifTags, packetWith(t, marked))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC042.ARW"), []byte("raw"), 0600))
+		newer := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC042.xmp"),
+			model.Tags{Title: "From the sidecar.", Editorial: model.Editorial{Marked: true, Date: newer}}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, model.Editorial{Marked: true, Date: newer}, info.Tags.Editorial)
+	})
+
 	t.Run("reports a packet it cannot parse and keeps the EXIF tags", func(t *testing.T) {
 		t.Parallel()
 		path := writeJPEGWithPacket(t, t.TempDir(), "broken.jpg", exifTags, xmpPacket("<x:xmpmeta><unclosed>", 40))
@@ -367,6 +416,60 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 // The sidecar is the store the dialog writes on its own. A JPEG packet the
 // parser rejects used to end the read before it, and the dialog was seeded from
 // the EXIF instead - the first save then wrote that over the tags in the sidecar.
+func TestFillMissingEditorial(t *testing.T) {
+	t.Parallel()
+
+	june := time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)
+	july := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		newer    model.Editorial
+		fallback model.Editorial
+		want     model.Editorial
+	}{
+		{name: "nothing on either side"},
+		{
+			name:     "the older mark speaks when the newer set makes none",
+			fallback: model.Editorial{Marked: true, Date: june},
+			want:     model.Editorial{Marked: true, Date: june},
+		},
+		{
+			name:  "the newer mark stands on its own",
+			newer: model.Editorial{Marked: true, Date: june},
+			want:  model.Editorial{Marked: true, Date: june},
+		},
+		{
+			name:     "the newer day wins",
+			newer:    model.Editorial{Marked: true, Date: july},
+			fallback: model.Editorial{Marked: true, Date: june},
+			want:     model.Editorial{Marked: true, Date: july},
+		},
+		{
+			name:     "a mark without a day takes the older one",
+			newer:    model.Editorial{Marked: true},
+			fallback: model.Editorial{Marked: true, Date: june},
+			want:     model.Editorial{Marked: true, Date: june},
+		},
+		{
+			name:     "a day the older set carries alone dies with its missing mark",
+			fallback: model.Editorial{Date: june},
+		},
+		{
+			name:  "the time of day is cut off",
+			newer: model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 19, 4, 5, 0, time.UTC)},
+			want:  model.Editorial{Marked: true, Date: june},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, fillMissingEditorial(test.newer, test.fallback))
+		})
+	}
+}
+
 func TestExifService_GetStockInfo_ReadsTheSidecarBehindABrokenPacket(t *testing.T) {
 	t.Parallel()
 
