@@ -1,48 +1,5 @@
 {
   "version": 1,
   "next_id": 17,
-  "todos": [
-    {
-      "id": 16,
-      "description": "Always write the XMP sidecar, including for a JPEG that has no RAW pair",
-      "context": "Today an XMP sidecar is only ever written, read, copied or deleted for the RAW half of a pair: every write site is gated on photo.HasRAW() and the path comes from model.SidecarPath(photo.RAWPath) (saveSidecar in internal/gui/app/tags_action.go, plus the backgrounded run, typed-fallback and exit-flush paths in internal/gui/app/tags_runs.go), while reads merge through imaging.mergedWithSidecar and the library copier/deleter touch the sidecar only alongside the RAW file. Dropping that restriction means a JPEG with no RAW pair gets a sidecar named after the JPEG, so the sidecar path needs a photo-based source rather than RAWPath alone and the file must also be read back, copied and deleted for JPEG-only photos. CLAUDE.md documents the opposite rule today (\"a JPEG without a RAW pair is never written to on its own\"), so that prose changes with the behaviour; the in-place JPEG XMP packet write stays behind Save JPEG regardless.",
-      "docs": [
-        "internal/gui/app/tags_action.go",
-        "internal/gui/app/tags_runs.go",
-        "internal/core/model/photo.go",
-        "internal/core/imaging/stock_info.go",
-        "internal/core/library/copier.go",
-        "internal/core/library/deleter.go",
-        "internal/gui/app/tags_action_test.go",
-        "CLAUDE.md"
-      ],
-      "depends_on": [],
-      "status": "open",
-      "branch": null,
-      "created_at": "2026-08-26T15:38:11Z",
-      "updated_at": "2026-08-26T15:38:11Z",
-      "plan": null
-    },
-    {
-      "id": 17,
-      "description": "Save the Editorial flag and its date with the tags, the way the Concept note already is",
-      "context": "The Concept note rides on model.Tags.Concept (counted by Equal but deliberately not by IsEmpty) and is persisted through the paired tables in internal/core/imaging/sidecar.go - ownedProperties for reading, writtenProperties for writing - which internal/core/imaging/xmp_packet.go reuses for the JPEG XMP packet, while the pure-EXIF fallback cannot carry it and only reports ConceptDropped; reads merge packet over sidecar in stock_info.go. On the GUI side TagsDialog.SetPhotoInfo/showTags/takeConcept/RestoreTags restore the note without overwriting text the user typed first, fed from imaging.StockInfo through the per-photo cache in internal/gui/app/tags_action.go. The Editorial check and its date entry live only in the dialog today and only feed the prompt line built by Notes()/editorialDate(): no editorial flag or editorial date is in metadata anywhere, and StockInfo.Taken is the EXIF shooting date, which merely seeds the entry as defaultDate.",
-      "docs": [
-        "internal/core/model/tags.go",
-        "internal/core/imaging/sidecar.go",
-        "internal/core/imaging/xmp_packet.go",
-        "internal/core/imaging/stock_info.go",
-        "internal/core/imaging/exif_write.go",
-        "internal/gui/ui/tags_dialog.go",
-        "internal/gui/app/tags_action.go",
-        "internal/core/imaging/sidecar_test.go"
-      ],
-      "depends_on": [],
-      "status": "open",
-      "branch": null,
-      "created_at": "2026-08-26T15:52:10Z",
-      "updated_at": "2026-08-26T15:52:10Z",
-      "plan": null
-    }
-  ]
+  "todos": []
 }

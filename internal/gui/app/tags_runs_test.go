@@ -38,14 +38,18 @@ func newHeldTagger(generated model.Tags, err error) *heldTagger {
 	}
 }
 
-func (h *heldTagger) Generate(ctx context.Context, _ tags.Request) (model.Tags, error) {
+func (h *heldTagger) Generate(ctx context.Context, req tags.Request) (model.Tags, error) {
 	h.started <- struct{}{}
 	select {
 	case <-h.release:
 	case <-ctx.Done():
 		return model.Tags{}, ctx.Err()
 	}
-	return h.tags, h.err
+	// The real tagger carries the fields the dialog filled in back with the tags
+	// it generated, because a run writes what it answers with and nothing else.
+	generated := h.tags
+	generated.Editorial = req.Editorial.Normalized()
+	return generated, h.err
 }
 
 // The Fyne test driver runs fyne.Do on the caller's goroutine, so a run reports
@@ -164,7 +168,7 @@ func typeIntoDialog(session *tagsSession, typed model.Tags) {
 
 func sidecarTags(t *testing.T, photo model.Photo) model.Tags {
 	t.Helper()
-	path := model.SidecarPath(photo.RAWPath)
+	path := photo.SidecarPath()
 	require.Eventually(t, func() bool {
 		written, err := imaging.ReadSidecar(path)
 		return err == nil && !written.IsEmpty()
@@ -187,6 +191,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), info.Tags)
 		assert.Equal(t, generatedTags(), session.dialog.Tags())
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo), "the dialog saves what the run brought it")
 	})
 
 	t.Run("a dialog closing over a run leaves the sidecar to it", func(t *testing.T) {
@@ -240,6 +245,23 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, typedTags(), sidecarTags(t, photo),
 			"the run it was handed to never lands, so the exit is the last chance to write it")
+	})
+
+	t.Run("the exit flush writes the sidecar of a photo with no RAW pair", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+
+		a.tagRuns.stopAll()
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a JPEG alone owes its own sidecar the fields the dialog handed over")
 	})
 
 	t.Run("a reopened dialog takes back the fields it handed over", func(t *testing.T) {
@@ -300,7 +322,7 @@ func TestTagRunner(t *testing.T) {
 		info := held.answerWithTags(t, a, photo.ImagePath)
 
 		assert.Equal(t, generatedTags(), info.Tags)
-		sidecar := model.SidecarPath(photo.RAWPath)
+		sidecar := photo.SidecarPath()
 		require.Eventually(t, func() bool {
 			_, err := os.Stat(sidecar)
 			return err == nil
@@ -308,6 +330,40 @@ func TestTagRunner(t *testing.T) {
 		written, err := imaging.ReadSidecar(sidecar)
 		require.NoError(t, err)
 		assert.Equal(t, generatedTags(), written)
+	})
+
+	t.Run("a backgrounded run writes the sidecar of a photo with no RAW pair", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
+			"the sidecar named after the JPEG is written like the one named after a RAW")
+	})
+
+	t.Run("a backgrounded run writes the mark the dialog was ticked with", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+		typeIntoDialog(session, model.Tags{Editorial: editorialMark()})
+
+		session.generate()
+		<-held.started
+		session.background()
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		want := generatedTags()
+		want.Editorial = editorialMark()
+		assert.Equal(t, want, sidecarTags(t, photo), "the mark rides with the tags the run found")
 	})
 
 	t.Run("a backgrounded run stays pending until its sidecar is on disk", func(t *testing.T) {
@@ -328,7 +384,7 @@ func TestTagRunner(t *testing.T) {
 
 		// The run is only let go of once the file it owes is written, so a copy
 		// freed by it finds the sidecar without waiting for anything else.
-		require.FileExists(t, model.SidecarPath(photo.RAWPath))
+		require.FileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("a sidecar that could not be written leaves the cache empty", func(t *testing.T) {
@@ -337,7 +393,7 @@ func TestTagRunner(t *testing.T) {
 		photo := testPhoto(t, true)
 		// A directory where the sidecar belongs is the one way to make the write
 		// fail that says nothing about how the write itself is done.
-		require.NoError(t, os.Mkdir(model.SidecarPath(photo.RAWPath), 0o700))
+		require.NoError(t, os.Mkdir(photo.SidecarPath(), 0o700))
 		session := a.openTestTagsDialog(t, photo)
 
 		a.tagRuns.start(session, tags.Request{Photo: photo})
@@ -370,7 +426,7 @@ func TestTagRunner(t *testing.T) {
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
 
-		assert.NoFileExists(t, model.SidecarPath(photo.RAWPath))
+		assert.NoFileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("a reopened dialog attaches to the run it left going", func(t *testing.T) {
@@ -392,6 +448,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), second.dialog.Tags())
 		assert.Empty(t, first.dialog.Tags().Title, "the dialog that let the run go keeps nothing")
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("waiting on a photo no run touches ends at once", func(t *testing.T) {
@@ -427,7 +484,7 @@ func TestTagRunner(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("the wait outlived the run")
 		}
-		assert.FileExists(t, model.SidecarPath(photo.RAWPath), "the wait ended before the sidecar was written")
+		assert.FileExists(t, photo.SidecarPath(), "the wait ended before the sidecar was written")
 	})
 
 	t.Run("a cancelled context ends the wait and leaves the run alone", func(t *testing.T) {
@@ -446,6 +503,7 @@ func TestTagRunner(t *testing.T) {
 
 		assert.True(t, a.tagRuns.pending(photo.ImagePath), "the run must keep going without its waiter")
 		held.answerWithTags(t, a, photo.ImagePath)
+		settleRuns(t, a, photo.ImagePath)
 	})
 
 	t.Run("attaches to nothing when no run is going", func(t *testing.T) {
@@ -494,7 +552,7 @@ func TestTagRunner(t *testing.T) {
 		assert.True(t, a.dialogs.isCurrent(session.dialog), "everything typed into the dialog stays on screen")
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
-		assert.NoFileExists(t, model.SidecarPath(photo.RAWPath))
+		assert.NoFileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("Escape over an idle dialog closes it", func(t *testing.T) {
@@ -525,6 +583,7 @@ func TestTagRunnerCorner(t *testing.T) {
 
 		held.answerWithTags(t, a, photo.ImagePath)
 		settleRuns(t, a, photo.ImagePath)
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("a run that landed is gone from the list", func(t *testing.T) {
@@ -539,6 +598,7 @@ func TestTagRunnerCorner(t *testing.T) {
 
 		assert.Empty(t, a.tagRuns.live(), "a generation that answered is only writing its file")
 		settleRuns(t, a, photo.ImagePath)
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo))
 	})
 
 	t.Run("a cancelled run is gone from the list before it lets go", func(t *testing.T) {

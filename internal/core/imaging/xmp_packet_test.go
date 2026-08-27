@@ -703,6 +703,68 @@ func TestPacketWithTags_Concept(t *testing.T) {
 	})
 }
 
+func TestPacketWithTags_Editorial(t *testing.T) {
+	t.Parallel()
+
+	tags := editorialTags()
+
+	t.Run("writes the mark and the day into the padding", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+
+		updated, ok := packetWithTags(packet, tags)
+
+		require.True(t, ok)
+		assert.Len(t, updated, len(packet))
+		requireWellFormed(t, updated)
+		text := string(updated)
+		assert.Contains(t, text, `xmlns:photo="`+photoNamespace+`"`)
+		assert.Contains(t, text, "<photo:Editorial>True</photo:Editorial>")
+		assert.Contains(t, text, "<photo:EditorialDate>2026-06-13</photo:EditorialDate>")
+		parsed, err := parseSidecar(updated)
+		require.NoError(t, err)
+		assert.Equal(t, tags, parsed.tags())
+	})
+
+	t.Run("a packet with no room for the mark is refused", func(t *testing.T) {
+		t.Parallel()
+		tight, ok := packetWithTags(sonyPacket(520), model.Tags{Title: tags.Title, Keywords: tags.Keywords})
+		require.True(t, ok, "the tags alone still fit")
+
+		_, ok = packetWithTags(sonyPacket(520), tags)
+
+		assert.False(t, ok, "the mark and the day push the description past the padding")
+		assert.NotContains(t, string(tight), "photo:Editorial")
+	})
+
+	t.Run("clearing the mark hands back the original bytes", func(t *testing.T) {
+		t.Parallel()
+		packet := sonyPacket(2000)
+		written, ok := packetWithTags(packet, tags)
+		require.True(t, ok)
+
+		cleared, ok := packetWithTags(written, model.Tags{})
+
+		require.True(t, ok)
+		assert.Equal(t, packet, cleared, "both properties and the description they sat in must go")
+	})
+
+	t.Run("the rating the camera wrote is untouched", func(t *testing.T) {
+		t.Parallel()
+		rated, ok := packetWithRating(sonyPacket(2000), favoriteRating)
+		require.True(t, ok)
+
+		updated, ok := packetWithTags(rated, tags)
+
+		require.True(t, ok)
+		parsed, err := parseSidecar(updated)
+		require.NoError(t, err)
+		assert.True(t, parsed.rated)
+		assert.Equal(t, favoriteRating, parsed.rating)
+		assert.Equal(t, tags, parsed.tags())
+	})
+}
+
 func TestPacketWithTags_Place(t *testing.T) {
 	t.Parallel()
 

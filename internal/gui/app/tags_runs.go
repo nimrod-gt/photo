@@ -257,15 +257,9 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 		return
 	}
 
-	taken := run.dateAt(r.app)
-	if !run.photo.HasRAW() {
-		r.report(run, generated, taken)
-		r.release(run)
-		return
-	}
 	// A generation answers with the whole set, so it goes in where the sidecar
 	// stood rather than being added to it.
-	r.saveSidecar(run, generated, taken, true, func() {
+	r.saveSidecar(run, generated, run.dateAt(r.app), true, func() {
 		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
 	})
 }
@@ -277,12 +271,12 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 // would push the error that explains it off the screen.
 func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 	typed, complete := r.typedTags(run)
-	if !run.photo.HasRAW() || nothingToWrite(typed) {
+	if nothingToWrite(typed) {
 		r.release(run)
 		r.app.showError("Failed to generate tags for "+run.photo.Name, failure)
 		return
 	}
-	name := filepath.Base(model.SidecarPath(run.photo.RAWPath))
+	name := filepath.Base(run.photo.SidecarPath())
 	r.saveSidecar(run, typed, run.dateAt(r.app), complete, func() {
 		r.app.showError("Failed to generate tags for "+run.photo.Name+", kept what was typed in "+name, failure)
 	})
@@ -293,7 +287,7 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 // about a file that is on its way out: the cache would keep tags no file holds,
 // and the notification would name a photo the user just deleted.
 func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func()) {
-	path := model.SidecarPath(run.photo.RAWPath)
+	path := run.photo.SidecarPath()
 	r.writeStarted(run)
 	go func() {
 		written, err := completed(path, written, complete)
@@ -324,11 +318,6 @@ func (r *tagRunner) writeStarted(run *tagRun) {
 	defer r.mu.Unlock()
 
 	run.writing = true
-}
-
-func (r *tagRunner) report(run *tagRun, generated model.Tags, taken time.Time) {
-	r.store(run, generated, taken)
-	r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
 }
 
 func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time) {
@@ -487,10 +476,10 @@ func (r *tagRunner) stopAll() {
 // top of what it found is the very race the hand-over exists to stop.
 func (r *tagRunner) flushTyped(run *tagRun) {
 	typed, complete, ok := r.unwrittenTyped(run)
-	if !ok || !run.photo.HasRAW() || nothingToWrite(typed) {
+	if !ok || nothingToWrite(typed) {
 		return
 	}
-	path := model.SidecarPath(run.photo.RAWPath)
+	path := run.photo.SidecarPath()
 	written, err := completed(path, typed, complete)
 	if err == nil {
 		err = imaging.WriteSidecar(path, written)

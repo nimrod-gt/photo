@@ -356,7 +356,7 @@ func TestTagsDialog(t *testing.T) {
 
 		assert.True(t, d.dateRow.Visible())
 		require.NotNil(t, d.date.Date)
-		assert.Equal(t, defaultTestDate, *d.date.Date)
+		assert.Equal(t, startOfDay(defaultTestDate), *d.date.Date, "the entry holds the day, not the moment")
 		assert.Equal(t, "Location: Prague, Czechia\nEditorial: August 18, 2026", d.Notes())
 	})
 
@@ -367,6 +367,35 @@ func TestTagsDialog(t *testing.T) {
 		d.date.SetDate(nil)
 
 		assert.Equal(t, "Editorial:", d.Notes())
+	})
+
+	t.Run("reports the ticked mark on the day of the entry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.editorial.SetChecked(true)
+
+		want := model.Editorial{Marked: true, Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}
+		assert.Equal(t, want, d.Editorial(), "the time of day of the shooting date is cut off")
+		assert.Equal(t, want, d.Tags().Editorial)
+	})
+
+	t.Run("an unticked box reports nothing whatever the entry holds", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		day := time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)
+
+		d.date.SetDate(&day)
+
+		assert.Equal(t, model.Editorial{}, d.Editorial())
+		assert.Equal(t, model.Editorial{}, d.Tags().Editorial)
+	})
+
+	t.Run("a ticked box with the date cleared is a mark without a day", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.editorial.SetChecked(true)
+
+		d.date.SetDate(nil)
+
+		assert.Equal(t, model.Editorial{Marked: true}, d.Editorial())
 	})
 
 	t.Run("unchecking editorial hides the date and drops the line", func(t *testing.T) {
@@ -387,6 +416,166 @@ func TestTagsDialog(t *testing.T) {
 		d.editorial.SetChecked(true)
 		assert.Equal(t, "Editorial: June 13, 2024", d.Notes())
 		assert.False(t, d.resultBox.Visible())
+	})
+
+	t.Run("the mark the file carries ticks the box on its own day", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Editorial{Marked: true, Date: time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)}
+
+		d.SetPhotoInfo(model.Tags{Title: "A tram climbs the hill.", Editorial: marked},
+			time.Date(2024, time.July, 1, 10, 0, 0, 0, time.UTC))
+
+		assert.True(t, d.editorial.Checked)
+		assert.True(t, d.dateRow.Visible())
+		assert.Equal(t, marked, d.Editorial(), "the marked day wins over the shooting date")
+	})
+
+	t.Run("a file with a mark and no tags of its own still ticks the box", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Editorial{Marked: true, Date: time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)}
+
+		d.SetPhotoInfo(model.Tags{Editorial: marked}, time.Time{})
+
+		assert.True(t, d.editorial.Checked)
+		assert.False(t, d.resultBox.Visible())
+		assert.Equal(t, marked, d.Editorial())
+	})
+
+	t.Run("a box the user ticked survives a file that marks nothing", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.editorial.SetChecked(true)
+
+		d.SetPhotoInfo(model.Tags{}, defaultTestDate)
+
+		assert.True(t, d.editorial.Checked)
+	})
+
+	t.Run("a box the user cleared is not ticked again by a read", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.editorial.SetChecked(true)
+		d.editorial.SetChecked(false)
+
+		d.SetPhotoInfo(model.Tags{Editorial: model.Editorial{Marked: true}}, time.Time{})
+
+		assert.False(t, d.editorial.Checked)
+		assert.False(t, d.dateRow.Visible())
+	})
+
+	// The tick the file made is not the user's answer, so clearing it is - and
+	// the read that lands behind it must not put it back.
+	t.Run("a box the file ticked and the user cleared stays cleared", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Tags{Editorial: model.Editorial{Marked: true}}
+		d.SetPhotoInfo(marked, time.Time{})
+
+		d.editorial.SetChecked(false)
+		d.SetPhotoInfo(marked, time.Time{})
+
+		assert.False(t, d.editorial.Checked)
+	})
+
+	// Two reads land for one photo - the cache first, the file behind it - and
+	// the second must not undo what the first put on screen either.
+	t.Run("a second read leaves the box the first one ticked alone", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Editorial{Marked: true, Date: time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)}
+		d.SetPhotoInfo(model.Tags{Editorial: marked}, time.Time{})
+
+		d.SetPhotoInfo(model.Tags{}, time.Time{})
+
+		assert.True(t, d.editorial.Checked)
+		assert.Equal(t, marked, d.Editorial())
+	})
+
+	// A cleared day is an answer of its own, and the day the shutter went is not
+	// it: filling the entry would hand the mark a day nobody picked and write it
+	// out on the very next close.
+	t.Run("a mark the file names no day for leaves the entry empty", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Tags{Editorial: model.Editorial{Marked: true}}
+
+		d.SetPhotoInfo(marked, defaultTestDate)
+
+		assert.True(t, d.editorial.Checked)
+		assert.Nil(t, d.date.Date, "the day of the shot is not the day of the mark")
+		assert.Equal(t, model.Editorial{Marked: true}, d.Editorial())
+		assert.True(t, marked.Equal(d.Tags()), "an opened dialog has nothing to write back")
+	})
+
+	// The handed day is the same one the entry was seeded with, so nothing about
+	// the entry says it was answered for; the dialog has to remember that it was.
+	t.Run("the handed day outlives the read landing behind it", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		handed := model.Editorial{Marked: true, Date: startOfDay(defaultTestDate)}
+
+		d.RestoreTags(model.Tags{Title: "A tram climbs the hill.", Editorial: handed})
+		d.SetPhotoInfo(model.Tags{Editorial: model.Editorial{Marked: true,
+			Date: time.Date(2020, time.January, 2, 0, 0, 0, 0, time.UTC)}}, defaultTestDate)
+
+		assert.Equal(t, handed, d.Editorial(), "the file is the older answer")
+	})
+
+	// A shown entry parses its own text back whenever that text changes, and text
+	// names no zone, so what comes back is UTC. A day seeded in any other zone
+	// would never read back equal to the default it was stored as, and every
+	// later seed would take the entry for one the user picked by hand.
+	t.Run("a shooting moment in another zone seeds the day it names there", func(t *testing.T) {
+		d := newTestTagsDialogWith(t, TagsDialogOptions{Filename: "DSC001.JPG"}, TagsDialogCallbacks{})
+		west := time.FixedZone("west", -7*60*60)
+		taken := time.Date(2026, time.August, 18, 23, 30, 0, 0, west)
+		// The entry reparses only once it is shown, which is where the dialog
+		// always is by the time a read lands on it.
+		test.WidgetRenderer(d.date)
+
+		d.SetPhotoInfo(model.Tags{}, taken)
+		d.editorial.SetChecked(true)
+
+		assert.True(t, d.dateUntouched(), "a seeded day is nobody's pick")
+		assert.Equal(t, model.Editorial{Marked: true,
+			Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}, d.Editorial())
+	})
+
+	t.Run("restoring an unmarked value clears the box the file ticked", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetPhotoInfo(model.Tags{Editorial: model.Editorial{Marked: true}}, defaultTestDate)
+
+		d.RestoreTags(model.Tags{Title: "A tram climbs the hill."})
+
+		assert.False(t, d.editorial.Checked)
+		assert.False(t, d.dateRow.Visible())
+		assert.Equal(t, model.Editorial{}, d.Editorial())
+	})
+
+	t.Run("restoring a marked value fills the entry with its day", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		marked := model.Editorial{Marked: true, Date: time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)}
+
+		d.RestoreTags(model.Tags{Title: "A tram climbs the hill.", Editorial: marked})
+
+		assert.True(t, d.editorial.Checked)
+		assert.True(t, d.dateRow.Visible())
+		assert.Equal(t, marked, d.Editorial())
+	})
+
+	// The dialog that closed had the box ticked and its entry empty, so the day
+	// this one was seeded with is not the user's answer and must not come back.
+	t.Run("restoring a mark without a day empties the entry", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.RestoreTags(model.Tags{Title: "A tram climbs the hill.", Editorial: model.Editorial{Marked: true}})
+
+		assert.True(t, d.editorial.Checked)
+		assert.Nil(t, d.date.Date)
+		assert.Equal(t, model.Editorial{Marked: true}, d.Editorial())
+	})
+
+	t.Run("a restored box is not ticked again by the file behind it", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.RestoreTags(model.Tags{Title: "A tram climbs the hill."})
+
+		d.SetPhotoInfo(model.Tags{Editorial: model.Editorial{Marked: true}}, time.Time{})
+
+		assert.False(t, d.editorial.Checked)
 	})
 
 	t.Run("keeps the fields hidden for a file without tags", func(t *testing.T) {

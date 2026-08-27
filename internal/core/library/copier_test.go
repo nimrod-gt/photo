@@ -301,6 +301,37 @@ func TestCopier_CopiesTheSidecarWithTheRAW(t *testing.T) {
 	}
 }
 
+// The sidecar goes with the RAW, so a JPEG that has none leaves its own behind
+// whatever the mode asks for: what is copied is the image, and the tags stay
+// with the file they were written for.
+func TestCopier_LeavesTheSidecarOfAJPEGWithoutARAW(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		mode CopyMode
+	}{
+		{name: "CopyJPEGOnly", mode: CopyJPEGOnly},
+		{name: "CopyWithRAW", mode: CopyWithRAW},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			srcDir, destDir := t.TempDir(), t.TempDir()
+			jpegPath := filepath.Join(srcDir, "photo.jpg")
+			require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg-data"), 0600))
+			photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
+			require.NoError(t, os.WriteFile(photo.SidecarPath(), []byte("<x:xmpmeta/>"), 0600))
+
+			require.NoError(t, NewCopier().Copy(photo, destDir, tt.mode))
+
+			assert.FileExists(t, filepath.Join(destDir, "photo.jpg"))
+			assert.NoFileExists(t, filepath.Join(destDir, "photo.xmp"))
+		})
+	}
+}
+
 func TestCopier_CopiesARAWWithoutASidecar(t *testing.T) {
 	t.Parallel()
 

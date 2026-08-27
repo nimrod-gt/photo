@@ -696,6 +696,72 @@ func TestExifService_WriteStockTags_Concept(t *testing.T) {
 	})
 }
 
+func TestExifService_WriteStockTags_Editorial(t *testing.T) {
+	t.Parallel()
+
+	svc := NewExifService()
+	written := editorialTags()
+	sonyExif := map[string]any{"Make": "SONY"}
+
+	t.Run("the packet carries the mark", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "sony.jpg", sonyExif, sonyPacket(2000))
+		before := readBytes(t, path)
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.False(t, write.Rewritten, "a packet with room must not rewrite the file")
+		assert.False(t, write.EditorialDropped)
+		assert.Len(t, readBytes(t, path), len(before))
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written, info.Tags)
+	})
+
+	// The EXIF has no field for the mark either, so the fallback says what it
+	// left behind the same way it does for a place and a concept.
+	t.Run("the EXIF fallback reports the mark it cannot carry", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, written)
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.True(t, write.EditorialDropped)
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+		require.NoError(t, err)
+		assert.Equal(t, written.Title, info.Tags.Title)
+		assert.Equal(t, model.Editorial{}, info.Tags.Editorial)
+	})
+
+	t.Run("a fallback without a mark reports nothing", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+
+		write, err := svc.WriteStockTags(path, model.Tags{Title: written.Title, Keywords: written.Keywords})
+
+		require.NoError(t, err)
+		assert.True(t, write.Rewritten)
+		assert.False(t, write.EditorialDropped)
+	})
+
+	// A day without the mark is no mark at all, and Normalized drops it, so the
+	// fallback has nothing to report.
+	t.Run("a day nobody marked reports nothing", func(t *testing.T) {
+		t.Parallel()
+		path := writeJPEGWithPacket(t, t.TempDir(), "tight.jpg", sonyExif, sonyPacket(16))
+		unmarked := written
+		unmarked.Editorial = model.Editorial{Date: written.Editorial.Date}
+
+		write, err := svc.WriteStockTags(path, unmarked)
+
+		require.NoError(t, err)
+		assert.False(t, write.EditorialDropped)
+	})
+}
+
 func TestExifService_WriteStockTags_Place(t *testing.T) {
 	t.Parallel()
 

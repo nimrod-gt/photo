@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -989,6 +990,214 @@ func TestWriteSidecar_Concept(t *testing.T) {
 		content := readFile(t, path)
 		assert.Equal(t, first, content)
 		assert.Equal(t, 1, strings.Count(content, "<rdf:Description"))
+	})
+}
+
+func editorialTags() model.Tags {
+	return model.Tags{
+		Title:     "A tram climbs the hill.",
+		Keywords:  []string{"lisbon", "tram"},
+		Editorial: model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)},
+	}
+}
+
+func TestWriteSidecar_Editorial(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a new sidecar carries the mark and the day back", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, "<photo:Editorial>True</photo:Editorial>")
+		assert.Contains(t, content, "<photo:EditorialDate>2026-06-13</photo:EditorialDate>")
+		assert.Contains(t, content, `xmlns:photo="`+photoNamespace+`"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, editorialTags(), read)
+	})
+
+	t.Run("an unmarked photo writes neither property", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		unmarked := editorialTags()
+		unmarked.Editorial.Marked = false
+
+		require.NoError(t, WriteSidecar(path, unmarked))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "photo:Editorial")
+		assert.NotContains(t, content, "xmlns:photo=")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.True(t, read.Editorial.IsEmpty(), "a date without the mark is nothing to read back")
+	})
+
+	t.Run("the mark is marked without a day of its own", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		dateless := editorialTags()
+		dateless.Editorial.Date = time.Time{}
+
+		require.NoError(t, WriteSidecar(path, dateless))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, "<photo:Editorial>True</photo:Editorial>")
+		assert.NotContains(t, content, "photo:EditorialDate")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, dateless, read)
+	})
+
+	t.Run("a second save replaces the properties instead of doubling them", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		moved := editorialTags()
+		moved.Editorial.Date = time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+		require.NoError(t, WriteSidecar(path, moved))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, "<photo:Editorial>"))
+		assert.Equal(t, 1, strings.Count(content, "<photo:EditorialDate>"))
+		assert.NotContains(t, content, "2026-06-13")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, moved, read)
+	})
+
+	// The mark and its date share a name up to the last four characters, so a
+	// pattern that stripped one by its prefix alone would take the other with it.
+	t.Run("clearing the day leaves the mark standing", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		dateless := editorialTags()
+		dateless.Editorial.Date = time.Time{}
+		require.NoError(t, WriteSidecar(path, dateless))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, "<photo:Editorial>"))
+		assert.NotContains(t, content, "photo:EditorialDate")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, dateless, read)
+	})
+
+	t.Run("clearing the mark takes both properties with it", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		cleared := editorialTags()
+		cleared.Editorial = model.Editorial{}
+		require.NoError(t, WriteSidecar(path, cleared))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "photo:Editorial")
+		assert.NotContains(t, content, "2026-06-13")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, cleared, read)
+	})
+
+	t.Run("a mark alone is written without any tags to go with it", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := model.Tags{Editorial: model.Editorial{Marked: true,
+			Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}}
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
+	t.Run("keeps the develop settings of a Lightroom sidecar", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, lightroomSidecar)
+
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `crs:Exposure2012="+0.35"`)
+		assert.Contains(t, content, `crs:Contrast2012="+12"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, editorialTags(), read)
+	})
+
+	t.Run("the concept and the mark stand side by side", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		both := editorialTags()
+		both.Concept = "tram 28 seen head-on, morning light"
+
+		require.NoError(t, WriteSidecar(path, both))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, `xmlns:photo="`+photoNamespace+`"`))
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, both, read)
+	})
+
+	t.Run("a whole timestamp another tool left is read as the day it names", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photo="`+photoNamespace+`">
+   <photo:Editorial>True</photo:Editorial>
+   <photo:EditorialDate>2026-06-13T18:24:05+01:00</photo:EditorialDate>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>`)
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, model.Editorial{Marked: true,
+			Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}, read.Editorial)
+	})
+
+	t.Run("the attribute form is read and replaced too", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photo="`+photoNamespace+`"
+   photo:Editorial="True" photo:EditorialDate="2020-01-02"/>
+ </rdf:RDF>
+</x:xmpmeta>`)
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, model.Editorial{Marked: true,
+			Date: time.Date(2020, time.January, 2, 0, 0, 0, 0, time.UTC)}, read.Editorial)
+
+		require.NoError(t, WriteSidecar(path, editorialTags()))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "2020-01-02")
+		requireWellFormed(t, []byte(content))
+
+		read, err = ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, editorialTags(), read)
 	})
 }
 

@@ -54,39 +54,42 @@ type TagsDialogOptions struct {
 }
 
 type TagsDialog struct {
-	dialog          *dialog.CustomDialog
-	window          fyne.Window
-	callbacks       TagsDialogCallbacks
-	concept         *dialogEntry
-	location        *dialogEntry
-	split           model.Place
-	editorial       *dialogCheck
-	date            *dialogDateEntry
-	dateRow         *fyne.Container
-	defaultDate     time.Time
-	pathEntry       *dialogEntry
-	pathRow         *fyne.Container
-	progress        *widget.ProgressBarInfinite
-	resultBox       *fyne.Container
-	title           *dialogEntry
-	keywords        *dialogEntry
-	status          *widget.Label
-	generateBtn     *dialogButton
-	copyTitleBtn    *dialogButton
-	copyKeywordsBtn *dialogButton
-	saveJPEGBtn     *dialogButton
-	closeBtn        *unfocusableButton
-	stopBtn         *unfocusableButton
-	backgroundBtn   *dialogButton
-	buttons         *fyne.Container
-	generating      bool
-	lastScanCode    int
-	shiftDown       bool
-	shown           bool
-	closed          bool
+	dialog           *dialog.CustomDialog
+	window           fyne.Window
+	callbacks        TagsDialogCallbacks
+	concept          *dialogEntry
+	location         *dialogEntry
+	split            model.Place
+	editorial        *dialogCheck
+	date             *dialogDateEntry
+	dateRow          *fyne.Container
+	defaultDate      time.Time
+	pathEntry        *dialogEntry
+	pathRow          *fyne.Container
+	progress         *widget.ProgressBarInfinite
+	resultBox        *fyne.Container
+	title            *dialogEntry
+	keywords         *dialogEntry
+	status           *widget.Label
+	generateBtn      *dialogButton
+	copyTitleBtn     *dialogButton
+	copyKeywordsBtn  *dialogButton
+	saveJPEGBtn      *dialogButton
+	closeBtn         *unfocusableButton
+	stopBtn          *unfocusableButton
+	backgroundBtn    *dialogButton
+	buttons          *fyne.Container
+	generating       bool
+	editorialDecided bool
+	dateDecided      bool
+	lastScanCode     int
+	shiftDown        bool
+	shown            bool
+	closed           bool
 }
 
 func NewTagsDialog(opts TagsDialogOptions, window fyne.Window, callbacks TagsDialogCallbacks) *TagsDialog {
+	opts.Date = startOfDay(opts.Date)
 	d := &TagsDialog{window: window, callbacks: callbacks, defaultDate: opts.Date}
 	d.build(opts, window)
 	return d
@@ -142,19 +145,25 @@ func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
 	d.dateRow = labeledRow("Date:", d.date)
 	d.dateRow.Hide()
 
-	d.editorial = newDialogCheck("Editorial", func(checked bool) {
-		if checked {
-			d.dateRow.Show()
-			return
-		}
-		d.dateRow.Hide()
-	}, d)
+	d.editorial = newDialogCheck("Editorial", d.editorialChanged, d)
 
 	d.pathEntry = newDialogEntry(d)
 	d.pathEntry.SetPlaceHolder("Path to the claude binary")
 	d.pathEntry.SetText(opts.ClaudePath)
 	d.pathRow = labeledRow("claude:", d.pathEntry)
 	d.pathRow.Hide()
+}
+
+// A box that has been set once is answered for, whoever set it: the user, the
+// mark the file carried, or the dialog that closed over a run. What lands after
+// that is the older answer and leaves it alone.
+func (d *TagsDialog) editorialChanged(checked bool) {
+	if checked {
+		d.dateRow.Show()
+	} else {
+		d.dateRow.Hide()
+	}
+	d.editorialDecided = true
 }
 
 func (d *TagsDialog) buildResult() {
@@ -385,17 +394,20 @@ func (d *TagsDialog) Notes() string {
 	if location := d.Location(); len(location) != 0 {
 		lines = append(lines, "Location: "+location)
 	}
-	if d.editorial.Checked {
-		lines = append(lines, strings.TrimSpace("Editorial: "+d.editorialDate()))
+	if editorial := d.Editorial(); editorial.Marked {
+		lines = append(lines, strings.TrimSpace("Editorial: "+editorialDay(editorial.Date)))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func (d *TagsDialog) editorialDate() string {
-	if d.date.Date == nil {
+// The prompt is told the same value the file is given, rather than reading the
+// widgets a second time: a day the two spell differently is a day the user sees
+// in one place and finds in the other.
+func editorialDay(date time.Time) string {
+	if date.IsZero() {
 		return ""
 	}
-	return d.date.Date.Format(editorialDateLayout)
+	return date.Format(editorialDateLayout)
 }
 
 func (d *TagsDialog) ClaudePath() string {
@@ -412,11 +424,26 @@ func (d *TagsDialog) Concept() string {
 
 func (d *TagsDialog) Tags() model.Tags {
 	return model.Tags{
-		Title:    strings.TrimSpace(d.title.Text),
-		Keywords: model.ParseKeywordLine(d.keywords.Text),
-		Place:    d.place(),
-		Concept:  d.Concept(),
+		Title:     strings.TrimSpace(d.title.Text),
+		Keywords:  model.ParseKeywordLine(d.keywords.Text),
+		Place:     d.place(),
+		Concept:   d.Concept(),
+		Editorial: d.Editorial(),
 	}
+}
+
+// Editorial reports the mark as it stands on screen. An unticked box carries no
+// day, however long one has been sitting in the entry behind it, and a ticked
+// one with the entry cleared is a mark without a day rather than no mark at all.
+func (d *TagsDialog) Editorial() model.Editorial {
+	if !d.editorial.Checked {
+		return model.Editorial{}
+	}
+	editorial := model.Editorial{Marked: true}
+	if d.date.Date != nil {
+		editorial.Date = *d.date.Date
+	}
+	return editorial.Normalized()
 }
 
 // The split into city, region and country is never shown, so a wrong one cannot
@@ -433,13 +460,11 @@ func (d *TagsDialog) place() model.Place {
 
 // SetPhotoInfo fills in what the file itself already knows: the tags written to
 // it earlier go into the very fields a run would fill, so editing and saving
-// them works the same either way, and the shooting date is only kept while the
-// user has not typed a date of their own.
+// them works the same either way, and the date it was marked for - or the day it
+// was shot, when the file marks nothing - is only put in while the user has not
+// picked a day of their own.
 func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
-	if !taken.IsZero() && d.dateUntouched() {
-		d.defaultDate = taken
-		d.date.SetDate(&taken)
-	}
+	d.seedDate(existing.Editorial, taken)
 	if !d.resultUntouched() {
 		return
 	}
@@ -450,9 +475,50 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if existing.IsEmpty() {
 		d.takePlace(existing.Place)
 		d.takeConcept(existing.Concept)
+		d.takeEditorial(existing.Editorial)
 		return
 	}
 	d.showTags(existing)
+}
+
+// The day the file was marked for is the one to show; the shooting date only
+// stands in while the file names none. A file that marks the photo and names no
+// day names none on purpose - the day was cleared in the dialog that wrote it -
+// so the entry is emptied rather than filled with the hour the shutter went: a
+// day nobody picked would ride out with the mark on the very next close.
+func (d *TagsDialog) seedDate(editorial model.Editorial, taken time.Time) {
+	if d.dateDecided || !d.dateUntouched() {
+		return
+	}
+	editorial = editorial.Normalized()
+	if editorial.Marked && editorial.Date.IsZero() {
+		d.defaultDate = time.Time{}
+		d.date.SetDate(nil)
+		return
+	}
+	day := editorial.Date
+	if day.IsZero() {
+		day = startOfDay(taken)
+	}
+	if day.IsZero() {
+		return
+	}
+	d.defaultDate = day
+	d.date.SetDate(&day)
+}
+
+// The entry holds days, not moments: the shooting date carries the hour the
+// shutter went, and a day seeded with 14:30 on it would read back as a day the
+// user picked by hand and stop every later seed. The zone goes the same way and
+// for the same reason - a shown entry parses its own text back, and text names
+// no zone, so what comes back is UTC whatever went in - and the day is the day
+// the moment names where it was written, not where it is read.
+func startOfDay(moment time.Time) time.Time {
+	if moment.IsZero() {
+		return moment
+	}
+	year, month, day := moment.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
 }
 
 func (d *TagsDialog) resultUntouched() bool {
@@ -489,12 +555,37 @@ func (d *TagsDialog) RestoreTags(handed model.Tags) {
 	d.split = handed.Place.Trimmed()
 	d.location.SetText(d.split.Location)
 	d.concept.SetText(strings.TrimSpace(handed.Concept))
+	d.restoreEditorial(handed.Editorial)
 	d.showResult(handed)
 }
 
+// The handed mark stands whole, an unticked box and a cleared day included, and
+// counts as the user's: a read landing after it is the older answer and must
+// not tick a box the dialog that closed had cleared.
+func (d *TagsDialog) restoreEditorial(editorial model.Editorial) {
+	d.editorial.SetChecked(editorial.Marked)
+	// An unmarked value put back over a box that was already clear changes
+	// nothing and tells nobody, so the answer is recorded here rather than left
+	// to the change handler.
+	d.editorialDecided = true
+	if !editorial.Marked {
+		return
+	}
+	// The day is answered for by a value rather than by the entry standing on
+	// one: a handed day the entry was already seeded with reads as untouched,
+	// and the read landing behind it would put the day of the file in its place.
+	d.dateDecided = true
+	day := editorial.Date
+	if day.IsZero() {
+		d.date.SetDate(nil)
+		return
+	}
+	d.date.SetDate(&day)
+}
+
 // PasteTags puts the tags copied out of another photo's dialog into the result
-// fields and nothing else: the place and the note belong to the photo in front
-// of the user, not to the one the tags came from.
+// fields and nothing else: the place, the note and the editorial mark belong to
+// the photo in front of the user, not to the one the tags came from.
 func (d *TagsDialog) PasteTags(pasted model.Tags) {
 	d.showResult(pasted)
 }
@@ -520,6 +611,7 @@ func (d *TagsDialog) focusAfterRun(next fyne.Focusable) {
 func (d *TagsDialog) showTags(shown model.Tags) {
 	d.takePlace(shown.Place)
 	d.takeConcept(shown.Concept)
+	d.takeEditorial(shown.Editorial)
 	d.showResult(shown)
 }
 
@@ -545,6 +637,16 @@ func (d *TagsDialog) takeConcept(concept string) {
 	if len(d.Concept()) == 0 {
 		d.concept.SetText(strings.TrimSpace(concept))
 	}
+}
+
+// Same rule again, with one half missing: no read ever unticks a box, because
+// nothing in a file spells an unmarked photo - an absent mark is a file with
+// nothing to say about one.
+func (d *TagsDialog) takeEditorial(editorial model.Editorial) {
+	if !editorial.Marked || d.editorialDecided {
+		return
+	}
+	d.editorial.SetChecked(true)
 }
 
 func (d *TagsDialog) Fail(err error) {

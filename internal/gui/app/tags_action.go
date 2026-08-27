@@ -114,6 +114,7 @@ func (s *tagsSession) generate() {
 		Notes:      s.dialog.Notes(),
 		Location:   s.dialog.Location(),
 		Concept:    s.dialog.Concept(),
+		Editorial:  s.dialog.Editorial(),
 		ClaudePath: s.dialog.ClaudePath(),
 	})
 }
@@ -154,8 +155,9 @@ func (s *tagsSession) background() {
 }
 
 // The sidecar belongs to us alone, so it is written without asking - right
-// after a run and again on close, once the user has edited the tags. Writing
-// into the JPEG stays behind its button, because that file is the photo itself.
+// after a run and again on close, once the user has edited the tags. It is the
+// store of the photo, pair or no pair; writing into the JPEG stays behind its
+// button, because that file is the photo itself.
 // Emptying both fields is an edit like any other and clears the tags in the
 // sidecar, the way it clears them in the JPEG; only a photo that never had any
 // is left without a sidecar.
@@ -170,14 +172,14 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	if s.app.tagRuns.takeOver(s.photo.ImagePath, written, s.known) {
 		return
 	}
-	if !s.photo.HasRAW() || written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
+	if written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
 		return
 	}
 	previous := s.saved
 	s.saved = written
 	taken := s.taken
 	known := s.known
-	path := model.SidecarPath(s.photo.RAWPath)
+	path := s.photo.SidecarPath()
 	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
 		complete, err := completed(path, saved, known)
 		if err != nil {
@@ -214,11 +216,13 @@ func completed(path string, written model.Tags, known bool) (model.Tags, error) 
 	return imaging.FillMissing(written, existing), nil
 }
 
-// Tags.IsEmpty ignores the place and the concept on purpose - neither is a
-// result the generator produced - but text the user typed into either is worth a
-// sidecar of its own, with or without tags to go with it.
+// Tags.IsEmpty ignores the place, the concept and the editorial mark on purpose
+// - none of the three is a result the generator produced - but what the user
+// filled in there is worth a sidecar of its own, with or without tags to go
+// with it.
 func nothingToWrite(tags model.Tags) bool {
-	return tags.IsEmpty() && tags.Place.IsEmpty() && len(strings.TrimSpace(tags.Concept)) == 0
+	return tags.IsEmpty() && tags.Place.IsEmpty() &&
+		len(strings.TrimSpace(tags.Concept)) == 0 && tags.Editorial.IsEmpty()
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A
@@ -227,11 +231,14 @@ func nothingToWrite(tags model.Tags) bool {
 // case is spelled out instead of passing as a plain success.
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
-// No EXIF tag holds a place or a concept, so the fallback the note above
-// describes carries the title and the keywords and leaves those two behind.
+// No EXIF tag holds a place, a concept or an editorial mark, so the fallback the
+// note above describes carries the title and the keywords and leaves those three
+// behind.
 const placeDroppedNote = "the location was not written: the XMP packet had no room and the EXIF has no field for a place"
 
 const conceptDroppedNote = "the concept was not written: the XMP packet had no room and the EXIF has no field for it"
+
+const editorialDroppedNote = "the editorial mark was not written: the XMP packet had no room and the EXIF has no field for it"
 
 func (s *tagsSession) saveJPEG() {
 	taken := s.taken
@@ -255,6 +262,9 @@ func writeNote(write imaging.StockWrite) string {
 	}
 	if write.ConceptDropped {
 		notes = append(notes, conceptDroppedNote)
+	}
+	if write.EditorialDropped {
+		notes = append(notes, editorialDroppedNote)
 	}
 	return strings.Join(notes, "; ")
 }

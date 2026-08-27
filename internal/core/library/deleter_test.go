@@ -122,7 +122,7 @@ func TestDeleter_DeleteWithOption(t *testing.T) {
 	}
 }
 
-func TestDeleter_DeletesTheSidecarWithTheRAW(t *testing.T) {
+func TestDeleter_DeletesTheSidecar(t *testing.T) {
 	t.Parallel()
 
 	t.Run("the sidecar goes with the RAW", func(t *testing.T) {
@@ -161,6 +161,21 @@ func TestDeleter_DeletesTheSidecarWithTheRAW(t *testing.T) {
 		assert.DirExists(t, sidecar)
 	})
 
+	// Nothing the sidecar was named after is left, whatever the RAW option says,
+	// so it would be an orphan the next scan cannot explain.
+	t.Run("a JPEG without a RAW pair takes its sidecar with it", func(t *testing.T) {
+		t.Parallel()
+
+		for _, includeRAW := range []bool{true, false} {
+			photo, sidecar := writeJPEGWithSidecar(t)
+
+			require.NoError(t, NewDeleter().DeleteWithOption(photo, includeRAW))
+
+			assert.NoFileExists(t, photo.ImagePath)
+			assert.NoFileExists(t, sidecar)
+		}
+	})
+
 	t.Run("a RAW without a sidecar deletes cleanly", func(t *testing.T) {
 		t.Parallel()
 		photo, sidecar := writePairWithSidecar(t)
@@ -168,6 +183,17 @@ func TestDeleter_DeletesTheSidecarWithTheRAW(t *testing.T) {
 
 		assert.NoError(t, NewDeleter().Delete(photo))
 	})
+}
+
+func writeJPEGWithSidecar(t *testing.T) (model.Photo, string) {
+	t.Helper()
+	dir := t.TempDir()
+	photo := model.Photo{ImagePath: filepath.Join(dir, "photo.jpg"), Name: "photo.jpg"}
+	sidecar := photo.SidecarPath()
+	for _, path := range []string{photo.ImagePath, sidecar} {
+		require.NoError(t, os.WriteFile(path, nil, 0600))
+	}
+	return photo, sidecar
 }
 
 func writePairWithSidecar(t *testing.T) (model.Photo, string) {
