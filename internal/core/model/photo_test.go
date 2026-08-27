@@ -94,3 +94,42 @@ func TestSidecarPath(t *testing.T) {
 	assert.Equal(t, "/photos/DSC001.xmp", SidecarPath("/photos/DSC001.arw"))
 	assert.Equal(t, "/photos/no-extension.xmp", SidecarPath("/photos/no-extension"))
 }
+
+func TestPhotoSidecarPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		photo Photo
+		want  string
+	}{
+		{
+			name:  "the RAW names the sidecar of a pair",
+			photo: Photo{ImagePath: "/photos/DSC001.JPG", RAWPath: "/photos/DSC001.ARW"},
+			want:  "/photos/DSC001.xmp",
+		},
+		{
+			name:  "a JPEG without a pair names its own",
+			photo: Photo{ImagePath: "/photos/DSC001.JPG"},
+			want:  "/photos/DSC001.xmp",
+		},
+		{
+			name:  "lowercase jpeg",
+			photo: Photo{ImagePath: "/photos/DSC001.jpeg"},
+			want:  "/photos/DSC001.xmp",
+		},
+		{
+			name:  "a PNG names its own",
+			photo: Photo{ImagePath: "/photos/shot.png"},
+			want:  "/photos/shot.xmp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.photo.SidecarPath())
+		})
+	}
+}

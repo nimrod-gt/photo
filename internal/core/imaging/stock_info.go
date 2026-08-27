@@ -23,8 +23,8 @@ var dateTagsByPriority = []string{"DateTimeOriginal", "DateTimeDigitized", "Date
 type StockInfo struct {
 	Tags  model.Tags
 	Taken time.Time
-	// complete says the tags need no further reading: the XMP sidecar of a RAW
-	// pair is already folded in, or the app itself is the one that wrote them.
+	// complete says the tags need no further reading: the XMP sidecar of the
+	// photo is already folded in, or the app itself is the one that wrote them.
 	// Tags read out of a JPEG alone are not complete, and the sidecar would
 	// otherwise overwrite what was generated for the photo but not saved yet.
 	complete bool
@@ -41,8 +41,8 @@ func withFileDate(info StockInfo, path string) StockInfo {
 }
 
 // GetStockInfo reads what the files already carry: the XMP packet and the EXIF
-// of the JPEG and, when the photo has a RAW pair, the sidecar written next to
-// it.
+// of the JPEG, and the sidecar of the photo - the one next to the RAW when
+// there is a pair, the one next to the image itself when there is none.
 func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 	s.access.RLock()
 	defer s.access.RUnlock()
@@ -67,10 +67,7 @@ func (s *ExifService) GetStockInfo(photo model.Photo) (StockInfo, error) {
 // out of the JPEG only fill what it lacks. A sidecar that cannot be read is
 // reported, with the tags returned as they were.
 func mergedWithSidecar(info StockInfo, photo model.Photo) (StockInfo, error) {
-	if !photo.HasRAW() {
-		return info, nil
-	}
-	sidecar, err := ReadSidecar(model.SidecarPath(photo.RAWPath))
+	sidecar, err := ReadSidecar(photo.SidecarPath())
 	if err != nil {
 		return info, err
 	}

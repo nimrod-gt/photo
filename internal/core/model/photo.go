@@ -70,8 +70,19 @@ func findRAWPair(jpegPath string, exists func(string) bool) string {
 
 const sidecarExt = ".xmp"
 
-// A RAW file cannot carry EXIF written by us, so its metadata goes into an XMP
-// sidecar named after the RAW file - the convention Lightroom and Bridge use.
-func SidecarPath(rawPath string) string {
-	return strings.TrimSuffix(rawPath, filepath.Ext(rawPath)) + sidecarExt
+// The sidecar is where the tags of a photo live: a RAW cannot carry EXIF
+// written by us, and a JPEG is only rewritten on demand. It is named after the
+// RAW when there is a pair - the convention Lightroom and Bridge use - and
+// after the image itself when there is none.
+func (p Photo) SidecarPath() string {
+	if p.HasRAW() {
+		return SidecarPath(p.RAWPath)
+	}
+	return SidecarPath(p.ImagePath)
+}
+
+// SidecarPath swaps the extension of a file for the sidecar one; the caller
+// decides which file the sidecar belongs to.
+func SidecarPath(path string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + sidecarExt
 }

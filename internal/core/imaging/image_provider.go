@@ -49,7 +49,7 @@ func NewProvider(exif *ExifService) *Provider {
 
 // StockInfo answers what the photo says about itself, out of the cache whenever
 // the image was loaded, since the tags came in with it. What that read cannot
-// know is the XMP sidecar of a RAW pair, which is read once per entry and wins
+// know is the XMP sidecar of the photo, which is read once per entry and wins
 // over the JPEG exactly as a full read does.
 func (p *Provider) StockInfo(photo model.Photo) (StockInfo, error) {
 	if info, ok := p.loader.PeekStock(photo.ImagePath); ok && info.complete {

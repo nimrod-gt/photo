@@ -508,6 +508,22 @@ func TestImageProvider_StockInfo(t *testing.T) {
 		assert.Equal(t, "bay", info.Tags.Title)
 	})
 
+	t.Run("the sidecar of a photo with no RAW pair beats the tags of the JPEG", func(t *testing.T) {
+		dir := t.TempDir()
+		photo := model.Photo{ImagePath: filepath.Join(dir, "a.jpg"), Name: "a.jpg"}
+		require.NoError(t, WriteSidecar(photo.SidecarPath(), model.Tags{Title: "cove"}))
+		p := stockProvider(t, map[string]StockInfo{
+			photo.ImagePath: {Tags: model.Tags{Title: "bay", Keywords: []string{"sea"}}},
+		}, nil)
+		_, err := p.Get(photo.ImagePath, 2000)
+		require.NoError(t, err)
+
+		info, err := p.StockInfo(photo)
+		require.NoError(t, err)
+		assert.Equal(t, "cove", info.Tags.Title)
+		assert.Equal(t, []string{"sea"}, info.Tags.Keywords)
+	})
+
 	t.Run("concurrent calls read the files once", func(t *testing.T) {
 		photo := model.Photo{ImagePath: "/photo.jpg", Name: "photo.jpg"}
 		var reads atomic.Int64

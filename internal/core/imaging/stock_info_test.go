@@ -272,6 +272,35 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, model.Tags{Title: "From the sidecar.", Keywords: []string{"packet"}}, info.Tags)
 	})
 
+	t.Run("prefers the sidecar of a photo with no RAW pair over the packet", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := writeJPEGWithPacket(t, dir, "DSC011.jpg", exifTags, packetWith(t, fromPacket))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC011.xmp"), model.Tags{Title: "From the sidecar."}))
+
+		photo := model.NewPhoto(path)
+		require.False(t, photo.HasRAW())
+		info, err := svc.GetStockInfo(photo)
+
+		require.NoError(t, err)
+		assert.Equal(t, model.Tags{Title: "From the sidecar.", Keywords: []string{"packet"}}, info.Tags)
+	})
+
+	// A PNG carries no packet and no EXIF of ours, so its sidecar is all it has.
+	t.Run("reads the sidecar of a photo that is no JPEG", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "shot.png")
+		require.NoError(t, os.WriteFile(path, []byte("not a real png"), 0600))
+		saved := model.Tags{Title: "From the sidecar.", Keywords: []string{"sidecar"}}
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "shot.xmp"), saved))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, saved, info.Tags)
+	})
+
 	// The EXIF has no field for a place, so a JPEG whose packet had no room keeps
 	// its location in the sidecar alone - and a sidecar another tool wrote may
 	// have tags and no location while the packet has one.
