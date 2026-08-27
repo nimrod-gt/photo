@@ -82,7 +82,7 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (StockWri
 		Rewritten:        rewritten,
 		PlaceDropped:     !tags.Place.IsEmpty(),
 		ConceptDropped:   len(strings.TrimSpace(tags.Concept)) != 0,
-		EditorialDropped: tags.Editorial.Normalized().Marked,
+		EditorialDropped: tags.Editorial.Marked,
 	}, err
 }
 

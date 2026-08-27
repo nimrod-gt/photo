@@ -38,14 +38,18 @@ func newHeldTagger(generated model.Tags, err error) *heldTagger {
 	}
 }
 
-func (h *heldTagger) Generate(ctx context.Context, _ tags.Request) (model.Tags, error) {
+func (h *heldTagger) Generate(ctx context.Context, req tags.Request) (model.Tags, error) {
 	h.started <- struct{}{}
 	select {
 	case <-h.release:
 	case <-ctx.Done():
 		return model.Tags{}, ctx.Err()
 	}
-	return h.tags, h.err
+	// The real tagger carries the fields the dialog filled in back with the tags
+	// it generated, because a run writes what it answers with and nothing else.
+	generated := h.tags
+	generated.Editorial = req.Editorial.Normalized()
+	return generated, h.err
 }
 
 // The Fyne test driver runs fyne.Do on the caller's goroutine, so a run reports
@@ -342,6 +346,24 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
 			"the sidecar named after the JPEG is written like the one named after a RAW")
+	})
+
+	t.Run("a backgrounded run writes the mark the dialog was ticked with", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+		typeIntoDialog(session, model.Tags{Editorial: editorialMark()})
+
+		session.generate()
+		<-held.started
+		session.background()
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		want := generatedTags()
+		want.Editorial = editorialMark()
+		assert.Equal(t, want, sidecarTags(t, photo), "the mark rides with the tags the run found")
 	})
 
 	t.Run("a backgrounded run stays pending until its sidecar is on disk", func(t *testing.T) {
