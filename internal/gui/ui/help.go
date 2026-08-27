@@ -6,6 +6,8 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+
+	"photo/internal/gui/keyname"
 )
 
 type shortcutEntry struct {
@@ -62,12 +64,12 @@ var helpRight = []shortcutSection{
 		title: "Tags dialog",
 		entries: []shortcutEntry{
 			{"Tab", "Next field or button"},
-			{"Shift+Tab", "Previous field or button"},
+			{keyname.Shift + "+Tab", "Previous field or button"},
 			{"Space/Enter", "Press the focused button"},
-			{"Shift+Enter", "Generate"},
-			{"Ctrl+Enter", "Generate in background"},
-			{"Alt+C", "Copy the tags"},
-			{"Alt+V", "Paste the tags"},
+			{keyname.Shift + "+Enter", "Generate"},
+			{keyname.Ctrl + "+Enter", "Generate in background"},
+			{keyname.Alt + "+C", "Copy the tags"},
+			{keyname.Alt + "+V", "Paste the tags"},
 			{"Esc", "Stop the generation, or close"},
 		},
 	},

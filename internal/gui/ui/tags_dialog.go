@@ -17,6 +17,7 @@ import (
 
 	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
+	"photo/internal/gui/keyname"
 )
 
 const (
@@ -28,9 +29,9 @@ const (
 	// itself shows and accepts the user's own locale format.
 	editorialDateLayout = "January 2, 2006"
 
-	generateLabel   = "Generate (Shift+Enter)"
-	regenerateLabel = "Regenerate (Shift+Enter)"
-	backgroundLabel = "Background (Ctrl+Enter)"
+	generateLabel   = "Generate (" + keyname.Shift + "+Enter)"
+	regenerateLabel = "Regenerate (" + keyname.Shift + "+Enter)"
+	backgroundLabel = "Background (" + keyname.Ctrl + "+Enter)"
 )
 
 type TagsDialogCallbacks struct {

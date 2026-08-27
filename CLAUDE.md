@@ -53,6 +53,10 @@ The Tags dialog handles its own keys instead of relying on nothing holding focus
 - `Alt+V` — paste them into the dialog of another photo
 - `Esc` — stop a running generation and keep the dialog, or close it when nothing is running; it works from every field except the Date one while its calendar popup is open, which swallows the key
 
+The keys are named here the way Windows names them. On macOS the help dialog and the Tags
+dialog buttons show `⇧`, `⌃` and `⌥` instead, out of `internal/gui/keyname`, which carries the
+names of the modifiers per OS.
+
 ### Tech Stack
 
 - Go + Fyne (GUI framework)
@@ -80,6 +84,7 @@ internal/
     clipboard/  per-OS clipboard image copy
   gui/
     app/        wiring, actions, dialog state
+    keyname/    names of the Shift/Ctrl/Alt keys, per-OS
     nativewin/  native window maximizing and monitor metrics, per-OS
     ui/         Fyne widgets
 ```
