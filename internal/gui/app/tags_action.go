@@ -154,8 +154,9 @@ func (s *tagsSession) background() {
 }
 
 // The sidecar belongs to us alone, so it is written without asking - right
-// after a run and again on close, once the user has edited the tags. Writing
-// into the JPEG stays behind its button, because that file is the photo itself.
+// after a run and again on close, once the user has edited the tags. It is the
+// store of the photo, pair or no pair; writing into the JPEG stays behind its
+// button, because that file is the photo itself.
 // Emptying both fields is an edit like any other and clears the tags in the
 // sidecar, the way it clears them in the JPEG; only a photo that never had any
 // is left without a sidecar.
@@ -170,14 +171,14 @@ func (s *tagsSession) saveSidecar(written model.Tags) {
 	if s.app.tagRuns.takeOver(s.photo.ImagePath, written, s.known) {
 		return
 	}
-	if !s.photo.HasRAW() || written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
+	if written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
 		return
 	}
 	previous := s.saved
 	s.saved = written
 	taken := s.taken
 	known := s.known
-	path := model.SidecarPath(s.photo.RAWPath)
+	path := s.photo.SidecarPath()
 	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
 		complete, err := completed(path, saved, known)
 		if err != nil {

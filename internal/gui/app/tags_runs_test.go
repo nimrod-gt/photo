@@ -164,7 +164,7 @@ func typeIntoDialog(session *tagsSession, typed model.Tags) {
 
 func sidecarTags(t *testing.T, photo model.Photo) model.Tags {
 	t.Helper()
-	path := model.SidecarPath(photo.RAWPath)
+	path := photo.SidecarPath()
 	require.Eventually(t, func() bool {
 		written, err := imaging.ReadSidecar(path)
 		return err == nil && !written.IsEmpty()
@@ -242,6 +242,23 @@ func TestTagRunner(t *testing.T) {
 			"the run it was handed to never lands, so the exit is the last chance to write it")
 	})
 
+	t.Run("the exit flush writes the sidecar of a photo with no RAW pair", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		typeIntoDialog(session, typedTags())
+		session.background()
+
+		a.tagRuns.stopAll()
+
+		assert.Equal(t, typedTags(), sidecarTags(t, photo),
+			"a JPEG alone owes its own sidecar the fields the dialog handed over")
+	})
+
 	t.Run("a reopened dialog takes back the fields it handed over", func(t *testing.T) {
 		held := newHeldTagger(model.Tags{}, errors.New("claude fell over"))
 		a := newTestApplication(t, held)
@@ -300,7 +317,7 @@ func TestTagRunner(t *testing.T) {
 		info := held.answerWithTags(t, a, photo.ImagePath)
 
 		assert.Equal(t, generatedTags(), info.Tags)
-		sidecar := model.SidecarPath(photo.RAWPath)
+		sidecar := photo.SidecarPath()
 		require.Eventually(t, func() bool {
 			_, err := os.Stat(sidecar)
 			return err == nil
@@ -308,6 +325,22 @@ func TestTagRunner(t *testing.T) {
 		written, err := imaging.ReadSidecar(sidecar)
 		require.NoError(t, err)
 		assert.Equal(t, generatedTags(), written)
+	})
+
+	t.Run("a backgrounded run writes the sidecar of a photo with no RAW pair", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		photo := testPhoto(t, false)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+
+		held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
+			"the sidecar named after the JPEG is written like the one named after a RAW")
 	})
 
 	t.Run("a backgrounded run stays pending until its sidecar is on disk", func(t *testing.T) {
@@ -328,7 +361,7 @@ func TestTagRunner(t *testing.T) {
 
 		// The run is only let go of once the file it owes is written, so a copy
 		// freed by it finds the sidecar without waiting for anything else.
-		require.FileExists(t, model.SidecarPath(photo.RAWPath))
+		require.FileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("a sidecar that could not be written leaves the cache empty", func(t *testing.T) {
@@ -337,7 +370,7 @@ func TestTagRunner(t *testing.T) {
 		photo := testPhoto(t, true)
 		// A directory where the sidecar belongs is the one way to make the write
 		// fail that says nothing about how the write itself is done.
-		require.NoError(t, os.Mkdir(model.SidecarPath(photo.RAWPath), 0o700))
+		require.NoError(t, os.Mkdir(photo.SidecarPath(), 0o700))
 		session := a.openTestTagsDialog(t, photo)
 
 		a.tagRuns.start(session, tags.Request{Photo: photo})
@@ -370,7 +403,7 @@ func TestTagRunner(t *testing.T) {
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
 
-		assert.NoFileExists(t, model.SidecarPath(photo.RAWPath))
+		assert.NoFileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("a reopened dialog attaches to the run it left going", func(t *testing.T) {
@@ -427,7 +460,7 @@ func TestTagRunner(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("the wait outlived the run")
 		}
-		assert.FileExists(t, model.SidecarPath(photo.RAWPath), "the wait ended before the sidecar was written")
+		assert.FileExists(t, photo.SidecarPath(), "the wait ended before the sidecar was written")
 	})
 
 	t.Run("a cancelled context ends the wait and leaves the run alone", func(t *testing.T) {
@@ -494,7 +527,7 @@ func TestTagRunner(t *testing.T) {
 		assert.True(t, a.dialogs.isCurrent(session.dialog), "everything typed into the dialog stays on screen")
 
 		held.answerWithNothing(t, a, a.tagRuns, photo.ImagePath)
-		assert.NoFileExists(t, model.SidecarPath(photo.RAWPath))
+		assert.NoFileExists(t, photo.SidecarPath())
 	})
 
 	t.Run("Escape over an idle dialog closes it", func(t *testing.T) {

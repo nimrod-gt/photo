@@ -54,8 +54,8 @@ func (a *Application) toggleCurrentPhoto(failure string, ratingWritten bool, tog
 // through these two: a photo is only touched once no run is going to write for
 // it any more. Both wait, so both belong on a worker goroutine.
 func (a *Application) copyPhotoFiles(ctx context.Context, photo model.Photo, dest string, mode library.CopyMode) error {
-	// The sidecar of the RAW pair is the only file a run writes, so a copy that
-	// leaves the RAW behind has nothing to wait for.
+	// A run writes the sidecar of the photo, and only a copy that takes the RAW
+	// takes the sidecar with it, so every other copy has nothing to wait for.
 	if photo.HasRAW() && mode != library.CopyJPEGOnly {
 		a.awaitTags(ctx, photo)
 	}

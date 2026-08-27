@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +66,26 @@ func TestTagsSessionClose(t *testing.T) {
 	assert.Equal(t, typedTags(), sidecarTags(t, photo))
 }
 
+// A JPEG with no RAW pair has a sidecar of its own, named after the image.
+func TestTagsSessionCloseWithoutARAWPair(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	photo := testPhoto(t, false)
+	require.False(t, photo.HasRAW())
+	session := a.openTestTagsDialog(t, photo)
+
+	typeIntoDialog(session, typedTags())
+	session.close()
+
+	assert.Equal(t, typedTags(), sidecarTags(t, photo))
+	assert.FileExists(t, strings.TrimSuffix(photo.ImagePath, ".JPG")+".xmp")
+
+	reopened := a.openTestTagsDialog(t, photo)
+	reopened.seed()
+
+	assert.Equal(t, typedTags(), reopened.dialog.Tags(),
+		"the dialog opens on what the last one saved")
+}
+
 // The note is what a generation is made from, so it is worth a sidecar before
 // there are any tags to go with it.
 func TestTagsSessionCloseWithAConceptAlone(t *testing.T) {
@@ -76,7 +97,7 @@ func TestTagsSessionCloseWithAConceptAlone(t *testing.T) {
 	session.close()
 
 	require.Eventually(t, func() bool {
-		written, err := imaging.ReadSidecar(model.SidecarPath(photo.RAWPath))
+		written, err := imaging.ReadSidecar(photo.SidecarPath())
 		return err == nil && written.Concept == testConcept
 	}, time.Second, 5*time.Millisecond, "the sidecar was never written")
 
@@ -93,12 +114,12 @@ func existingSidecar() model.Tags {
 
 func writeTestSidecar(t *testing.T, photo model.Photo, written model.Tags) {
 	t.Helper()
-	require.NoError(t, imaging.WriteSidecar(model.SidecarPath(photo.RAWPath), written))
+	require.NoError(t, imaging.WriteSidecar(photo.SidecarPath(), written))
 }
 
 func awaitSidecar(t *testing.T, photo model.Photo, want model.Tags) {
 	t.Helper()
-	path := model.SidecarPath(photo.RAWPath)
+	path := photo.SidecarPath()
 	var written model.Tags
 	require.Eventuallyf(t, func() bool {
 		var err error

@@ -20,10 +20,10 @@
       "status": "in_progress",
       "branch": "todo/16-17-photo-sidecar-editorial",
       "created_at": "2026-08-26T15:38:11Z",
-      "updated_at": "2026-08-27T08:30:34Z",
+      "updated_at": "2026-08-27T08:51:47Z",
       "plan": {
         "created_at": "2026-08-27T08:14:44Z",
-        "revised_at": "2026-08-27T08:30:34Z",
+        "revised_at": "2026-08-27T08:51:47Z",
         "base_commit": "ea42175",
         "summary": "Today the XMP sidecar is bound to the RAW half of a pair: every read (mergedWithSidecar), every write (tagsSession.saveSidecar, plus finishDetached, saveTyped, tagRunner.saveSidecar and flushTyped in the runner), and the copier/deleter sidecar handling are gated on photo.HasRAW() with the path taken from model.SidecarPath(photo.RAWPath). The change makes the sidecar belong to the photo instead of to the RAW: a new model.Photo.SidecarPath() returns the RAW-derived path when there is a pair (identical to today's, since the pair shares a basename) and the image-derived path otherwise, and every gate on HasRAW() around sidecar work is dropped. The work is sequenced from the model outwards - path helper, read path, dialog write path, background-run write paths, copier, deleter, the copy/delete wait in the app - each step carrying its own tests, with the CLAUDE.md prose that states the opposite rule updated last.",
         "steps": [
@@ -63,10 +63,9 @@
             ]
           },
           {
-            "title": "Copy the sidecar with the RAW, and with a RAW-less Photo + RAW copy",
-            "details": "In `internal/core/library/copier.go` move the sidecar copy out of `copyRAW` so the mode decides: `CopyJPEGOnly` copies no sidecar at all (unchanged, including for a photo with no RAW pair), `CopyOnlyRAW` copies it as today, and `CopyWithRAW` copies `photo.SidecarPath()` whether or not the photo has a RAW - today a JPEG-only photo copied in that mode takes nothing with it. Keep the existing not-exist tolerance and the `ctx.Err()` checks between files, and rewrite the `copySidecar` comment, which describes the file as the RAW's. Tests in `internal/core/library/copier_test.go`: keep the `CopyJPEGOnly leaves the sidecar` row for a pair, and add a JPEG with no RAW pair whose `photo.xmp` travels in `CopyWithRAW` and stays behind in `CopyJPEGOnly`.",
+            "title": "Keep the sidecar copy tied to the RAW",
+            "details": "Decided against the earlier draft: the sidecar travels only when the RAW does. `copyRAW` keeps calling `copySidecar`, `CopyJPEGOnly` keeps taking no sidecar, and a JPEG with no RAW pair leaves its own sidecar behind in every mode - what is copied is the image, and the tags stay with the file they were written for. No production change in `internal/core/library/copier.go`; add `TestCopier_LeavesTheSidecarOfAJPEGWithoutARAW` to `copier_test.go` (CopyJPEGOnly and CopyWithRAW, JPEG copied, `photo.xmp` left behind) so the rule is guarded rather than implied.",
             "files": [
-              "internal/core/library/copier.go",
               "internal/core/library/copier_test.go"
             ]
           },
@@ -79,11 +78,10 @@
             ]
           },
           {
-            "title": "Wait for a running generation before a copy that takes the sidecar",
-            "details": "In `internal/gui/app/actions.go` `copyPhotoFiles` reduce the gate to `mode != library.CopyJPEGOnly` (the `photo.HasRAW()` half goes), so a JPEG-only photo copied as `Photo + RAW` waits for a pending generation the way a pair does, and rewrite the comment above the pair of helpers, which says the RAW's sidecar is the only file a run writes. `deletePhotoFiles` already stops and waits unconditionally. Test in `internal/gui/app/actions_test.go`: a JPEG-only counterpart of the existing \"a copy waits for the run\" case - a run held mid-flight, `copyPhotoFiles` with `library.CopyWithRAW`, and the sidecar present in the destination when it returns.",
+            "title": "Leave the copy wait as it is, fix the comment",
+            "details": "Follows from the copy decision: `copyPhotoFiles` in `internal/gui/app/actions.go` keeps waiting only when `photo.HasRAW() && mode != library.CopyJPEGOnly`, because only a copy that takes the RAW takes a sidecar with it. The comment above the gate is the one thing that changes: a run now writes the sidecar of any photo, so it can no longer be called the RAW pair's alone. No test change.",
             "files": [
-              "internal/gui/app/actions.go",
-              "internal/gui/app/actions_test.go"
+              "internal/gui/app/actions.go"
             ]
           },
           {
@@ -114,6 +112,10 @@
           {
             "question": "For a JPEG-only photo the sidecar now outranks the XMP packet inside the JPEG on read (FillMissing puts the sidecar first). Assume that is wanted - i.e. tags edited in another tool inside the JPEG lose to our sidecar until Save JPEG is pressed - unless you prefer the packet to win for JPEG-only photos (step 2).",
             "answer": "Yes - the sidecar wins over the JPEG packet for a JPEG-only photo too, the same merge rule as pairs."
+          },
+          {
+            "question": "Should the sidecar of a JPEG with no RAW pair travel with a \"Photo + RAW\" copy?",
+            "answer": "No - the sidecar is copied only when a RAW exists and is copied with it. A JPEG-only photo leaves its sidecar behind in every mode."
           }
         ],
         "risks": [
