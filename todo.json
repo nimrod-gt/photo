@@ -1,5 +1,48 @@
 {
   "version": 1,
-  "next_id": 17,
-  "todos": []
+  "next_id": 20,
+  "todos": [
+    {
+      "id": 18,
+      "description": "Make a settings window.",
+      "context": "User preferences (sort order, sort direction, tag overlay visibility) are already persisted through fyne Preferences in internal/gui/app/settings.go, but there is no UI to view or change them. Dialogs are registered and lifecycle-managed via the dialogKind enum and dialogManager in internal/gui/app/dialogs.go; the closest existing patterns are internal/gui/ui/help.go (read-only info dialog) and internal/gui/ui/tags_dialog.go (interactive dialog with its own key handling). Keyboard shortcuts are wired in internal/gui/ui/shortcuts.go and the remembered settings and key list are documented in CLAUDE.md.",
+      "docs": [
+        "internal/gui/app/settings.go",
+        "internal/gui/app/settings_test.go",
+        "internal/gui/app/dialogs.go",
+        "internal/gui/ui/help.go",
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/ui/shortcuts.go",
+        "internal/gui/app/app.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-28T12:05:58Z",
+      "updated_at": "2026-08-28T12:05:58Z",
+      "plan": null
+    },
+    {
+      "id": 19,
+      "description": "Replace the folder browser with a saved list of folders for quick access.",
+      "context": "The left panel currently embeds a GoLand-style directory tree (ui.DirTree, a fyne widget.Tree over library.Scanner): FileBrowser constructs it in NewFileBrowser, lays it out in build() next to the \"Open Folder...\" button, and exposes SetRoot/OpenPath which Application calls from handleChooseFolder and the startup restore in internal/gui/app/app.go (the last root is already persisted through fyne Preferences). This task replaces that tree with a saved/bookmarked folder list for quick access; the saved list would be persisted with the other preference keys in internal/gui/app/settings.go and would fire the existing OnDirectorySelected callback. There are no dirtree/filebrowser tests yet - sibling widget tests in internal/gui/ui/ show the testing style - and CLAUDE.md documents the current left-panel tree behaviour.",
+      "docs": [
+        "internal/gui/ui/dirtree.go",
+        "internal/gui/ui/filebrowser.go",
+        "internal/gui/app/app.go",
+        "internal/gui/app/settings.go",
+        "internal/gui/app/settings_test.go",
+        "internal/gui/app/navigation.go",
+        "internal/gui/ui/window.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-28T12:53:31Z",
+      "updated_at": "2026-08-28T12:53:31Z",
+      "plan": null
+    }
+  ]
 }
