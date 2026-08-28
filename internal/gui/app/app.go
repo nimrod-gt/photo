@@ -44,6 +44,10 @@ type Application struct {
 	sortDescending   bool
 	gridMode         bool
 	showTags         bool
+	autoSaveXMP      bool
+	autoSaveJPEG     bool
+	showSaveButton   bool
+	tagsUnsaved      unsavedTags
 	tagGeneration    int
 	tagsCopy         model.Tags
 	tagsCopied       bool
@@ -170,11 +174,12 @@ func (a *Application) Run() {
 		OnZoomIn:         a.handleZoomIn,
 		OnZoomOut:        a.handleZoomOut,
 		OnTags:           a.handleTags,
-		OnToggleTags:     a.handleToggleTags,
+		OnSettings:       a.handleSettings,
 	})
 
 	a.restoreSortOrder()
 	a.restoreTagVisibility()
+	a.restoreSaveSettings()
 	a.loadInitialDirectory()
 
 	if prefs := fyneApp.Preferences(); !prefs.BoolWithFallback("helpShown", false) {

@@ -18,6 +18,7 @@ const (
 	dialogCopyAll
 	dialogUnselectAll
 	dialogTags
+	dialogSettings
 )
 
 type hideable interface {

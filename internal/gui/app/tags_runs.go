@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -259,16 +258,23 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 
 	// A generation answers with the whole set, so it goes in where the sidecar
 	// stood rather than being added to it.
-	r.saveSidecar(run, generated, run.dateAt(r.app), true, func() {
+	r.saveFiles(run, generated, run.dateAt(r.app), true, func(_, note string) {
+		if len(note) != 0 {
+			r.app.mainWindow.ShowWarning("Tags generated for " + run.photo.Name + " - " + note)
+			return
+		}
 		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
 	})
 }
 
-// A generation that brought nothing still owes the sidecar the fields the
-// dialog handed over when it closed, which are all the photo has. The failure
-// is what the user is told, and only once that write is over: the notifier
-// holds one message at a time, so a save nobody asked for announcing itself
-// would push the error that explains it off the screen.
+// A generation that brought nothing still owes the files the fields the dialog
+// handed over when it closed, which are all the photo has. The failure is what
+// the user is told, and only once that write is over: the notifier holds one
+// message at a time, so a save nobody asked for announcing itself would push
+// the error that explains it off the screen.
+//
+// Where the fields were kept is named by the save itself: with the autosaves
+// off they reached no file at all and only the cache and the overlay have them.
 func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 	typed, complete := r.typedTags(run)
 	if nothingToWrite(typed) {
@@ -276,9 +282,12 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 		r.app.showError("Failed to generate tags for "+run.photo.Name, failure)
 		return
 	}
-	name := filepath.Base(run.photo.SidecarPath())
-	r.saveSidecar(run, typed, run.dateAt(r.app), complete, func() {
-		r.app.showError("Failed to generate tags for "+run.photo.Name+", kept what was typed in "+name, failure)
+	r.saveFiles(run, typed, run.dateAt(r.app), complete, func(target, _ string) {
+		kept := ", kept what was typed"
+		if len(target) != 0 {
+			kept += " in " + target
+		}
+		r.app.showError("Failed to generate tags for "+run.photo.Name+kept, failure)
 	})
 }
 
@@ -286,13 +295,42 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 // land while the write below is going. What it says about the photo is then
 // about a file that is on its way out: the cache would keep tags no file holds,
 // and the notification would name a photo the user just deleted.
-func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func()) {
+//
+// The settings decide what is written, and with both of them off the run has
+// nothing but the cache, the overlay and its notification to offer: the tags
+// are shown and wait for the Save button of a dialog reopened on the photo.
+func (r *tagRunner) saveFiles(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func(target, note string)) {
+	plan := r.app.autoWrite()
+	plan.jpeg = plan.jpeg && run.photo.IsJPEG() && len(written.Problems()) == 0
+	if plan.none() {
+		r.release(run)
+		if r.dropped(run) {
+			return
+		}
+		r.store(run, written, taken, false)
+		saved("", "")
+		return
+	}
+
 	path := run.photo.SidecarPath()
+	target := writeTarget(run.photo, plan)
 	r.writeStarted(run)
 	go func() {
+		// What the sidecar already holds is folded in whichever file is
+		// written: the fields a closed dialog handed over may have been typed
+		// into a dialog that never read it, and the JPEG would lose them as
+		// readily as the sidecar.
 		written, err := completed(path, written, complete)
-		if err == nil {
+		if err == nil && plan.sidecar {
 			err = imaging.WriteSidecar(path, written)
+		}
+		var note string
+		if err == nil && plan.jpeg {
+			var write imaging.StockWrite
+			write, err = r.app.exifService.WriteStockTags(run.photo.ImagePath, written)
+			if err == nil {
+				note = writeNote(write)
+			}
 		}
 		// Freed by the file being on disk, not by the UI goroutine being free:
 		// a copy waiting on this run needs the sidecar, not the notification.
@@ -302,11 +340,11 @@ func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time
 				return
 			}
 			if err != nil {
-				r.app.showError("Failed to save tags to "+filepath.Base(path), err)
+				r.app.showError("Failed to save tags to "+target, err)
 				return
 			}
-			r.store(run, written, taken)
-			saved()
+			r.store(run, written, taken, plan.sidecar)
+			saved(target, note)
 		})
 	}()
 }
@@ -320,8 +358,9 @@ func (r *tagRunner) writeStarted(run *tagRun) {
 	run.writing = true
 }
 
-func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time) {
+func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time, sidecar bool) {
 	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
+	r.app.tagsUnsaved.mark(run.photo.ImagePath, !sidecar)
 	r.app.setTagsIfCurrent(run.photo.ImagePath, written)
 }
 
@@ -474,15 +513,26 @@ func (r *tagRunner) stopAll() {
 //
 // A run that started its own write is left alone: putting the older fields on
 // top of what it found is the very race the hand-over exists to stop.
+// What is written is what the settings would have let the run write, so a file
+// left to the Save button is left to it here too: those fields were never on
+// their way to it.
 func (r *tagRunner) flushTyped(run *tagRun) {
 	typed, complete, ok := r.unwrittenTyped(run)
 	if !ok || nothingToWrite(typed) {
 		return
 	}
+	plan := r.app.autoWrite()
+	plan.jpeg = plan.jpeg && run.photo.IsJPEG() && len(typed.Problems()) == 0
+	if plan.none() {
+		return
+	}
 	path := run.photo.SidecarPath()
 	written, err := completed(path, typed, complete)
-	if err == nil {
+	if err == nil && plan.sidecar {
 		err = imaging.WriteSidecar(path, written)
+	}
+	if err == nil && plan.jpeg {
+		_, err = r.app.exifService.WriteStockTags(run.photo.ImagePath, written)
 	}
 	if err != nil {
 		log.Println("Failed to save tags on the way out:", err)

@@ -2,6 +2,8 @@ package app
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -257,4 +259,209 @@ func TestTagsSessionSaveWithoutKnowingTheFile(t *testing.T) {
 		want.Concept = testConcept
 		awaitSidecar(t, photo, want)
 	})
+}
+
+func uploadableTags() model.Tags {
+	keywords := make([]string, 0, model.KeywordCount)
+	for i := range model.KeywordCount {
+		keywords = append(keywords, fmt.Sprintf("keyword %d", i))
+	}
+	return model.Tags{Title: "A tram climbs the hill.", Keywords: keywords}
+}
+
+// What a save writes is settled here rather than in the dialog, because the
+// automatic saves ask the same question the button does.
+func TestTagsSessionWritePlan(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	jpeg := testPhoto(t, true)
+	raw := testPhotoNamed(t, "DSC002.ARW")
+
+	tests := []struct {
+		name    string
+		photo   model.Photo
+		written model.Tags
+		saved   model.Tags
+		want    tagWrite
+		manual  bool
+		wanted  tagWrite
+	}{
+		{
+			name:    "the settings say nothing is written",
+			photo:   jpeg,
+			written: uploadableTags(),
+		},
+		{
+			name:    "the sidecar is written automatically",
+			photo:   jpeg,
+			written: typedTags(),
+			want:    tagWrite{sidecar: true},
+			wanted:  tagWrite{sidecar: true},
+		},
+		{
+			name:    "tags the sidecar already holds are left alone",
+			photo:   jpeg,
+			written: typedTags(),
+			saved:   typedTags(),
+			want:    tagWrite{sidecar: true},
+		},
+		{
+			name:    "the button writes them anyway",
+			photo:   jpeg,
+			written: typedTags(),
+			saved:   typedTags(),
+			manual:  true,
+			want:    tagWrite{sidecar: true},
+			wanted:  tagWrite{sidecar: true},
+		},
+		{
+			name:    "a JPEG takes tags a stock site would take",
+			photo:   jpeg,
+			written: uploadableTags(),
+			want:    tagWrite{sidecar: true, jpeg: true},
+			wanted:  tagWrite{sidecar: true, jpeg: true},
+		},
+		{
+			name:    "tags both files already hold are left alone",
+			photo:   jpeg,
+			written: uploadableTags(),
+			saved:   uploadableTags(),
+			want:    tagWrite{sidecar: true, jpeg: true},
+		},
+		{
+			name:    "a JPEG is left alone until the tags are ready",
+			photo:   jpeg,
+			written: typedTags(),
+			want:    tagWrite{sidecar: true, jpeg: true},
+			wanted:  tagWrite{sidecar: true},
+		},
+		{
+			name:    "a photo that is no JPEG has nothing to write into",
+			photo:   raw,
+			written: uploadableTags(),
+			want:    tagWrite{sidecar: true, jpeg: true},
+			wanted:  tagWrite{sidecar: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &tagsSession{app: a, photo: tt.photo, saved: tt.saved}
+			assert.Equal(t, tt.wanted, session.writePlan(tt.written, tt.want, tt.manual))
+		})
+	}
+}
+
+// With the sidecar left to the button, closing the dialog writes nothing at all
+// and the tags wait on screen for the save the user asks for.
+func TestTagsSessionCloseWithAutoSaveOff(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	a.autoSaveXMP = false
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	typeIntoDialog(session, typedTags())
+	session.close()
+
+	assert.Never(t, func() bool {
+		_, err := os.Stat(photo.SidecarPath())
+		return err == nil
+	}, 200*time.Millisecond, 5*time.Millisecond, "the sidecar was written without being asked for")
+
+	reopened := a.openTestTagsDialog(t, photo)
+	typeIntoDialog(reopened, typedTags())
+	reopened.save()
+
+	assert.Equal(t, typedTags(), sidecarTags(t, photo))
+}
+
+// A run with the autosaves off leaves its tags in the cache, and the cache is
+// what the next dialog takes for the contents of the sidecar. No file holds
+// them, so that dialog has to write them rather than believe them.
+func TestTagsCachedByARunAreNotSaved(t *testing.T) {
+	held := newHeldTagger(generatedTags(), nil)
+	a := newTestApplication(t, held)
+	a.autoSaveXMP = false
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	a.tagRuns.start(session, tags.Request{Photo: photo})
+	<-held.started
+	session.background()
+	held.answerWithTags(t, a, photo.ImagePath)
+	settleRuns(t, a, photo.ImagePath)
+	require.NoFileExists(t, photo.SidecarPath())
+
+	a.autoSaveXMP = true
+	reopened := a.openTestTagsDialog(t, photo)
+	reopened.seed()
+	require.True(t, reopened.known, "the run filled the cache")
+	reopened.close()
+
+	awaitSidecar(t, photo, generatedTags())
+}
+
+// The Save button is asked for by hand, so it writes tags the sidecar already
+// holds - but a photo with nothing to say still gets no file.
+func TestTagsSessionSaveWithNothingTyped(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	a.autoSaveXMP = false
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	session.save()
+
+	assert.Never(t, func() bool {
+		_, err := os.Stat(photo.SidecarPath())
+		return err == nil
+	}, 200*time.Millisecond, 5*time.Millisecond, "an empty sidecar was written")
+}
+
+// The JPEG is the photo itself, so a save by hand tells the user when the tags
+// were not fit for it.
+func TestTagsSessionSkipNote(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	jpeg := testPhoto(t, true)
+	raw := testPhotoNamed(t, "DSC002.ARW")
+	both := tagWrite{sidecar: true, jpeg: true}
+
+	tests := []struct {
+		name    string
+		photo   model.Photo
+		written model.Tags
+		manual  bool
+		want    string
+	}{
+		{
+			name:    "tags a stock site would take",
+			photo:   jpeg,
+			written: uploadableTags(),
+			manual:  true,
+		},
+		{
+			name:    "tags that are not ready",
+			photo:   jpeg,
+			written: typedTags(),
+			manual:  true,
+			want:    jpeg.Name + " was left alone: 2 keywords, expected 50",
+		},
+		{
+			name:    "a save nobody asked for stays quiet",
+			photo:   jpeg,
+			written: typedTags(),
+		},
+		{
+			name:    "a photo that is no JPEG has nothing to say",
+			photo:   raw,
+			written: typedTags(),
+			manual:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			session := &tagsSession{app: a, photo: tt.photo}
+			plan := session.writePlan(tt.written, both, tt.manual)
+			assert.Equal(t, tt.want, session.skipNote(tt.written, both, plan, tt.manual))
+		})
+	}
 }
