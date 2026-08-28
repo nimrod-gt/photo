@@ -103,45 +103,27 @@ func TestTagsDialog(t *testing.T) {
 		assert.False(t, d.copyKeywordsBtn.Disabled())
 	})
 
-	t.Run("offers no saving when there is no JPEG to save into", func(t *testing.T) {
+	t.Run("offers no saving when the settings keep the button away", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
-		assert.Nil(t, d.saveJPEGBtn)
+		assert.Nil(t, d.saveBtn)
 	})
 
-	t.Run("saves into the JPEG", func(t *testing.T) {
-		jpegCalls := 0
+	// What a save writes is decided outside the dialog, so the button stays open
+	// to tags no stock site would take: the sidecar keeps them either way.
+	t.Run("saves whatever the fields hold", func(t *testing.T) {
+		saveCalls := 0
 		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true},
-			TagsDialogCallbacks{OnSaveJPEG: func() { jpegCalls++ }})
-		require.NotNil(t, d.saveJPEGBtn)
-		assert.True(t, d.saveJPEGBtn.Disabled())
-
-		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
-		test.Tap(d.saveJPEGBtn)
-
-		assert.Equal(t, 1, jpegCalls)
-	})
-
-	t.Run("saving waits for tags that meet every stock requirement", func(t *testing.T) {
-		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
-		ready := model.Tags{Title: "A calm morning.", Keywords: fullKeywords()}
-		d.SetTags(ready)
-		assert.False(t, d.saveJPEGBtn.Disabled())
+			TagsDialogOptions{Filename: "DSC001.JPG", ShowSave: true},
+			TagsDialogCallbacks{OnSave: func() { saveCalls++ }})
+		require.NotNil(t, d.saveBtn)
+		require.False(t, d.saveBtn.Disabled())
 
 		d.keywords.SetText("lake, forest")
-		assert.True(t, d.saveJPEGBtn.Disabled(), "too few keywords to upload")
+		test.Tap(d.saveBtn)
 
-		d.keywords.SetText(ready.KeywordLine())
-		d.title.SetText("")
-		assert.True(t, d.saveJPEGBtn.Disabled(), "a photo without a title is not ready either")
-
-		d.title.SetText("Cafe\u0301 at dawn.")
-		assert.True(t, d.saveJPEGBtn.Disabled(), "the title leaves the characters stock sites accept")
-
-		d.title.SetText(ready.Title)
-		assert.False(t, d.saveJPEGBtn.Disabled())
+		assert.Equal(t, 1, saveCalls)
+		assert.False(t, d.saveBtn.Disabled())
 	})
 
 	t.Run("generate disables the button and runs the callback", func(t *testing.T) {
@@ -155,11 +137,11 @@ func TestTagsDialog(t *testing.T) {
 		assert.True(t, d.progress.Visible())
 	})
 
-	t.Run("a run takes the JPEG out of the row and leaves the rest in place", func(t *testing.T) {
+	t.Run("a run takes Save out of the row and leaves the rest in place", func(t *testing.T) {
 		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+			TagsDialogOptions{Filename: "DSC001.JPG", ShowSave: true}, TagsDialogCallbacks{})
 		assert.Equal(t,
-			[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn, d.saveJPEGBtn},
+			[]fyne.CanvasObject{d.closeBtn, d.generateBtn, d.backgroundBtn, d.saveBtn},
 			d.buttons.Objects)
 
 		test.Tap(d.generateBtn)
@@ -619,7 +601,7 @@ func TestTagsDialog(t *testing.T) {
 
 	t.Run("fills the fields with the tags already written to the file", func(t *testing.T) {
 		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+			TagsDialogOptions{Filename: "DSC001.JPG", ShowSave: true}, TagsDialogCallbacks{})
 
 		d.SetPhotoInfo(model.Tags{Title: "Old title.", Keywords: []string{"lake", "forest"}}, time.Time{})
 
@@ -627,7 +609,6 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "Old title.", d.title.Text)
 		assert.Equal(t, "lake, forest", d.keywords.Text)
 		assert.Equal(t, model.Tags{Title: "Old title.", Keywords: []string{"lake", "forest"}}, d.Tags())
-		assert.True(t, d.saveJPEGBtn.Disabled(), "two keywords are not a stock upload")
 		assert.True(t, d.status.Visible())
 	})
 
@@ -1090,15 +1071,14 @@ func TestTagsDialog_Focus(t *testing.T) {
 
 	t.Run("a run takes the focus off a button that left the row", func(t *testing.T) {
 		d := newTestTagsDialogWith(t,
-			TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+			TagsDialogOptions{Filename: "DSC001.JPG", ShowSave: true}, TagsDialogCallbacks{})
 		d.Show()
 		d.SetTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
-		require.False(t, d.saveJPEGBtn.Disabled(), "the button has to be one the keyboard can reach")
-		d.window.Canvas().Focus(d.saveJPEGBtn)
+		d.window.Canvas().Focus(d.saveBtn)
 
 		d.Generating()
 
-		assert.NotContains(t, d.buttons.Objects, fyne.CanvasObject(d.saveJPEGBtn))
+		assert.NotContains(t, d.buttons.Objects, fyne.CanvasObject(d.saveBtn))
 		assert.Same(t, d.backgroundBtn, focused(d), "Space must not press a button that is off screen")
 	})
 
@@ -1530,12 +1510,12 @@ func TestTagsDialog_PasteTags(t *testing.T) {
 
 	// The Generate button is a run's to rename; a paste is not a run.
 	t.Run("leaves the buttons where a run would have moved them", func(t *testing.T) {
-		d := newTestTagsDialogWith(t, TagsDialogOptions{Filename: "DSC001.JPG", IsJPEG: true}, TagsDialogCallbacks{})
+		d := newTestTagsDialogWith(t, TagsDialogOptions{Filename: "DSC001.JPG", ShowSave: true}, TagsDialogCallbacks{})
 
 		d.PasteTags(pasted)
 
 		assert.Equal(t, generateLabel, d.generateBtn.Text)
-		assert.False(t, d.saveJPEGBtn.Disabled(), "the pasted tags are ready to upload")
+		assert.Contains(t, d.buttons.Objects, fyne.CanvasObject(d.saveBtn), "a paste is no run")
 	})
 
 	t.Run("reports whether a paste would replace anything", func(t *testing.T) {

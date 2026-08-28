@@ -8,6 +8,31 @@ import (
 	"photo/internal/core/library"
 )
 
+func TestSaveButtonVisible(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		show     bool
+		autoXMP  bool
+		autoJPEG bool
+		want     bool
+	}{
+		{name: "hidden by the setting", show: false, want: false},
+		{name: "nothing saved automatically", show: true, want: true},
+		{name: "only the sidecar saved automatically", show: true, autoXMP: true, want: true},
+		{name: "only the JPEG saved automatically", show: true, autoJPEG: true, want: true},
+		{name: "both saved automatically", show: true, autoXMP: true, autoJPEG: true, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, saveButtonVisible(tt.show, tt.autoXMP, tt.autoJPEG))
+		})
+	}
+}
+
 func TestNormalizeSortOrder(t *testing.T) {
 	t.Parallel()
 

@@ -17,11 +17,104 @@
         "CLAUDE.md"
       ],
       "depends_on": [],
-      "status": "open",
-      "branch": null,
+      "status": "in_progress",
+      "branch": "todo/18-settings-window",
       "created_at": "2026-08-28T12:05:58Z",
-      "updated_at": "2026-08-28T12:05:58Z",
-      "plan": null
+      "updated_at": "2026-08-28T14:02:49Z",
+      "plan": {
+        "created_at": "2026-08-28T14:02:49Z",
+        "revised_at": "2026-08-28T14:02:49Z",
+        "base_commit": "5d66ea0",
+        "summary": "A settings window holding four switches - show the tag overlay, autosave the XMP sidecar, autosave the JPEG packet, show the Save button - opened with the I key, which until now toggled the overlay. The switches live beside the other preferences in internal/gui/app/settings.go and are applied live; the tags dialog gets one Save button in place of Save JPEG, shown only while at least one autosave is off, and the automatic sidecar and JPEG writes in tags_action.go and tags_runs.go obey the two autosave switches.",
+        "steps": [
+          {
+            "title": "Preference layer for the three new switches",
+            "details": "Add keys autoSaveXMP (default true), autoSaveJPEG (default false) and showSaveButton (default true), the matching Application fields, a restoreSaveSettings called next to restoreTagVisibility in Run, and one saver per switch in the style of saveTagVisibility. Add the pure rule saveButtonVisible(show, autoXMP, autoJPEG) = show && !(autoXMP && autoJPEG) with a table test beside TestNormalizeSortOrder.",
+            "files": [
+              "internal/gui/app/settings.go",
+              "internal/gui/app/settings_test.go",
+              "internal/gui/app/app.go"
+            ]
+          },
+          {
+            "title": "Settings dialog widget",
+            "details": "NewSettingsDialog(opts, window, callbacks) built like ui.NewHelp: a VBox of four widget.Check rows and a Close button. Every check applies at once. The Save-button check is disabled and unchecked while both autosave checks are on. Test the enable/disable rule and the callbacks.",
+            "files": [
+              "internal/gui/ui/settings_dialog.go",
+              "internal/gui/ui/settings_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Wire the window into the app",
+            "details": "Add dialogSettings to dialogKind and handleSettings, which opens and closes it exactly like handleHelp. Its callbacks flip the Application fields, save them and apply - the overlay one keeps the body of handleToggleTags. Rename OnToggleTags to OnSettings in ShortcutCallbacks, bind glfw.KeyI to it, and change the I row in the help dialog to Settings.",
+            "files": [
+              "internal/gui/app/dialogs.go",
+              "internal/gui/app/actions.go",
+              "internal/gui/app/tags_view.go",
+              "internal/gui/ui/shortcuts.go",
+              "internal/gui/app/app.go",
+              "internal/gui/ui/help.go"
+            ]
+          },
+          {
+            "title": "One Save button in the tags dialog",
+            "details": "Rename saveJPEGBtn/OnSaveJPEG to saveBtn/OnSave, label it Save, and build it for every photo rather than only for a JPEG. Add TagsDialogOptions.ShowSave and leave the button out when it is false. The session's saveJPEG becomes save: it always writes the sidecar and, for a JPEG, the packet. The dialog is built with ShowSave from saveButtonVisible.",
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/app/tags_action.go"
+            ]
+          },
+          {
+            "title": "Gate the automatic writes on the settings",
+            "details": "With autoSaveXMP off, close and runFinished write no sidecar - close still calls tagRuns.takeOver so a re-attached dialog gets its fields back - and finishDetached/saveTyped only fill the cache, the overlay and the notification before releasing the run. With autoSaveJPEG on, the same two moments also write the JPEG packet of a JPEG photo, in the dialog path and in the detached run path. Extend the existing table tests with the off/on combinations.",
+            "files": [
+              "internal/gui/app/tags_action.go",
+              "internal/gui/app/tags_runs.go",
+              "internal/gui/app/tags_action_test.go",
+              "internal/gui/app/tags_runs_test.go"
+            ]
+          },
+          {
+            "title": "Documentation",
+            "details": "Update the Features section (settings window, the two autosave switches, the Save button rule), the stock-tags paragraph (the sidecar is no longer written unconditionally on close) and the shortcut list (I = Settings).",
+            "files": [
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "What does the I key do once the settings window exists?",
+            "answer": "It opens the settings window; the tag overlay is toggled by a checkbox there."
+          },
+          {
+            "question": "What does autosave XMP = off mean?",
+            "answer": "The sidecar is written only by the Save button; closing the tags dialog writes nothing."
+          },
+          {
+            "question": "What shape does the save button in the tags dialog take?",
+            "answer": "One Save button replacing Save JPEG: it writes the sidecar and, for a JPEG, the packet."
+          },
+          {
+            "question": "Is \"show the Save button\" a setting of its own?",
+            "answer": "Yes, a checkbox, greyed out and forced off while both autosaves are on."
+          },
+          {
+            "question": "With autosave XMP off, what happens to a backgrounded generation that lands with no dialog?",
+            "answer": "Cache, overlay and notification only - no file is written."
+          },
+          {
+            "question": "When does autosave JPEG write?",
+            "answer": "At the same moments as the sidecar: after a generation and on close."
+          }
+        ],
+        "risks": [
+          "The handover between a closing dialog and a running generation is delicate: with autosave off nobody writes, so takeOver must still run for the re-attach to restore the fields.",
+          "The cache means \"the file holds these tags\"; filling it without writing is a deliberate exception, so the Save button must never short-circuit on equality.",
+          "An automatic JPEG write rewrites the file when the XMP packet is too small, and the Sony Recover Image DB note must still reach the user from that path.",
+          "I changes meaning: the help dialog, CLAUDE.md and any test naming OnToggleTags must follow."
+        ]
+      }
     },
     {
       "id": 19,

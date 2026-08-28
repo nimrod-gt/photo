@@ -43,7 +43,7 @@ type TagsDialogCallbacks struct {
 	OnCopyKeywords func()
 	OnCopyTags     func()
 	OnPasteTags    func()
-	OnSaveJPEG     func()
+	OnSave         func()
 	OnClose        func()
 }
 
@@ -51,7 +51,7 @@ type TagsDialogOptions struct {
 	Filename   string
 	ClaudePath string
 	Date       time.Time
-	IsJPEG     bool
+	ShowSave   bool
 }
 
 type TagsDialog struct {
@@ -75,7 +75,7 @@ type TagsDialog struct {
 	generateBtn      *dialogButton
 	copyTitleBtn     *dialogButton
 	copyKeywordsBtn  *dialogButton
-	saveJPEGBtn      *dialogButton
+	saveBtn          *dialogButton
 	closeBtn         *unfocusableButton
 	stopBtn          *unfocusableButton
 	backgroundBtn    *dialogButton
@@ -217,9 +217,12 @@ func (d *TagsDialog) buildButtons(opts TagsDialogOptions) {
 	// blends in to show the focus, which would then be invisible on it.
 	d.generateBtn = newDialogButton(generateLabel, d.startGenerate, d)
 
-	if opts.IsJPEG {
-		d.saveJPEGBtn = newDialogButton("Save JPEG", func() { call(d.callbacks.OnSaveJPEG) }, d)
-		d.saveJPEGBtn.Disable()
+	// What the button writes is settled outside the dialog: the sidecar always,
+	// the JPEG when the photo is one and the tags are fit to be uploaded. It is
+	// the way to save anything that is typed here, so nothing on the dialog
+	// closes it.
+	if opts.ShowSave {
+		d.saveBtn = newDialogButton("Save", func() { call(d.callbacks.OnSave) }, d)
 	}
 
 	d.closeBtn = newUnfocusableButton("Cancel (ESC)", d.requestClose)
@@ -245,17 +248,16 @@ func (d *TagsDialog) startGenerate() {
 
 // Leaving the dialog, generating and backgrounding are the same three places in
 // the row whether a run is going or not, so a key learned in one state presses
-// the button it is written on in the other. Writing into the JPEG is the one
-// action a run has nothing to offer, since the tags it will bring are not there
-// yet.
+// the button it is written on in the other. Saving is the one action a run has
+// nothing to offer, since the tags it will bring are not there yet.
 func (d *TagsDialog) buttonSet() []fyne.CanvasObject {
 	if d.generating {
 		return []fyne.CanvasObject{d.stopBtn, d.generateBtn, d.backgroundBtn}
 	}
 	buttons := make([]fyne.CanvasObject, 0, 4)
 	buttons = append(buttons, d.closeBtn, d.generateBtn, d.backgroundBtn)
-	if d.saveJPEGBtn != nil {
-		buttons = append(buttons, d.saveJPEGBtn)
+	if d.saveBtn != nil {
+		buttons = append(buttons, d.saveBtn)
 	}
 	return buttons
 }
@@ -674,11 +676,11 @@ func (d *TagsDialog) Generating() {
 	d.setGenerating(true)
 	// The row is rebuilt around a run and the focus may be left where nothing
 	// can be done with it: on Generate, which is disabled now and which the Tab
-	// walk goes past, or on Save JPEG, which is out of the row while Space would
+	// walk goes past, or on Save, which is out of the row while Space would
 	// still press it. A mouse press on Generate leaves no focus at all, and the
 	// dialog would then hear none of the chords its buttons are named after.
 	switch d.window.Canvas().Focused() {
-	case nil, fyne.Focusable(d.generateBtn), fyne.Focusable(d.saveJPEGBtn):
+	case nil, fyne.Focusable(d.generateBtn), fyne.Focusable(d.saveBtn):
 		d.focus(d.backgroundBtn)
 	}
 }
@@ -718,11 +720,6 @@ func (d *TagsDialog) refreshStatus() {
 	problems := current.Problems()
 	setEnabled(d.copyTitleBtn, len(current.Title) != 0)
 	setEnabled(d.copyKeywordsBtn, len(current.Keywords) != 0)
-	// Writing into the JPEG is the one action here that changes the photo itself,
-	// so it stays shut until the tags meet every stock requirement - the status
-	// line below already spells out what is missing. Nothing is lost meanwhile:
-	// the sidecar is written whatever state the fields are in.
-	setEnabled(d.saveJPEGBtn, len(problems) == 0)
 	// While a run goes the status line is its own, and the tags read from the
 	// file may land in the fields underneath it; the run rewrites the line when
 	// it finishes either way.
@@ -740,7 +737,7 @@ func (d *TagsDialog) refreshStatus() {
 	d.setStatus(fmt.Sprintf("%d keywords, ready to upload", len(current.Keywords)))
 }
 
-// A photo with no JPEG to write into has no button to enable.
+// A button the dialog was built without has nothing to enable.
 func setEnabled[T interface {
 	comparable
 	fyne.Disableable

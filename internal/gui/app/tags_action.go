@@ -34,7 +34,7 @@ func (a *Application) handleTags() {
 		Filename:   photo.Name,
 		ClaudePath: prefs.String("claudePath"),
 		Date:       taken,
-		IsJPEG:     photo.IsJPEG(),
+		ShowSave:   a.saveButtonVisible(),
 	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{
 		OnEscape:     a.handleCancel,
 		OnGenerate:   session.generate,
@@ -50,7 +50,7 @@ func (a *Application) handleTags() {
 		},
 		OnCopyTags:  session.copyTags,
 		OnPasteTags: session.pasteTags,
-		OnSaveJPEG:  session.saveJPEG,
+		OnSave:      session.save,
 		OnClose:     session.close,
 	})
 
@@ -128,7 +128,7 @@ func (s *tagsSession) runFinished(generated model.Tags, err error) {
 	}
 	s.dialog.SetTags(generated)
 	s.storeStock(generated, s.taken)
-	s.saveSidecar(generated)
+	s.autoSave(generated)
 }
 
 // Escape means cancel throughout the app, and what it cancels here is the run
@@ -154,49 +154,132 @@ func (s *tagsSession) background() {
 	s.close()
 }
 
-// The sidecar belongs to us alone, so it is written without asking - right
-// after a run and again on close, once the user has edited the tags. It is the
-// store of the photo, pair or no pair; writing into the JPEG stays behind its
-// button, because that file is the photo itself.
+// tagWrite is which of the two files a save is for. The sidecar is the store of
+// the photo, pair or no pair; the JPEG is the photo itself, which is why the
+// settings hold them apart.
+type tagWrite struct {
+	sidecar bool
+	jpeg    bool
+}
+
+func (w tagWrite) none() bool {
+	return !w.sidecar && !w.jpeg
+}
+
+func (a *Application) autoWrite() tagWrite {
+	return tagWrite{sidecar: a.autoSaveXMP, jpeg: a.autoSaveJPEG}
+}
+
+// What the settings let happen on its own - right after a run and again on
+// close, once the user has edited the tags.
 // Emptying both fields is an edit like any other and clears the tags in the
-// sidecar, the way it clears them in the JPEG; only a photo that never had any
-// is left without a sidecar.
-// The tags count as saved before the write finishes, so a second close does not
-// repeat it, and a failed write puts the previous ones back so the next close
-// tries again.
-// A generation that is still going writes the same file when it lands, so the
+// files; only a photo that never had any is left without a sidecar.
+// A generation that is still going writes the same files when it lands, so the
 // dialog closing over it - backgrounded, or clicked away - hands its fields to
 // the run instead of racing it with a write of its own; the run keeps them if
-// it brings nothing better.
-func (s *tagsSession) saveSidecar(written model.Tags) {
+// it brings nothing better. The handover happens whatever the settings say: a
+// dialog reopened over the run puts those fields back on screen.
+func (s *tagsSession) autoSave(written model.Tags) {
 	if s.app.tagRuns.takeOver(s.photo.ImagePath, written, s.known) {
 		return
 	}
-	if written.Equal(s.saved) || (nothingToWrite(written) && nothingToWrite(s.saved)) {
+	s.write(written, s.app.autoWrite(), false)
+}
+
+// The Save button is the one way to write files the settings leave alone, so it
+// asks for both and says nothing about tags that are already there: with the
+// sidecar saved by hand, what the dialog was filled with is what the user means
+// to keep.
+func (s *tagsSession) save() {
+	s.write(s.dialog.Tags(), tagWrite{sidecar: true, jpeg: true}, true)
+}
+
+// A JPEG is only written with tags a stock site would take: that file is the
+// photo itself, and the status line already spells out what is missing.
+func (s *tagsSession) plan(written model.Tags, want tagWrite, manual bool) tagWrite {
+	// A photo that never had tags is left without a sidecar even when the save
+	// was asked for by hand: there would be nothing in the file.
+	blank := nothingToWrite(written) && nothingToWrite(s.saved)
+	return tagWrite{
+		sidecar: want.sidecar && !blank && (manual || !written.Equal(s.saved)),
+		jpeg:    want.jpeg && s.photo.IsJPEG() && len(written.Problems()) == 0,
+	}
+}
+
+// A save asked for by hand that leaves the JPEG behind says why, and says it
+// alongside what was written rather than before it: the notifier holds one
+// message at a time and the write landing afterwards would push this one off.
+func (s *tagsSession) skipNote(written model.Tags, want, plan tagWrite, manual bool) string {
+	if !manual || !want.jpeg || !s.photo.IsJPEG() || plan.jpeg {
+		return ""
+	}
+	return s.photo.Name + " was left alone: " + strings.Join(written.Problems(), "; ")
+}
+
+// Both files are written by one save rather than by two racing each other: the
+// notifier holds one message at a time, and the second of two writes announcing
+// themselves apart would push the first off the screen.
+// The tags count as saved before the write finishes, so a second close does not
+// repeat it, and a failed write puts the previous ones back so the next close
+// tries again.
+func (s *tagsSession) write(written model.Tags, want tagWrite, manual bool) {
+	plan := s.plan(written, want, manual)
+	skipped := s.skipNote(written, want, plan, manual)
+	if plan.none() {
+		if len(skipped) != 0 {
+			s.app.mainWindow.ShowWarning(skipped)
+		}
 		return
 	}
 	previous := s.saved
-	s.saved = written
+	if plan.sidecar {
+		s.saved = written
+	}
 	taken := s.taken
 	known := s.known
 	path := s.photo.SidecarPath()
-	s.app.saveTags(written, filepath.Base(path), func(saved model.Tags) (string, error) {
-		complete, err := completed(path, saved, known)
-		if err != nil {
-			return "", err
+	s.app.saveTags(written, writeTarget(s.photo, plan), func(saved model.Tags) (string, error) {
+		if plan.sidecar {
+			complete, err := completed(path, saved, known)
+			if err != nil {
+				return "", err
+			}
+			if err := imaging.WriteSidecar(path, complete); err != nil {
+				return "", err
+			}
+			saved = complete
 		}
-		if err := imaging.WriteSidecar(path, complete); err != nil {
-			return "", err
+		note := skipped
+		if plan.jpeg {
+			write, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
+			if err != nil {
+				return "", err
+			}
+			note = writeNote(write)
 		}
-		s.storeStock(complete, taken)
-		return "", nil
+		s.storeStock(saved, taken)
+		return note, nil
 	}, func() {
+		if !plan.sidecar {
+			return
+		}
 		s.saved = previous
 		// A generated run cached its tags before this write; leaving them there
 		// would tell the next dialog they are saved and stop it from writing
 		// them again, so the entry goes and the file is read instead.
 		s.app.imageProvider.Forget(s.photo.ImagePath)
 	})
+}
+
+func writeTarget(photo model.Photo, plan tagWrite) string {
+	var targets []string
+	if plan.sidecar {
+		targets = append(targets, filepath.Base(photo.SidecarPath()))
+	}
+	if plan.jpeg {
+		targets = append(targets, photo.Name)
+	}
+	return strings.Join(targets, " and ")
 }
 
 // A dialog closed before the read of its photo landed knows nothing of what the
@@ -240,18 +323,6 @@ const conceptDroppedNote = "the concept was not written: the XMP packet had no r
 
 const editorialDroppedNote = "the editorial mark was not written: the XMP packet had no room and the EXIF has no field for it"
 
-func (s *tagsSession) saveJPEG() {
-	taken := s.taken
-	s.app.saveTags(s.dialog.Tags(), s.photo.Name, func(saved model.Tags) (string, error) {
-		write, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
-		if err != nil {
-			return "", err
-		}
-		s.storeStock(saved, taken)
-		return writeNote(write), nil
-	}, nil)
-}
-
 func writeNote(write imaging.StockWrite) string {
 	var notes []string
 	if write.Rewritten {
@@ -270,7 +341,7 @@ func writeNote(write imaging.StockWrite) string {
 }
 
 func (s *tagsSession) close() {
-	s.saveSidecar(s.dialog.Tags())
+	s.autoSave(s.dialog.Tags())
 	if s.app.dialogs.isCurrent(s.dialog) {
 		s.app.dialogs.closed()
 	}

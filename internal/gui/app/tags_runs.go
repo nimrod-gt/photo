@@ -259,7 +259,11 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 
 	// A generation answers with the whole set, so it goes in where the sidecar
 	// stood rather than being added to it.
-	r.saveSidecar(run, generated, run.dateAt(r.app), true, func() {
+	r.saveFiles(run, generated, run.dateAt(r.app), true, func(note string) {
+		if len(note) != 0 {
+			r.app.mainWindow.ShowWarning("Tags generated for " + run.photo.Name + " - " + note)
+			return
+		}
 		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
 	})
 }
@@ -277,7 +281,7 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 		return
 	}
 	name := filepath.Base(run.photo.SidecarPath())
-	r.saveSidecar(run, typed, run.dateAt(r.app), complete, func() {
+	r.saveFiles(run, typed, run.dateAt(r.app), complete, func(string) {
 		r.app.showError("Failed to generate tags for "+run.photo.Name+", kept what was typed in "+name, failure)
 	})
 }
@@ -286,13 +290,38 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 // land while the write below is going. What it says about the photo is then
 // about a file that is on its way out: the cache would keep tags no file holds,
 // and the notification would name a photo the user just deleted.
-func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func()) {
+//
+// The settings decide what is written, and with both of them off the run has
+// nothing but the cache, the overlay and its notification to offer: the tags
+// are shown and wait for the Save button of a dialog reopened on the photo.
+func (r *tagRunner) saveFiles(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func(note string)) {
+	plan := r.app.autoWrite()
+	plan.jpeg = plan.jpeg && run.photo.IsJPEG() && len(written.Problems()) == 0
+	if plan.none() {
+		r.release(run)
+		if r.dropped(run) {
+			return
+		}
+		r.store(run, written, taken)
+		saved("")
+		return
+	}
+
 	path := run.photo.SidecarPath()
 	r.writeStarted(run)
 	go func() {
-		written, err := completed(path, written, complete)
-		if err == nil {
-			err = imaging.WriteSidecar(path, written)
+		var err error
+		var note string
+		if plan.sidecar {
+			written, err = completed(path, written, complete)
+			if err == nil {
+				err = imaging.WriteSidecar(path, written)
+			}
+		}
+		if err == nil && plan.jpeg {
+			var write imaging.StockWrite
+			write, err = r.app.exifService.WriteStockTags(run.photo.ImagePath, written)
+			note = writeNote(write)
 		}
 		// Freed by the file being on disk, not by the UI goroutine being free:
 		// a copy waiting on this run needs the sidecar, not the notification.
@@ -302,11 +331,11 @@ func (r *tagRunner) saveSidecar(run *tagRun, written model.Tags, taken time.Time
 				return
 			}
 			if err != nil {
-				r.app.showError("Failed to save tags to "+filepath.Base(path), err)
+				r.app.showError("Failed to save tags to "+writeTarget(run.photo, plan), err)
 				return
 			}
 			r.store(run, written, taken)
-			saved()
+			saved(note)
 		})
 	}()
 }
@@ -474,7 +503,12 @@ func (r *tagRunner) stopAll() {
 //
 // A run that started its own write is left alone: putting the older fields on
 // top of what it found is the very race the hand-over exists to stop.
+// With the sidecar left to the Save button nothing is owed here either: the
+// fields were never on their way to a file.
 func (r *tagRunner) flushTyped(run *tagRun) {
+	if !r.app.autoSaveXMP {
+		return
+	}
 	typed, complete, ok := r.unwrittenTyped(run)
 	if !ok || nothingToWrite(typed) {
 		return

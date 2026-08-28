@@ -91,6 +91,9 @@ func newTestApplication(t *testing.T, generator tagGenerator) *Application {
 	a := New()
 	a.fyneApp = fyneApp
 	a.tagger = generator
+	// The settings the app starts with, which Run restores from the preferences.
+	a.autoSaveXMP = true
+	a.showSaveButton = true
 	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{})
 	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.imageProvider, a.colorService, ui.FileBrowserCallbacks{})
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{})
@@ -149,8 +152,10 @@ func (a *Application) openTestTagsDialog(t *testing.T, photo model.Photo) *tagsS
 	t.Helper()
 	taken, _ := a.imageProvider.PeekStockDate(photo.ImagePath)
 	session := &tagsSession{app: a, photo: photo, taken: taken}
-	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{Filename: photo.Name}, a.mainWindow.Window(),
-		ui.TagsDialogCallbacks{})
+	session.dialog = ui.NewTagsDialog(ui.TagsDialogOptions{
+		Filename: photo.Name,
+		ShowSave: a.saveButtonVisible(),
+	}, a.mainWindow.Window(), ui.TagsDialogCallbacks{})
 	a.dialogs.openSelfClosing(dialogTags, session.dialog, session.escape)
 	return session
 }
@@ -211,6 +216,25 @@ func TestTagRunner(t *testing.T) {
 
 		assert.Equal(t, generatedTags(), sidecarTags(t, photo),
 			"the run writes what it generated, whatever the dialog held when it closed")
+	})
+
+	// The tags are shown and cached where a dialog reopened on the photo picks
+	// them up, and its Save button is what puts them in a file.
+	t.Run("a backgrounded run writes nothing while the sidecar is saved by hand", func(t *testing.T) {
+		held := newHeldTagger(generatedTags(), nil)
+		a := newTestApplication(t, held)
+		a.autoSaveXMP = false
+		photo := testPhoto(t, true)
+		session := a.openTestTagsDialog(t, photo)
+
+		a.tagRuns.start(session, tags.Request{Photo: photo})
+		<-held.started
+		session.background()
+		info := held.answerWithTags(t, a, photo.ImagePath)
+
+		assert.Equal(t, generatedTags(), info.Tags)
+		assert.NoFileExists(t, photo.SidecarPath())
+		settleRuns(t, a, photo.ImagePath)
 	})
 
 	t.Run("a run that brought nothing writes what the dialog handed over", func(t *testing.T) {

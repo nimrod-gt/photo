@@ -31,7 +31,7 @@ type ShortcutCallbacks struct {
 	OnZoomIn         func()
 	OnZoomOut        func()
 	OnTags           func()
-	OnToggleTags     func()
+	OnSettings       func()
 }
 
 // A shortcut is bound to the place of the key on the keyboard rather than to
@@ -56,7 +56,7 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		keyScanCode(glfw.KeyL): callbacks.OnToggleGrid,
 		keyScanCode(glfw.KeyZ): callbacks.OnZoomReset,
 		keyScanCode(glfw.KeyT): callbacks.OnTags,
-		keyScanCode(glfw.KeyI): callbacks.OnToggleTags,
+		keyScanCode(glfw.KeyI): callbacks.OnSettings,
 	}
 
 	keyActions := map[fyne.KeyName]func(){
