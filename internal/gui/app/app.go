@@ -47,6 +47,7 @@ type Application struct {
 	autoSaveXMP      bool
 	autoSaveJPEG     bool
 	showSaveButton   bool
+	tagsUnsaved      unsavedTags
 	tagGeneration    int
 	tagsCopy         model.Tags
 	tagsCopied       bool

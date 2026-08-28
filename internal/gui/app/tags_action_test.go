@@ -271,7 +271,7 @@ func uploadableTags() model.Tags {
 
 // What a save writes is settled here rather than in the dialog, because the
 // automatic saves ask the same question the button does.
-func TestTagsSessionPlan(t *testing.T) {
+func TestTagsSessionWritePlan(t *testing.T) {
 	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
 	jpeg := testPhoto(t, true)
 	raw := testPhotoNamed(t, "DSC002.ARW")
@@ -321,6 +321,13 @@ func TestTagsSessionPlan(t *testing.T) {
 			wanted:  tagWrite{sidecar: true, jpeg: true},
 		},
 		{
+			name:    "tags both files already hold are left alone",
+			photo:   jpeg,
+			written: uploadableTags(),
+			saved:   uploadableTags(),
+			want:    tagWrite{sidecar: true, jpeg: true},
+		},
+		{
 			name:    "a JPEG is left alone until the tags are ready",
 			photo:   jpeg,
 			written: typedTags(),
@@ -339,7 +346,7 @@ func TestTagsSessionPlan(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := &tagsSession{app: a, photo: tt.photo, saved: tt.saved}
-			assert.Equal(t, tt.wanted, session.plan(tt.written, tt.want, tt.manual))
+			assert.Equal(t, tt.wanted, session.writePlan(tt.written, tt.want, tt.manual))
 		})
 	}
 }
@@ -365,6 +372,32 @@ func TestTagsSessionCloseWithAutoSaveOff(t *testing.T) {
 	reopened.save()
 
 	assert.Equal(t, typedTags(), sidecarTags(t, photo))
+}
+
+// A run with the autosaves off leaves its tags in the cache, and the cache is
+// what the next dialog takes for the contents of the sidecar. No file holds
+// them, so that dialog has to write them rather than believe them.
+func TestTagsCachedByARunAreNotSaved(t *testing.T) {
+	held := newHeldTagger(generatedTags(), nil)
+	a := newTestApplication(t, held)
+	a.autoSaveXMP = false
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	a.tagRuns.start(session, tags.Request{Photo: photo})
+	<-held.started
+	session.background()
+	held.answerWithTags(t, a, photo.ImagePath)
+	settleRuns(t, a, photo.ImagePath)
+	require.NoFileExists(t, photo.SidecarPath())
+
+	a.autoSaveXMP = true
+	reopened := a.openTestTagsDialog(t, photo)
+	reopened.seed()
+	require.True(t, reopened.known, "the run filled the cache")
+	reopened.close()
+
+	awaitSidecar(t, photo, generatedTags())
 }
 
 // The Save button is asked for by hand, so it writes tags the sidecar already
@@ -427,7 +460,7 @@ func TestTagsSessionSkipNote(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := &tagsSession{app: a, photo: tt.photo}
-			plan := session.plan(tt.written, both, tt.manual)
+			plan := session.writePlan(tt.written, both, tt.manual)
 			assert.Equal(t, tt.want, session.skipNote(tt.written, both, plan, tt.manual))
 		})
 	}
