@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 22,
+  "next_id": 23,
   "todos": [
     {
       "id": 19,
@@ -20,8 +20,57 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-28T12:53:31Z",
-      "updated_at": "2026-08-28T12:53:31Z",
-      "plan": null
+      "updated_at": "2026-08-31T13:36:16Z",
+      "plan": {
+        "created_at": "2026-08-31T13:36:16Z",
+        "revised_at": null,
+        "base_commit": "4392b72",
+        "summary": "Replace the GoLand-style directory tree in the left panel (ui.DirTree, built by FileBrowser and driven by Application via SetRoot/OpenDirectory) with a persistent bookmarked-folder list. A new FolderList widget (widget.List over []string, one row per saved folder with a folder icon, the base name and a remove button) fires the existing OnDirectorySelected callback when a row is tapped. The saved paths are persisted through fyne Preferences (SetStringList/StringListWithFallback) next to the other keys in internal/gui/app/settings.go; 'Open Folder...' adds the chosen folder to the list and opens it, and on first run the list is seeded from the old lastRoot/lastDirectory keys so existing users keep their place. dirtree.go is deleted and library.ListDirectories (used only by the tree) is removed with its test. CLAUDE.md's left-panel description is updated.",
+        "steps": [
+          {
+            "title": "Add the FolderList widget with tests",
+            "details": "Create ui.FolderList in internal/gui/ui/folderlist.go: a widget.List over a slice of absolute paths. Each row shows a folder icon (reuse iconFolderClosed from internal/gui/ui/icons.go, same 16x16 canvas.Image pattern as DirTree rows) plus a label with filepath.Base(path), and a small low-importance remove button (theme.CancelIcon). API: NewFolderList(onSelected func(string), onRemoved func(string)), SetFolders([]string), Folders() []string, SelectFolder(path string) to highlight the current folder, Widget() fyne.CanvasObject. On row tap call onSelected; on remove-button tap drop the path from the slice, refresh, and call onRemoved without firing onSelected (mirror DirTree's UnselectAll trick so a removal does not double as a selection). Guard the slice with a mutex like DirTree does. Add internal/gui/ui/folderlist_test.go in the style of runbar_test.go (test.NewTempWindow, non-parallel subtests, testify): rows render base names, tapping a row fires onSelected with the full path, tapping remove drops the row and fires onRemoved, SetFolders replaces the list. Leave dirtree.go untouched so everything still builds.",
+            "files": ["internal/gui/ui/folderlist.go", "internal/gui/ui/folderlist_test.go"]
+          },
+          {
+            "title": "Add saved-folders persistence to settings",
+            "details": "In internal/gui/app/settings.go add savedFoldersKey = \"savedFolders\" and helpers: normalizeSavedFolders([]string) []string (drop empty strings, dedupe preserving order), (a *Application) savedFolders() []string reading prefs.StringListWithFallback and — when the stored list is empty — seeding from the legacy \"lastRoot\"/\"lastDirectory\" string keys (each only if isValidDirectory), and (a *Application) saveSavedFolders([]string) writing prefs.SetStringList. Extend internal/gui/app/settings_test.go with a table-driven TestNormalizeSavedFolders (duplicates, empties, order kept) following the existing TestNormalizeSortOrder style. The helpers are exercised by the tests, so the step builds and lints clean before the wiring lands.",
+            "files": ["internal/gui/app/settings.go", "internal/gui/app/settings_test.go"]
+          },
+          {
+            "title": "Wire FolderList into FileBrowser and Application, delete DirTree",
+            "details": "In internal/gui/ui/filebrowser.go: replace the dirTree field with folderList *FolderList; construct it in NewFileBrowser from two new FileBrowserCallbacks fields (OnFolderRemoved func(remaining []string); folder selection reuses the existing OnDirectorySelected); replace SetRoot/OpenDirectory with SetSavedFolders(folders []string) and SelectFolder(path string); in build() put the folder list where the tree widget sat (same Border layout under the Open Folder/help bar, same VSplit at 0.4). Delete internal/gui/ui/dirtree.go. In internal/gui/app/app.go: handleChooseFolder appends the chosen path to a.savedFolders() (via normalizeSavedFolders), saves with saveSavedFolders, pushes the list into the browser with SetSavedFolders, then loadDirectory(path) — and stops writing the obsolete \"lastRoot\" key; loadInitialDirectory calls a.fileBrowser.SetSavedFolders(a.savedFolders()), then opens lastDirectory if valid, else the first saved folder, else falls back to os.UserHomeDir (adding home to the saved list so the panel is never empty); add a handler for OnFolderRemoved that persists the remaining list. loadDirectory additionally calls a.fileBrowser.SelectFolder(dir) so the active folder stays highlighted (also covers selection from copy destinations and startup). This step must land atomically to keep the build green.",
+            "files": ["internal/gui/ui/filebrowser.go", "internal/gui/ui/dirtree.go", "internal/gui/app/app.go"]
+          },
+          {
+            "title": "Remove the now-unused tree support code",
+            "details": "library.ListDirectories in internal/core/library/scanner.go was only called by DirTree — remove it and TestScanner_ListDirectories in internal/core/library/scanner_test.go. In internal/gui/ui/icons.go drop iconFolderOpen and iconFolderLeaf if the new list only uses iconFolderClosed (keep whichever the FolderList rows use). Run go build ./... and go tool golangci-lint run to confirm nothing else referenced them.",
+            "files": ["internal/core/library/scanner.go", "internal/core/library/scanner_test.go", "internal/gui/ui/icons.go"]
+          },
+          {
+            "title": "Update CLAUDE.md",
+            "details": "Rewrite the 'Left panel' bullet in the UI Layout section of CLAUDE.md: the directory tree is gone, replaced by a saved list of folders for quick access — 'Open Folder...' adds a folder to the list and opens it, each entry can be removed, the list is persisted in preferences, and the active folder is highlighted. Keep the rest of the bullet (non-RAW files only, sorting, color indicators) intact.",
+            "files": ["CLAUDE.md"]
+          }
+        ],
+        "questions": [
+          {"question": "Should 'Open Folder...' both add the chosen folder to the saved list and open it in one action (affects step 3)? Assume yes unless told otherwise.", "answer": null},
+          {"question": "How is a folder removed from the list — a small per-row X button (assumed default, step 1) or a right-click context menu on the row?", "answer": null},
+          {"question": "List ordering: assume insertion order with the newest folder appended at the bottom (steps 1 and 3); should it instead be most-recently-used first or alphabetical?", "answer": null},
+          {"question": "Should saved folders that no longer exist on disk be silently dropped at startup, or kept in the list with an error shown only when opened (assumed default: kept; loadDirectory already reports the scan error) (step 3)?", "answer": null},
+          {"question": "Seed the saved list from the legacy lastRoot/lastDirectory preferences on first run so existing users keep their folders (step 2)? Assume yes.", "answer": null},
+          {"question": "With the tree gone there is no way to drill into subfolders from the panel — is losing subfolder browsing acceptable, i.e. every folder of interest must be bookmarked via 'Open Folder...' (affects the whole design)? Assume yes since that is the stated intent of the todo.", "answer": null},
+          {"question": "Should each row show only the base name (assumed, step 1), or the full path / a parent hint to disambiguate two folders with the same base name (e.g. multiple '2024-08' folders)?", "answer": null}
+        ],
+        "risks": [
+          "Loss of subdirectory navigation is a real workflow change: today a user can browse anywhere under the root without a dialog; afterwards only bookmarked folders are one click away.",
+          "widget.List row tap vs. embedded remove-button tap can conflict (tapping the button may also select the row and trigger a folder load); the widget needs the same UnselectAll discipline DirTree used, and the test should cover it.",
+          "loadDirectory is called from several places (startup, selection, copy-dialog destinations via handleDirectorySelected); the SelectFolder highlight must tolerate paths that are not in the saved list.",
+          "The 0.4 VSplit and panelwidth keeper were tuned for a tree above the file list; a short bookmark list may want a different offset — cosmetic, but worth checking on first run.",
+          "Fyne test driver keeps global canvas state, so the new FolderList tests must not use t.Parallel (matches existing ui tests).",
+          "Removing ListDirectories touches internal/core/library; if any future todo (none listed) expects it, deletion could be deferred, but leaving it violates the no-dead-code lint."
+        ]
+      }
     },
     {
       "id": 20,
@@ -41,8 +90,116 @@
       "status": "open",
       "branch": null,
       "created_at": "2026-08-31T11:17:17Z",
-      "updated_at": "2026-08-31T11:17:17Z",
-      "plan": null
+      "updated_at": "2026-08-31T13:38:51Z",
+      "plan": {
+        "created_at": "2026-08-31T13:38:51Z",
+        "revised_at": null,
+        "base_commit": "4392b72",
+        "summary": "Add the direct Claude API (Go SDK anthropic-sdk-go, model claude-opus-5) as a second tag-generation backend behind the existing Tagger.Generate seam in internal/core/tags. The CLI backend has the model read the photo file itself via the Read tool, so the API backend must instead attach the image: a new imaging helper decodes and downscales the JPEG (~1568px long edge, re-encoded) for upload. The Tagger keeps its injected-function-fields style: a new api call function (faked in tests, real implementation via the SDK with the system prompt, the image block, the user message and the existing tagsSchema as a structured-output format) sits beside run/lookup, Request gains Backend and APIKey fields, and both backends share the existing post-processing (user-typed location/concept/editorial applied over the generated tags, empty answer = failed run) so error text stays comparable (\"claude reported an error, HTTP 429: ...\", timeout naming, excerpt capping). The GUI adds a backend selector and an API key row to the Tags dialog next to the existing claude-path row, passes both through tags.Request, shows/focuses the key row on a missing/rejected key the way the path row works for claudebin.ErrNotFound, and persists tagsBackend/claudeAPIKey to Fyne preferences after a successful run the same way claudePath is persisted today — with the fix that claudePath is only persisted after CLI runs (today finish would clear it after an API run whose path entry is empty).",
+        "steps": [
+          {
+            "title": "Imaging helper: JPEG bytes sized for API upload",
+            "details": "New exported function in internal/core/imaging (e.g. JPEGForUpload(path string) ([]byte, error)): read the file, decode through the existing robust decodeJPEG (its fit parameter already drives DCT scale-decode), downscale with the existing DownscaleToFit to a 1568px long edge, re-encode with image/jpeg at quality ~85, return the bytes. This keeps the upload well under the API's 5MB-per-image limit regardless of camera JPEG size and reuses the CMYK/truncated-file fallbacks. Table-driven tests with small generated JPEGs (already-small image passes through downscaling unchanged in dimensions; oversized image comes back within the cap; unreadable file errors).",
+            "files": ["internal/core/imaging/upload.go", "internal/core/imaging/upload_test.go"]
+          },
+          {
+            "title": "Core seam: backend choice in Request, shared post-processing",
+            "details": "In internal/core/tags/tagger.go: add a Backend type with BackendCLI/BackendAPI constants and Backend+APIKey fields on Request (zero value = CLI, so existing callers are unchanged); extract the success-path post-processing from Generate (trimmed req.Location/req.Concept, req.Editorial.Normalized() applied over the generated tags) into a helper both backends will use; add an exported sentinel ErrNoAPIKey (analogous to claudebin.ErrNotFound) returned when Backend is API and the key is blank. Generate dispatches on Backend; the API branch returns ErrNoAPIKey for now behind the same timeout wrapper. No behaviour change for the CLI path — existing tests must stay green; add tests for the dispatch and the blank-key error.",
+            "files": ["internal/core/tags/tagger.go", "internal/core/tags/tagger_test.go"]
+          },
+          {
+            "title": "API backend: request builder, parser, SDK transport",
+            "details": "Add github.com/anthropics/anthropic-sdk-go to go.mod. New internal/core/tags/api.go: an apiRequest struct (APIKey, Model, System, Message string, Image []byte, Schema string) built from Request — System is the embedded stockPhotoPrompt, Message reuses userMessage(req), Schema is tagsSchema, Image comes from a new injected Tagger field photo func(path string) ([]byte, error) defaulting to imaging.JPEGForUpload; a new injected field api func(ctx context.Context, req apiRequest) ([]byte, error) whose default implementation creates anthropic.NewClient(option.WithAPIKey(...)), calls Messages.New with Model \"claude-opus-5\" (new taggerAPIModel const), MaxTokens ~16000, System as a text block, and one user message holding the base64 JPEG image block plus the text; request structured output with tagsSchema via output_config.format (use the SDK's OutputConfig binding if the pinned version exposes it, else option.WithJSONSet — verify at implementation, forced strict tool-use with the same schema is the fallback). Parse the returned JSON text into the same title/keywords/city/state/country shape and run it through the shared post-processing; an empty answer is 'claude returned no tags' exactly as on the CLI path. Map SDK errors into the CLI-comparable wording: errors.As into the SDK error type for the HTTP status ('claude reported an error, HTTP 429: <excerptText(body)>'), wrap an invalid-key 401 so the GUI can recognize it (errors.Is ErrNoAPIKey or a second sentinel ErrBadAPIKey), keep the existing 'claude timed out after %s' deadline message and excerptText capping. Tests fake the api and photo fields (mirroring fakeRun): assert the built apiRequest (system prompt, schema, message lines, image bytes), success parsing, empty-output failure, error mapping, timeout naming, and that NewTagger wires real defaults.",
+            "files": ["go.mod", "go.sum", "internal/core/tags/api.go", "internal/core/tags/api_test.go", "internal/core/tags/tagger.go"]
+          },
+          {
+            "title": "Tags dialog: backend selector and API key row",
+            "details": "In internal/gui/ui/tags_dialog.go: TagsDialogOptions gains Backend and APIKey; buildInputs adds a labeled 'Backend:' row with a two-option radio/select ('claude CLI' / 'Claude API', defaulting from the option) and a key row (widget password entry, placeholder 'Claude API key') shown only while the API backend is selected; the existing claude-path row keeps its show-on-ErrNotFound behaviour but is only relevant for the CLI backend. Add Backend() and APIKey() getters (trimmed, like ClaudePath()). Fail(err) learns a second recovery target: on tags.ErrNoAPIKey/ErrBadAPIKey it shows the key row and focuses it, exactly as claudebin.ErrNotFound focuses the path entry. Extend internal/gui/ui/tags_dialog_test.go: getters, row visibility toggling with the selector, Fail focusing the key entry on the new sentinels and the path entry on ErrNotFound as before.",
+            "files": ["internal/gui/ui/tags_dialog.go", "internal/gui/ui/tags_dialog_test.go"]
+          },
+          {
+            "title": "App wiring: pass backend through, persist preferences per backend",
+            "details": "internal/gui/app/tags_action.go: handleTags reads prefs.String(\"tagsBackend\") and prefs.String(\"claudeAPIKey\") into TagsDialogOptions beside claudePath; tagsSession.generate() fills tags.Request.Backend and APIKey from the dialog getters. internal/gui/app/tags_runs.go: finish currently receives claudePath and persists it unconditionally on success — change it to receive the request (or backend+path+key) and persist per backend: a successful CLI run stores claudePath (existing empty-clears-it rule), a successful API run stores claudeAPIKey and leaves claudePath untouched; every successful run stores tagsBackend. Extend internal/gui/app/tags_runs_test.go (fake tagGenerator already injected via a.tagger) to cover: API-backend request fields reaching the generator, preference persistence per backend on success, no persistence on failure, and that an API run does not clear a stored claudePath.",
+            "files": ["internal/gui/app/tags_action.go", "internal/gui/app/tags_runs.go", "internal/gui/app/tags_runs_test.go", "internal/gui/app/tags_action_test.go"]
+          },
+          {
+            "title": "Documentation",
+            "details": "Update CLAUDE.md: the Stock tags feature paragraph and the project-layout note for internal/core/tags ('stock metadata generation via the claude CLI + prompts/') to mention the two backends (claude CLI or the Claude API with an API key chosen in the Tags dialog); mention the new imaging upload helper only if the layout table warrants it. Run go build ./..., go test ./... and golangci-lint per the Commands section as the final check.",
+            "files": ["CLAUDE.md"]
+          }
+        ],
+        "questions": [
+          {"question": "Model for the API backend: the CLI pins taggerModel=\"opus\" (an alias); assume the API uses the concrete id \"claude-opus-5\" unless told otherwise (affects step 3).", "answer": null},
+          {"question": "Backend selection UI: assume an always-visible 'Backend:' radio row in the Tags dialog ('claude CLI' / 'Claude API') with the API key row shown only while API is selected, while the claude-path row keeps its current show-on-failure behaviour — or should the backend row also stay hidden until relevant? (step 4)", "answer": null},
+          {"question": "The shared system prompt tells the model to read the file at the 'Photo:' path; assume the API path keeps the same prompt and user-message lines and simply attaches the downscaled image (the model uses the attachment), rather than adding an API-specific prompt variant (step 3).", "answer": null},
+          {"question": "API key storage: Fyne preferences are plaintext JSON on disk, same as claudePath; assume that is acceptable rather than an OS keychain (step 5).", "answer": null},
+          {"question": "Assume the key is persisted only after a successful run and an empty key entry clears the stored one, mirroring the claudePath rule (step 5).", "answer": null},
+          {"question": "Image sizing: assume 1568px long edge re-encoded at JPEG quality ~85 for upload (step 1).", "answer": null},
+          {"question": "Assume thinking is left at its Opus 5 default (adaptive, omitted parameter) and the call is non-streaming with max_tokens ~16000 under the existing 3-minute timeout (step 3).", "answer": null}
+        ],
+        "risks": [
+          "The pinned anthropic-sdk-go version may not expose a typed output_config.format binding; fallback is option.WithJSONSet with the raw schema map or forced strict tool-use with the same schema — must be settled at implementation, and the empty/invalid-answer handling must stay identical either way.",
+          "Error-message parity: CLI usage-limit text ('usage limit reached|<unix>') and api_error_status come from the CLI report; API-side 429/401/529 arrive as SDK errors and need mapping into comparable one-line messages, or users lose the reset-time hint they have today.",
+          "tags_runs.finish persists claudePath unconditionally on success; without the per-backend persistence fix an API run with an empty path entry would clear a working stored CLI path.",
+          "The new SDK dependency must stay compatible with the CGO cross-compile (mingw) release path; it is pure Go, but go.sum churn touches the build.",
+          "Very large or unusual JPEGs (CMYK, truncated) go through the imaging fallbacks; a photo whose decode fails now fails generation on the API backend where the CLI backend might still have read it — the error must name the photo readably.",
+          "The API backend bypasses claudebin lookup entirely; hidden coupling in the GUI (pathRow shown on ErrNotFound) must not trigger for API-side failures."
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "description": "Build releases for all platforms on GitHub.",
+      "context": "There is no release automation yet: `.github/workflows/ci.yml` only tests, builds and lints on ubuntu-latest, and packaging is manual per CLAUDE.md - `fyne package --release` per OS, with name/id/icon/version out of `FyneApp.toml` (which also sets `[Migrations] fyneDo = true` for the `migrated_fynedo` build tag) and Windows cross-compiled through mingw-w64 (`CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --os windows`) and then zipped by hand. The task is to package macOS, Windows and Linux on GitHub Actions and publish the artifacts; no release workflow, Makefile or packaging script exists today.",
+      "docs": [
+        "CLAUDE.md",
+        ".github/workflows/ci.yml",
+        "FyneApp.toml",
+        "go.mod"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-31T13:33:49Z",
+      "updated_at": "2026-08-31T13:36:16Z",
+      "plan": {
+        "created_at": "2026-08-31T13:36:16Z",
+        "revised_at": null,
+        "base_commit": "4392b72",
+        "summary": "Add a GitHub Actions release workflow that packages the Fyne app for macOS, Windows and Linux and publishes the archives as a GitHub Release. No release automation exists today: `.github/workflows/ci.yml` only builds/tests/lints on ubuntu-latest, and CLAUDE.md documents manual packaging (`fyne package --release` per OS, metadata from `FyneApp.toml`, Windows cross-compiled via mingw-w64 and zipped by hand). The plan follows those exact recipes on CI: Linux packaged on ubuntu-latest (apt Fyne deps as in ci.yml), Windows cross-compiled on ubuntu-latest with `gcc-mingw-w64-x86-64` (`CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --os windows`, then zipped to photo-windows-amd64.zip as CLAUDE.md does), and macOS packaged natively on macos-latest (arm64) with the .app zipped via `ditto` to preserve bundle structure. A final job triggered by `v*` tags verifies the tag matches the Version in FyneApp.toml, downloads all artifacts and creates the GitHub Release. The `fyne` CLI is installed with `go install fyne.io/tools/cmd/fyne@latest` (it is not a go.mod tool today and adding it there would bloat go.mod). CLAUDE.md gets a short Releases section. Note the repo has no tags yet, so the first release will be v1.1.0 per FyneApp.toml.",
+        "steps": [
+          {
+            "title": "Add release workflow with per-platform packaging jobs",
+            "details": "Create `.github/workflows/release.yml` triggered by `push: tags: ['v*']` and `workflow_dispatch` (for dry runs that only upload artifacts). Three parallel jobs, each: checkout, `actions/setup-go@v5` with `go-version-file: go.mod`, `go install fyne.io/tools/cmd/fyne@latest`. (1) `linux` on ubuntu-latest: install the same apt packages as ci.yml (`libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev`), run `fyne package --release --os linux`, rename the produced 'Photo Viewer.tar.xz' to `photo-linux-amd64.tar.xz`. (2) `windows` on ubuntu-latest: additionally install `gcc-mingw-w64-x86-64`, run `CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --os windows`, then `zip photo-windows-amd64.zip \"Photo Viewer.exe\"` exactly as CLAUDE.md documents. (3) `macos` on macos-latest (arm64): run `fyne package --release --os darwin`, archive with `ditto -c -k --keepParent \"Photo Viewer.app\" photo-macos-arm64.zip` (plain `zip -r` can break the bundle's symlinks/permissions). Each job uploads its archive with `actions/upload-artifact@v4`. Name, id, icon and version come from `FyneApp.toml` automatically; the build-number bump `fyne package` writes back into FyneApp.toml is discarded with the runner, which is fine.",
+            "files": [".github/workflows/release.yml"]
+          },
+          {
+            "title": "Add the publish job that creates the GitHub Release",
+            "details": "Extend `.github/workflows/release.yml` with a `release` job: `needs: [linux, windows, macos]`, `if: startsWith(github.ref, 'refs/tags/')`, `permissions: contents: write`. First step checks the tag against the app version: extract `Version` from `FyneApp.toml` (e.g. `grep '^Version' FyneApp.toml`) and fail if `${GITHUB_REF_NAME#v}` differs, so a mistagged release cannot ship a wrong version string. Then `actions/download-artifact@v4` (merge into one dir) and `softprops/action-gh-release@v2` with `generate_release_notes: true`, attaching `photo-macos-arm64.zip`, `photo-windows-amd64.zip` and `photo-linux-amd64.tar.xz`. On `workflow_dispatch` this job is skipped and only build artifacts are produced.",
+            "files": [".github/workflows/release.yml"]
+          },
+          {
+            "title": "Document the release process in CLAUDE.md",
+            "details": "Add a short 'Releasing' subsection under Commands in `CLAUDE.md`: bump `Version` in `FyneApp.toml`, push a matching `vX.Y.Z` tag, and `.github/workflows/release.yml` packages macOS (arm64), Windows (amd64, mingw cross-compile) and Linux (amd64) and publishes them on the GitHub Release; `workflow_dispatch` gives a dry run with artifacts only. Keep the existing manual cross-compile recipe as-is since it documents the same command the workflow uses.",
+            "files": ["CLAUDE.md"]
+          }
+        ],
+        "questions": [
+          {"question": "Trigger model (step 1/2): assume releases are cut by pushing a `v*` tag whose version must equal `Version` in FyneApp.toml, plus `workflow_dispatch` for artifact-only dry runs — OK, or should every push to main also build artifacts?", "answer": null},
+          {"question": "macOS coverage (step 1): assume Apple Silicon only (macos-latest is arm64) with artifact `photo-macos-arm64.zip`; should an Intel build (macos-15-intel runner) be added as a fourth job?", "answer": null},
+          {"question": "The macOS app will be unsigned and unnotarized (no signing secrets exist), so Gatekeeper will require right-click-Open or `xattr -dr com.apple.quarantine`; acceptable for now? (affects step 1)", "answer": null},
+          {"question": "fyne CLI version: assume `go install fyne.io/tools/cmd/fyne@latest` in the workflow rather than pinning or adding it as a go.mod tool dependency — OK, or pin a specific version for reproducibility?", "answer": null},
+          {"question": "Windows build: assume mingw-w64 cross-compile on ubuntu-latest per CLAUDE.md rather than a native windows-latest job — OK? (affects step 1; native build would be the fallback if the glfw pre-release pin ever breaks under mingw)", "answer": null},
+          {"question": "Release publishing: assume a normal (non-draft, non-prerelease) release with auto-generated notes; should it be created as a draft for manual review instead? (affects step 2)", "answer": null}
+        ],
+        "risks": [
+          "`fyne package` rewrites the build number in FyneApp.toml during packaging; harmless on ephemeral runners, but the version-check in the release job must read the file before/independently of packaging jobs (it does — it checks out fresh).",
+          "go.mod pins a pre-release `go-gl/glfw` (v0.1.0-pre.1...); a future `fyne` CLI `@latest` or toolchain change could break the mingw cross-compile even though it works locally today.",
+          "The exact output filename of `fyne package --os linux` ('Photo Viewer.tar.xz') is assumed from the app Name; the rename step should glob (`*.tar.xz`) to be safe.",
+          "Zipping the .app with `zip -r` instead of `ditto` can corrupt the bundle; the plan uses `ditto` deliberately.",
+          "Repo has stray build leftovers at root ('Photo Viewer.exe', 'photo-windows-amd64.zip', 'fyne-cross/'); CI runners start clean so they don't interfere, but zip/rename steps should still target explicit names to avoid picking up wrong files if patterns are used."
+        ]
+      }
     }
   ]
 }
