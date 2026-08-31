@@ -20,7 +20,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-				require.NoError(t, DeleteWithOption(photo, true))
+		require.NoError(t, DeleteWithOption(photo, true))
 
 		_, err := os.Stat(jpegPath)
 		assert.True(t, os.IsNotExist(err))
@@ -34,7 +34,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(rawPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
-				require.NoError(t, DeleteWithOption(photo, true))
+		require.NoError(t, DeleteWithOption(photo, true))
 
 		_, err := os.Stat(jpegPath)
 		assert.True(t, os.IsNotExist(err))
@@ -44,7 +44,7 @@ func TestDeleter_Delete(t *testing.T) {
 
 	t.Run("JPEG already gone", func(t *testing.T) {
 		photo := model.Photo{ImagePath: "/nonexistent/photo.jpg", Name: "photo.jpg"}
-				assert.NoError(t, DeleteWithOption(photo, true))
+		assert.NoError(t, DeleteWithOption(photo, true))
 	})
 
 	t.Run("RAW already gone", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: "/nonexistent/photo.ARW", Name: "photo.jpg"}
-				assert.NoError(t, DeleteWithOption(photo, true))
+		assert.NoError(t, DeleteWithOption(photo, true))
 	})
 }
 
@@ -100,7 +100,7 @@ func TestDeleter_DeleteWithOption(t *testing.T) {
 				photo.RAWPath = rawPath
 			}
 
-						require.NoError(t, DeleteWithOption(photo, tt.includeRAW))
+			require.NoError(t, DeleteWithOption(photo, tt.includeRAW))
 
 			_, err := os.Stat(jpegPath)
 			assert.True(t, os.IsNotExist(err), "JPEG should be deleted")

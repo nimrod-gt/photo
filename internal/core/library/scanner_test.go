@@ -15,7 +15,6 @@ import (
 func TestScanner_ScanDirectory(t *testing.T) {
 	t.Parallel()
 
-	
 	t.Run("supported formats", func(t *testing.T) {
 		dir := t.TempDir()
 		touch(t, dir, "a.jpg")
@@ -113,7 +112,6 @@ func TestScanner_ScanDirectory(t *testing.T) {
 func TestScanner_SortPhotos(t *testing.T) {
 	t.Parallel()
 
-	
 	t.Run("by name", func(t *testing.T) {
 		dir := t.TempDir()
 		touch(t, dir, "c.jpg")
@@ -172,7 +170,6 @@ func TestScanner_SortPhotos(t *testing.T) {
 func TestScanner_ListDirectories(t *testing.T) {
 	t.Parallel()
 
-	
 	t.Run("basic", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "subA"), 0755))

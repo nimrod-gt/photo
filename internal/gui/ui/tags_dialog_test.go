@@ -313,7 +313,6 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "/usr/local/bin/claude", d.ClaudePath())
 	})
 
-
 	t.Run("editorial reveals the date", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		assert.False(t, d.dateRow.Visible())
@@ -324,7 +323,6 @@ func TestTagsDialog(t *testing.T) {
 		require.NotNil(t, d.date.Date)
 		assert.Equal(t, startOfDay(defaultTestDate), *d.date.Date, "the entry holds the day, not the moment")
 	})
-
 
 	t.Run("reports the ticked mark on the day of the entry", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
