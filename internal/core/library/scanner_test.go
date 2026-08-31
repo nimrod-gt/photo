@@ -156,14 +156,27 @@ func TestScanner_SortPhotos(t *testing.T) {
 		assert.Equal(t, "b.jpg", photos[1].Name)
 	})
 
-	t.Run("by time falls back to name on zero ModTime", func(t *testing.T) {
+	t.Run("by time puts a photo with no ModTime after the dated ones", func(t *testing.T) {
 		photos := []model.Photo{
 			{ImagePath: "/nonexistent/b.jpg", Name: "b.jpg", ModTime: time.Now()},
 			{ImagePath: "/nonexistent/a.jpg", Name: "a.jpg"},
 		}
 
 		SortPhotos(photos, SortByTime)
-		assert.Equal(t, "a.jpg", photos[0].Name)
+		assert.Equal(t, []string{"b.jpg", "a.jpg"}, photoNames(photos))
+	})
+
+	// Taking the name whenever either side had no ModTime made these three
+	// cycle: a < m and m < z by name, while z < a by time.
+	t.Run("by time orders a dated pair against an undated photo", func(t *testing.T) {
+		photos := []model.Photo{
+			{ImagePath: "/nonexistent/m.jpg", Name: "m.jpg"},
+			{ImagePath: "/nonexistent/a.jpg", Name: "a.jpg", ModTime: time.Date(2026, time.August, 9, 0, 0, 0, 0, time.UTC)},
+			{ImagePath: "/nonexistent/z.jpg", Name: "z.jpg", ModTime: time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)},
+		}
+
+		SortPhotos(photos, SortByTime)
+		assert.Equal(t, []string{"z.jpg", "a.jpg", "m.jpg"}, photoNames(photos))
 	})
 }
 
@@ -232,12 +245,7 @@ func TestScanner_SortPhotosByDates(t *testing.T) {
 			t.Parallel()
 
 			SortPhotosByDates(tt.photos, tt.dates)
-
-			names := make([]string, 0, len(tt.photos))
-			for _, p := range tt.photos {
-				names = append(names, p.Name)
-			}
-			assert.Equal(t, tt.want, names)
+			assert.Equal(t, tt.want, photoNames(tt.photos))
 		})
 	}
 }
@@ -266,6 +274,14 @@ func TestScanner_ListDirectories(t *testing.T) {
 		assert.Len(t, dirs, 1)
 		assert.Contains(t, dirs[0], "visible")
 	})
+}
+
+func photoNames(photos []model.Photo) []string {
+	names := make([]string, 0, len(photos))
+	for _, p := range photos {
+		names = append(names, p.Name)
+	}
+	return names
 }
 
 func touch(t *testing.T, dir, name string) {

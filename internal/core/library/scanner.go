@@ -60,30 +60,32 @@ func SortPhotos(photos []model.Photo, order SortOrder) {
 		slices.SortFunc(photos, byName)
 	case SortByTime:
 		slices.SortFunc(photos, func(a, b model.Photo) int {
-			if a.ModTime.IsZero() || b.ModTime.IsZero() {
-				return byName(a, b)
-			}
-			return a.ModTime.Compare(b.ModTime)
+			return byTime(a, b, a.ModTime, b.ModTime)
 		})
 	}
 }
 
 func SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
 	slices.SortFunc(photos, func(a, b model.Photo) int {
-		ta, oka := dates[a.ImagePath]
-		tb, okb := dates[b.ImagePath]
-		switch {
-		case oka && okb:
-			return ta.Compare(tb)
-		case oka:
-			// A photo whose date is known sorts ahead of one whose is not.
-			return -1
-		case okb:
-			return 1
-		default:
-			return byName(a, b)
-		}
+		return byTime(a, b, dates[a.ImagePath], dates[b.ImagePath])
 	})
+}
+
+// A photo whose time was read sorts ahead of one whose was not, and those
+// without fall back to the name. Taking the name mid-comparison instead puts a
+// dated pair and an undated photo in a cycle, and a comparator that cycles
+// leaves the order of the whole folder to the internals of the sort.
+func byTime(a, b model.Photo, ta, tb time.Time) int {
+	switch {
+	case !ta.IsZero() && !tb.IsZero():
+		return ta.Compare(tb)
+	case !ta.IsZero():
+		return -1
+	case !tb.IsZero():
+		return 1
+	default:
+		return byName(a, b)
+	}
 }
 
 func byName(a, b model.Photo) int {

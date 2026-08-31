@@ -2,7 +2,23 @@ package ui
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
+)
+
+// Nothing assigns these widgets to the interfaces Fyne asks them for - the
+// canvas takes them as objects and type-asserts - so a method lost to an
+// ambiguous promotion would cost the dialog its keys with the build still
+// passing. Named here, that becomes a compile error instead.
+var (
+	_ fyne.Shortcutable = (*dialogEntry)(nil)
+	_ desktop.Keyable   = (*dialogEntry)(nil)
+	_ fyne.Shortcutable = (*dialogDateEntry)(nil)
+	_ desktop.Keyable   = (*dialogDateEntry)(nil)
+	_ fyne.Shortcutable = (*dialogCheck)(nil)
+	_ desktop.Keyable   = (*dialogCheck)(nil)
+	_ fyne.Shortcutable = (*dialogButton)(nil)
+	_ desktop.Keyable   = (*dialogButton)(nil)
 )
 
 // Fyne delivers key events to the focused widget and only falls back to the

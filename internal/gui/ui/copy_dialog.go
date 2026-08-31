@@ -47,7 +47,13 @@ func (d *DestinationEntry) Disable() {
 	d.browseBtn.Disable()
 }
 
-var copyModeLabels = []string{"Photo", "Photo + RAW", "RAW"}
+var copyModeOrder = []library.CopyMode{library.CopyJPEGOnly, library.CopyWithRAW, library.CopyOnlyRAW}
+
+var copyModeLabels = map[library.CopyMode]string{
+	library.CopyJPEGOnly: "Photo",
+	library.CopyWithRAW:  "Photo + RAW",
+	library.CopyOnlyRAW:  "RAW",
+}
 
 type CopyModeSelect struct {
 	radio *widget.RadioGroup
@@ -55,15 +61,20 @@ type CopyModeSelect struct {
 }
 
 func NewCopyModeSelect(initial library.CopyMode) *CopyModeSelect {
-	if int(initial) < 0 || int(initial) >= len(copyModeLabels) {
+	if _, ok := copyModeLabels[initial]; !ok {
 		initial = library.CopyWithRAW
 	}
 	cms := &CopyModeSelect{Mode: initial}
-	// The labels stand in the order of the modes they name, so the index is the
-	// mode; a selection the table does not know leaves the mode where it was.
-	cms.radio = widget.NewRadioGroup(copyModeLabels, func(selected string) {
-		if i := slices.Index(copyModeLabels, selected); i >= 0 {
-			cms.Mode = library.CopyMode(i)
+	labels := make([]string, 0, len(copyModeOrder))
+	for _, mode := range copyModeOrder {
+		labels = append(labels, copyModeLabels[mode])
+	}
+	// The radio reports the label it shows, and the two tables are built in
+	// step, so the place of the label is the place of the mode; a selection
+	// neither table knows leaves the mode where it was.
+	cms.radio = widget.NewRadioGroup(labels, func(selected string) {
+		if i := slices.Index(labels, selected); i >= 0 {
+			cms.Mode = copyModeOrder[i]
 		}
 	})
 	cms.radio.Horizontal = true

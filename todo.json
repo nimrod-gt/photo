@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 21,
+  "next_id": 22,
   "todos": [
     {
       "id": 19,
@@ -42,6 +42,22 @@
       "branch": null,
       "created_at": "2026-08-31T11:17:17Z",
       "updated_at": "2026-08-31T11:17:17Z",
+      "plan": null
+    },
+    {
+      "id": 21,
+      "description": "Stop FileBrowser.SetPhotos handing one slice to both photoList and the background folder scan.",
+      "context": "Deferred from a code-simplification review (not fixed there): in internal/gui/ui/filebrowser.go's SetPhotos (~line 73-79), the caller's photos slice is stored as photoList.allPhotos via fb.reset(photos) and the same slice is handed to imageProvider.LoadFolder (internal/core/imaging/image_provider.go ~line 240), whose background goroutine ranges over it (`for i, photo := range photos`, ~line 253) without holding photoList.mu, while photoList.removePhoto/removePhotos (internal/gui/ui/photolist.go ~334-358) mutate the same backing array under pl.mu - an unsynchronized write/read race, and removal doesn't bump Provider.thumbGen so the stale scan keeps running. A second related bug: LoadFolder's onLoaded callback reports progress by loop index i, which setLoadedMeta (photolist.go ~63) uses to index allMeta/allPhotos, so a removal mid-scan shifts indices and misattributes thumbnail/rating data to the wrong photo (bounds-checked, no panic, just wrong data). Discussed but unchosen fixes: clone the slice in reset (slices.Clone) or inside LoadFolder; the index-identity issue may need keying by path or scan generation instead of by index.",
+      "docs": [
+        "internal/gui/ui/filebrowser.go",
+        "internal/core/imaging/image_provider.go",
+        "internal/gui/ui/photolist.go"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-31T13:06:19Z",
+      "updated_at": "2026-08-31T13:06:19Z",
       "plan": null
     }
   ]
