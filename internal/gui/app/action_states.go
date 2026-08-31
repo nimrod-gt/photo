@@ -57,9 +57,11 @@ func (a *Application) setFavoriteButtonStates(favorite, ratable bool) {
 
 func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
 	activeSet := ui.ColorSet(colors)
-	for label, item := range a.contextMenuItems.Colors {
+	for _, label := range ui.ColorOrder {
 		a.actionPanel.SetColorActive(label, activeSet[label])
-		item.Checked = activeSet[label]
+		if item, ok := a.contextMenuItems.Colors[label]; ok {
+			item.Checked = activeSet[label]
+		}
 	}
 }
 

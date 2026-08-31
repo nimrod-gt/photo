@@ -6,7 +6,7 @@ import (
 	"photo/internal/core/model"
 )
 
-var colorOrder = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
+var ColorOrder = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
 
 func ColorSet(colors []model.ColorLabel) map[model.ColorLabel]bool {
 	set := make(map[model.ColorLabel]bool, len(colors))

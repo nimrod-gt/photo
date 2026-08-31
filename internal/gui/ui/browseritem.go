@@ -105,7 +105,7 @@ func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
 }
 
 func newColorDots() *fyne.Container {
-	dots := make([]fyne.CanvasObject, len(colorOrder))
+	dots := make([]fyne.CanvasObject, len(ColorOrder))
 	for i := range dots {
 		dot := canvas.NewText(colorMark, color.Transparent)
 		dot.TextSize = 12
@@ -128,7 +128,7 @@ func updateColorDots(dotsContainer *fyne.Container, colors []model.ColorLabel) {
 	}
 	has := ColorSet(colors)
 	idx := 0
-	for _, c := range colorOrder {
+	for _, c := range ColorOrder {
 		if !has[c] || idx >= len(dotsContainer.Objects) {
 			continue
 		}
