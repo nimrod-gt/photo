@@ -3,10 +3,18 @@ package ui
 import (
 	"image/color"
 
+	"fyne.io/fyne/v2"
+
 	"photo/internal/core/model"
 )
 
 var ColorOrder = []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue}
+
+var colorIcons = map[model.ColorLabel]fyne.Resource{
+	model.ColorRed:   iconRedCircle,
+	model.ColorGreen: iconGreenCircle,
+	model.ColorBlue:  iconBlueCircle,
+}
 
 func ColorSet(colors []model.ColorLabel) map[model.ColorLabel]bool {
 	set := make(map[model.ColorLabel]bool, len(colors))

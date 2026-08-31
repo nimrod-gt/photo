@@ -167,6 +167,81 @@ func TestScanner_SortPhotos(t *testing.T) {
 	})
 }
 
+// The dates come from the browser's meta rather than from the files, so every
+// case here is built in memory: what is under test is the order the comparator
+// puts the photos in, not what the disk says about them.
+func TestScanner_SortPhotosByDates(t *testing.T) {
+	t.Parallel()
+
+	photo := func(name string) model.Photo {
+		return model.Photo{ImagePath: "/nonexistent/" + name, Name: name}
+	}
+	day := func(n int) time.Time {
+		return time.Date(2026, time.August, n, 0, 0, 0, 0, time.UTC)
+	}
+
+	tests := []struct {
+		name   string
+		photos []model.Photo
+		dates  map[string]time.Time
+		want   []string
+	}{
+		{
+			name:   "known dates sort chronologically, not by name",
+			photos: []model.Photo{photo("a.jpg"), photo("b.jpg"), photo("c.jpg")},
+			dates: map[string]time.Time{
+				"/nonexistent/a.jpg": day(3),
+				"/nonexistent/b.jpg": day(1),
+				"/nonexistent/c.jpg": day(2),
+			},
+			want: []string{"b.jpg", "c.jpg", "a.jpg"},
+		},
+		{
+			// The name order is against the date order in both rows, so a pass
+			// cannot come from the input happening to be sorted already.
+			name:   "a known date sorts ahead of an unknown one",
+			photos: []model.Photo{photo("a.jpg"), photo("z.jpg")},
+			dates:  map[string]time.Time{"/nonexistent/z.jpg": day(1)},
+			want:   []string{"z.jpg", "a.jpg"},
+		},
+		{
+			name:   "the same, with the arguments the other way round",
+			photos: []model.Photo{photo("z.jpg"), photo("a.jpg")},
+			dates:  map[string]time.Time{"/nonexistent/a.jpg": day(1)},
+			want:   []string{"a.jpg", "z.jpg"},
+		},
+		{
+			name:   "photos without dates fall back to the name",
+			photos: []model.Photo{photo("c.jpg"), photo("a.jpg"), photo("b.jpg")},
+			dates:  nil,
+			want:   []string{"a.jpg", "b.jpg", "c.jpg"},
+		},
+		{
+			name:   "the dated ones lead, the rest follow by name",
+			photos: []model.Photo{photo("a.jpg"), photo("b.jpg"), photo("y.jpg"), photo("z.jpg")},
+			dates: map[string]time.Time{
+				"/nonexistent/z.jpg": day(1),
+				"/nonexistent/y.jpg": day(2),
+			},
+			want: []string{"z.jpg", "y.jpg", "a.jpg", "b.jpg"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			SortPhotosByDates(tt.photos, tt.dates)
+
+			names := make([]string, 0, len(tt.photos))
+			for _, p := range tt.photos {
+				names = append(names, p.Name)
+			}
+			assert.Equal(t, tt.want, names)
+		})
+	}
+}
+
 func TestScanner_ListDirectories(t *testing.T) {
 	t.Parallel()
 

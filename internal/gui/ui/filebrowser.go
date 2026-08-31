@@ -19,9 +19,7 @@ type FileBrowserCallbacks struct {
 	OnDirectorySelected func(dir string)
 	OnChooseFolder      func()
 	OnSortBy            func(order library.SortOrder)
-	OnFilterRed         func()
-	OnFilterGreen       func()
-	OnFilterBlue        func()
+	OnFilterColor       func(color model.ColorLabel)
 	OnFilterFavorite    func()
 	OnFilteredChanged   func(photos []model.Photo)
 	OnMetaLoaded        func(displayIndex int)
@@ -39,10 +37,8 @@ type FileBrowser struct {
 	timeSortBtn *widget.Button
 	dirTree     *DirTree
 
-	filterFavBtn   *widget.Button
-	filterRedBtn   *widget.Button
-	filterGreenBtn *widget.Button
-	filterBlueBtn  *widget.Button
+	filterFavBtn    *widget.Button
+	filterColorBtns map[model.ColorLabel]*widget.Button
 
 	bulkBar        *fyne.Container
 	deleteAllBtn   *widget.Button
@@ -207,9 +203,9 @@ func (fb *FileBrowser) updateBulkBarVisibility() {
 func (fb *FileBrowser) updateFilterButtonStates() {
 	filterColors, filterFavorite := fb.filterState()
 	setFilterBtnState(fb.filterFavBtn, filterFavorite)
-	setFilterBtnState(fb.filterRedBtn, filterColors[model.ColorRed])
-	setFilterBtnState(fb.filterGreenBtn, filterColors[model.ColorGreen])
-	setFilterBtnState(fb.filterBlueBtn, filterColors[model.ColorBlue])
+	for label, btn := range fb.filterColorBtns {
+		setFilterBtnState(btn, filterColors[label])
+	}
 }
 
 func HasActiveFilter(colors map[model.ColorLabel]bool, favorite bool) bool {
@@ -282,10 +278,15 @@ func (fb *FileBrowser) buildSortBar() *fyne.Container {
 
 func (fb *FileBrowser) buildFilterBar() *fyne.Container {
 	fb.filterFavBtn = filterButton(iconHeartOutline, fb.callbacks.OnFilterFavorite)
-	fb.filterRedBtn = filterButton(iconRedCircle, fb.callbacks.OnFilterRed)
-	fb.filterGreenBtn = filterButton(iconGreenCircle, fb.callbacks.OnFilterGreen)
-	fb.filterBlueBtn = filterButton(iconBlueCircle, fb.callbacks.OnFilterBlue)
-	return container.NewGridWithColumns(4, fb.filterFavBtn, fb.filterRedBtn, fb.filterGreenBtn, fb.filterBlueBtn)
+	buttons := make([]fyne.CanvasObject, 0, len(ColorOrder)+1)
+	buttons = append(buttons, fb.filterFavBtn)
+	fb.filterColorBtns = make(map[model.ColorLabel]*widget.Button, len(ColorOrder))
+	for _, label := range ColorOrder {
+		btn := filterButton(colorIcons[label], func() { callWith(fb.callbacks.OnFilterColor, label) })
+		fb.filterColorBtns[label] = btn
+		buttons = append(buttons, btn)
+	}
+	return container.NewGridWithColumns(len(buttons), buttons...)
 }
 
 func filterButton(icon fyne.Resource, fn func()) *widget.Button {

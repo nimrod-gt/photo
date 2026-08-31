@@ -145,7 +145,7 @@ func (pl *photoList) ActiveFilterColors() []model.ColorLabel {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	var colors []model.ColorLabel
-	for _, c := range []model.ColorLabel{model.ColorRed, model.ColorGreen, model.ColorBlue} {
+	for _, c := range ColorOrder {
 		if pl.filterColors[c] {
 			colors = append(colors, c)
 		}
@@ -334,18 +334,12 @@ func (pl *photoList) AllPhotos() []model.Photo {
 func (pl *photoList) removePhoto(imagePath string) bool {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	removeIdx := -1
-	for i, p := range pl.allPhotos {
-		if p.ImagePath == imagePath {
-			removeIdx = i
-			break
-		}
-	}
+	removeIdx := slices.IndexFunc(pl.allPhotos, func(p model.Photo) bool { return p.ImagePath == imagePath })
 	if removeIdx < 0 {
 		return false
 	}
-	pl.allPhotos = append(pl.allPhotos[:removeIdx], pl.allPhotos[removeIdx+1:]...)
-	pl.allMeta = append(pl.allMeta[:removeIdx], pl.allMeta[removeIdx+1:]...)
+	pl.allPhotos = slices.Delete(pl.allPhotos, removeIdx, removeIdx+1)
+	pl.allMeta = slices.Delete(pl.allMeta, removeIdx, removeIdx+1)
 	return true
 }
 

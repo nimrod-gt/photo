@@ -56,13 +56,8 @@ func (a *Application) resortPhotos() {
 	a.fileBrowser.SetSortState(a.sortOrder, a.sortDescending)
 	a.saveSortOrder()
 
-	filtered := a.fileBrowser.FilteredPhotos()
-	a.navigator.SetPhotos(filtered)
-	if a.gridMode {
-		a.enterGridMode()
-		return
-	}
-	a.showCurrentOrFirst()
+	a.navigator.SetPhotos(a.fileBrowser.FilteredPhotos())
+	a.showFilteredOrGrid()
 }
 
 func (a *Application) unpinIfMovedAway(currentPhoto model.Photo) {
@@ -105,11 +100,7 @@ func (a *Application) reapplyFilter() {
 
 func (a *Application) handleFilteredChanged(photos []model.Photo) {
 	a.navigator.SetPhotos(photos)
-	if a.gridMode {
-		a.enterGridMode()
-		return
-	}
-	a.showCurrentOrFirst()
+	a.showFilteredOrGrid()
 }
 
 func (a *Application) syncNavigatorToFiltered() {

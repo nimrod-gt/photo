@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,32 +57,37 @@ func ScanDirectory(dir string) ([]model.Photo, error) {
 func SortPhotos(photos []model.Photo, order SortOrder) {
 	switch order {
 	case SortByName:
-		sort.Slice(photos, func(i, j int) bool {
-			return photos[i].Name < photos[j].Name
-		})
+		slices.SortFunc(photos, byName)
 	case SortByTime:
-		sort.Slice(photos, func(i, j int) bool {
-			ti, tj := photos[i].ModTime, photos[j].ModTime
-			if ti.IsZero() || tj.IsZero() {
-				return photos[i].Name < photos[j].Name
+		slices.SortFunc(photos, func(a, b model.Photo) int {
+			if a.ModTime.IsZero() || b.ModTime.IsZero() {
+				return byName(a, b)
 			}
-			return ti.Before(tj)
+			return a.ModTime.Compare(b.ModTime)
 		})
 	}
 }
 
 func SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
-	sort.Slice(photos, func(i, j int) bool {
-		ti, oki := dates[photos[i].ImagePath]
-		tj, okj := dates[photos[j].ImagePath]
-		if oki && okj {
-			return ti.Before(tj)
+	slices.SortFunc(photos, func(a, b model.Photo) int {
+		ta, oka := dates[a.ImagePath]
+		tb, okb := dates[b.ImagePath]
+		switch {
+		case oka && okb:
+			return ta.Compare(tb)
+		case oka:
+			// A photo whose date is known sorts ahead of one whose is not.
+			return -1
+		case okb:
+			return 1
+		default:
+			return byName(a, b)
 		}
-		if oki != okj {
-			return oki
-		}
-		return photos[i].Name < photos[j].Name
 	})
+}
+
+func byName(a, b model.Photo) int {
+	return strings.Compare(a.Name, b.Name)
 }
 
 func ListDirectories(root string) ([]string, error) {

@@ -58,27 +58,19 @@ func (a *Application) handlePhotoSelected(photo model.Photo) {
 	}
 }
 
-func (a *Application) handleNext() {
+func (a *Application) navigate(move func() (model.Photo, int, bool)) {
 	if a.shortcutsBlocked() {
 		return
 	}
-	if photo, idx, ok := a.navigator.Next(); ok {
+	if photo, idx, ok := move(); ok {
 		a.showPhoto(photo)
 		a.fileBrowser.SelectIndex(idx)
 		a.unpinIfMovedAway(photo)
 	}
 }
 
-func (a *Application) handlePrevious() {
-	if a.shortcutsBlocked() {
-		return
-	}
-	if photo, idx, ok := a.navigator.Previous(); ok {
-		a.showPhoto(photo)
-		a.fileBrowser.SelectIndex(idx)
-		a.unpinIfMovedAway(photo)
-	}
-}
+func (a *Application) handleNext()     { a.navigate(a.navigator.Next) }
+func (a *Application) handlePrevious() { a.navigate(a.navigator.Previous) }
 
 func (a *Application) showCurrentOrFirst() {
 	if photo, ok := a.navigator.Current(); ok {
@@ -87,6 +79,17 @@ func (a *Application) showCurrentOrFirst() {
 	} else {
 		a.clearViewer()
 	}
+}
+
+// The photo list has changed under the app - a new folder, a resort, a filter -
+// and what is on screen follows it either way: the grid is rebuilt whole, the
+// viewer goes back to the photo it was on.
+func (a *Application) showFilteredOrGrid() {
+	if a.gridMode {
+		a.enterGridMode()
+		return
+	}
+	a.showCurrentOrFirst()
 }
 
 func (a *Application) handleSecondaryTap(pos fyne.Position) {
@@ -152,25 +155,4 @@ func (a *Application) handleZoomChanged(zoom float32) {
 			a.viewer.UpdateImage(img)
 		})
 	}()
-}
-
-func (a *Application) handleZoomReset() {
-	if a.shortcutsBlocked() {
-		return
-	}
-	a.viewer.ResetZoom()
-}
-
-func (a *Application) handleZoomIn() {
-	if a.shortcutsBlocked() {
-		return
-	}
-	a.viewer.ZoomIn()
-}
-
-func (a *Application) handleZoomOut() {
-	if a.shortcutsBlocked() {
-		return
-	}
-	a.viewer.ZoomOut()
 }

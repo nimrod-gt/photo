@@ -106,9 +106,7 @@ func (a *Application) Run() {
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
 		OnSortBy:            a.handleSortBy,
-		OnFilterRed:         func() { a.handleFilterColor(model.ColorRed) },
-		OnFilterGreen:       func() { a.handleFilterColor(model.ColorGreen) },
-		OnFilterBlue:        func() { a.handleFilterColor(model.ColorBlue) },
+		OnFilterColor:       a.handleFilterColor,
 		OnFilterFavorite:    a.handleFilterFavorite,
 		OnFilteredChanged:   a.handleFilteredChanged,
 		OnMetaLoaded:        a.handleMetaLoaded,
@@ -154,16 +152,14 @@ func (a *Application) Run() {
 		OnNext:           a.handleNext,
 		OnPrevious:       a.handlePrevious,
 		OnSort:           a.handleSortToggle,
-		OnFilterRed:      func() { a.handleFilterColor(model.ColorRed) },
-		OnFilterGreen:    func() { a.handleFilterColor(model.ColorGreen) },
-		OnFilterBlue:     func() { a.handleFilterColor(model.ColorBlue) },
+		OnFilterColor:    a.handleFilterColor,
 		OnFilterFavorite: a.handleFilterFavorite,
 		OnHelp:           a.handleHelp,
 		OnCopyClipboard:  a.handleCopyToClipboard,
 		OnToggleGrid:     a.handleToggleGrid,
-		OnZoomReset:      a.handleZoomReset,
-		OnZoomIn:         a.handleZoomIn,
-		OnZoomOut:        a.handleZoomOut,
+		OnZoomReset:      a.guarded(a.viewer.ResetZoom),
+		OnZoomIn:         a.guarded(a.viewer.ZoomIn),
+		OnZoomOut:        a.guarded(a.viewer.ZoomOut),
 		OnSettings:       a.handleSettings,
 	})
 
@@ -265,11 +261,6 @@ func (a *Application) loadDirectory(dir string) {
 	}
 	a.fileBrowser.SetPhotos(photos)
 
-	filtered := a.fileBrowser.FilteredPhotos()
-	a.navigator.SetPhotos(filtered)
-	if a.gridMode {
-		a.enterGridMode()
-		return
-	}
-	a.showCurrentOrFirst()
+	a.navigator.SetPhotos(a.fileBrowser.FilteredPhotos())
+	a.showFilteredOrGrid()
 }

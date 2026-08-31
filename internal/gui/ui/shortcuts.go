@@ -3,6 +3,8 @@ package ui
 import (
 	"fyne.io/fyne/v2"
 	"github.com/go-gl/glfw/v3.4/glfw"
+
+	"photo/internal/core/model"
 )
 
 // Taken as a variable so a test can stand in for GLFW, which reports no scan
@@ -16,9 +18,7 @@ type ShortcutCallbacks struct {
 	OnNext           func()
 	OnPrevious       func()
 	OnSort           func()
-	OnFilterRed      func()
-	OnFilterGreen    func()
-	OnFilterBlue     func()
+	OnFilterColor    func(color model.ColorLabel)
 	OnFilterFavorite func()
 	OnHelp           func()
 	OnCopyClipboard  func()
@@ -43,9 +43,9 @@ func SetupShortcuts(canvas fyne.Canvas, callbacks ShortcutCallbacks) {
 		keyScanCode(glfw.KeyN): callbacks.OnCancel,
 		keyScanCode(glfw.KeyS): callbacks.OnSort,
 		keyScanCode(glfw.Key1): callbacks.OnFilterFavorite,
-		keyScanCode(glfw.Key2): callbacks.OnFilterRed,
-		keyScanCode(glfw.Key3): callbacks.OnFilterGreen,
-		keyScanCode(glfw.Key4): callbacks.OnFilterBlue,
+		keyScanCode(glfw.Key2): func() { callbacks.OnFilterColor(model.ColorRed) },
+		keyScanCode(glfw.Key3): func() { callbacks.OnFilterColor(model.ColorGreen) },
+		keyScanCode(glfw.Key4): func() { callbacks.OnFilterColor(model.ColorBlue) },
 		keyScanCode(glfw.KeyH): callbacks.OnHelp,
 		keyScanCode(glfw.KeyY): callbacks.OnCopyClipboard,
 		keyScanCode(glfw.KeyL): callbacks.OnToggleGrid,

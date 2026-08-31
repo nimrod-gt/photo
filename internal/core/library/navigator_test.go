@@ -228,35 +228,35 @@ func TestNavigator_RemoveCurrent(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg", "c.jpg"))
 		nav.GoTo(1)
-		p, idx, photos, ok := nav.RemoveCurrent()
+		p, idx, ok := nav.RemoveCurrent()
 		assert.True(t, ok)
 		assert.Equal(t, 1, idx)
 		assert.Equal(t, "c.jpg", p.Name)
-		assert.Len(t, photos, 2)
+		assert.Equal(t, -1, nav.FindIndex("/photos/b.jpg"))
 	})
 
 	t.Run("last element", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
 		nav.GoTo(1)
-		p, idx, photos, ok := nav.RemoveCurrent()
+		p, idx, ok := nav.RemoveCurrent()
 		assert.True(t, ok)
 		assert.Equal(t, 0, idx)
 		assert.Equal(t, "a.jpg", p.Name)
-		assert.Len(t, photos, 1)
+		assert.Equal(t, -1, nav.FindIndex("/photos/b.jpg"))
 	})
 
 	t.Run("only one", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg"))
-		_, _, _, ok := nav.RemoveCurrent()
+		_, _, ok := nav.RemoveCurrent()
 		assert.False(t, ok)
 		assert.Equal(t, -1, nav.CurrentIndex())
 	})
 
 	t.Run("empty", func(t *testing.T) {
 		nav := NewNavigator()
-		_, _, _, ok := nav.RemoveCurrent()
+		_, _, ok := nav.RemoveCurrent()
 		assert.False(t, ok)
 	})
 }

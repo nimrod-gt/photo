@@ -111,7 +111,7 @@ func (a *Application) handleDelete() {
 					log.Println("Failed to remove color labels:", err)
 				}
 				fyne.Do(func() {
-					nextPhoto, navIdx, _, hasNext := a.navigator.RemoveCurrent()
+					nextPhoto, navIdx, hasNext := a.navigator.RemoveCurrent()
 					a.fileBrowser.RemovePhoto(photo.ImagePath)
 					if hasNext {
 						a.showPhoto(nextPhoto)
@@ -135,6 +135,16 @@ func (a *Application) handleHelp() {
 // this guard.
 func (a *Application) shortcutsBlocked() bool {
 	return a.gridMode || a.dialogs.anyOpen()
+}
+
+// The guard is the whole of what the app adds to an action the viewer already
+// offers, so it is put on at the wiring instead of in a handler per key.
+func (a *Application) guarded(action func()) func() {
+	return func() {
+		if !a.shortcutsBlocked() {
+			action()
+		}
+	}
 }
 
 // A Fyne file picker or popup menu stacks its own overlay on top of ours and

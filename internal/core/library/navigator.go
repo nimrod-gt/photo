@@ -1,6 +1,7 @@
 package library
 
 import (
+	"slices"
 	"sync"
 
 	"photo/internal/core/model"
@@ -89,29 +90,27 @@ func (n *Navigator) FindIndex(imagePath string) int {
 	return -1
 }
 
-func (n *Navigator) RemoveCurrent() (model.Photo, int, []model.Photo, bool) {
+func (n *Navigator) RemoveCurrent() (model.Photo, int, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	if n.current < 0 || n.current >= len(n.photos) {
-		return model.Photo{}, -1, nil, false
+		return model.Photo{}, -1, false
 	}
 
-	n.photos = append(n.photos[:n.current], n.photos[n.current+1:]...)
+	n.photos = slices.Delete(n.photos, n.current, n.current+1)
 
 	if len(n.photos) == 0 {
 		n.current = -1
-		return model.Photo{}, -1, nil, false
+		return model.Photo{}, -1, false
 	}
 
 	if n.current >= len(n.photos) {
 		n.current = len(n.photos) - 1
 	}
 
-	photos := make([]model.Photo, len(n.photos))
-	copy(photos, n.photos)
 	photo, ok := n.currentLocked()
-	return photo, n.current, photos, ok
+	return photo, n.current, ok
 }
 
 func (n *Navigator) currentLocked() (model.Photo, bool) {

@@ -11,6 +11,12 @@ func call(fn func()) {
 	}
 }
 
+func callWith[T any](fn func(T), arg T) {
+	if fn != nil {
+		fn(arg)
+	}
+}
+
 // The callback is read once, when the button is built, so a widget whose
 // callbacks arrive later has to wrap its own lookup instead of handing a field
 // over here.

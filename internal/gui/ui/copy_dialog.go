@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"slices"
+
 	"photo/internal/core/library"
 
 	"fyne.io/fyne/v2"
@@ -57,14 +59,11 @@ func NewCopyModeSelect(initial library.CopyMode) *CopyModeSelect {
 		initial = library.CopyWithRAW
 	}
 	cms := &CopyModeSelect{Mode: initial}
+	// The labels stand in the order of the modes they name, so the index is the
+	// mode; a selection the table does not know leaves the mode where it was.
 	cms.radio = widget.NewRadioGroup(copyModeLabels, func(selected string) {
-		switch selected {
-		case copyModeLabels[0]:
-			cms.Mode = library.CopyJPEGOnly
-		case copyModeLabels[1]:
-			cms.Mode = library.CopyWithRAW
-		case copyModeLabels[2]:
-			cms.Mode = library.CopyOnlyRAW
+		if i := slices.Index(copyModeLabels, selected); i >= 0 {
+			cms.Mode = library.CopyMode(i)
 		}
 	})
 	cms.radio.Horizontal = true
