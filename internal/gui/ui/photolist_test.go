@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,49 @@ func testPhotos(names ...string) []model.Photo {
 		photos = append(photos, model.Photo{ImagePath: filepath.Join("/photos", name), Name: name})
 	}
 	return photos
+}
+
+// The folder scan runs on its own goroutine over the slice it was handed and
+// holds no lock of the list's, so the list has to leave that slice alone.
+func TestPhotoListLeavesTheScannedSliceAlone(t *testing.T) {
+	t.Parallel()
+
+	photos := testPhotos("a.jpg", "b.jpg", "c.jpg")
+	scanned := slices.Clone(photos)
+
+	pl := newPhotoList()
+	pl.reset(photos)
+	require.True(t, pl.removePhoto(filepath.Join("/photos", "a.jpg")))
+	pl.removePhotos(map[string]bool{filepath.Join("/photos", "b.jpg"): true})
+
+	assert.Equal(t, scanned, photos, "the slice the scan is reading must not move")
+}
+
+// A scan reports by its own index into the folder it was given, which a delete
+// meanwhile shifts out from under it.
+func TestPhotoListScanReportsAfterARemoval(t *testing.T) {
+	t.Parallel()
+
+	photos := testPhotos("a.jpg", "b.jpg", "c.jpg")
+	pl := newPhotoList()
+	gen := pl.reset(photos)
+	pl.initMeta(photos, nil)
+	require.True(t, pl.removePhoto(filepath.Join("/photos", "a.jpg")))
+
+	t.Run("the meta lands on the photo the scan read", func(t *testing.T) {
+		displayIdx, ok := pl.setLoadedMeta(2, imaging.LoadedMeta{Favorite: true}, gen)
+		require.True(t, ok)
+		assert.Equal(t, 1, displayIdx)
+		assert.False(t, pl.GetMeta(0).Favorite, "b.jpg was not the photo read")
+		assert.True(t, pl.GetMeta(1).Favorite, "c.jpg was")
+	})
+
+	t.Run("a photo that is gone takes no meta", func(t *testing.T) {
+		displayIdx, ok := pl.setLoadedMeta(0, imaging.LoadedMeta{Favorite: true}, gen)
+		assert.True(t, ok)
+		assert.Equal(t, -1, displayIdx)
+		assert.False(t, pl.GetMeta(0).Favorite, "b.jpg keeps what it had")
+	})
 }
 
 func TestPhotoListFilteredRows(t *testing.T) {

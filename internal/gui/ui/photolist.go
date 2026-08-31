@@ -13,6 +13,16 @@ type photoList struct {
 	mu        sync.Mutex
 	allPhotos []model.Photo
 	allMeta   []model.PhotoMeta
+	// The folder as the scan reading it was handed it. The list owns a copy of
+	// its own because the scan runs on its goroutine without this lock and would
+	// be reading the array a delete is rewriting; it keeps the scan's own order
+	// because the index a scan reports is an index into what it was given, which
+	// a delete no longer lines up with.
+	scanPhotos []model.Photo
+	// Built the first time a scan reports on a folder a delete has shortened,
+	// and dropped by the next one: walking the folder per photo read would cost
+	// the square of it.
+	allByPath map[string]int
 	// A filter that matches nothing leaves indices empty, which is not the same
 	// as the whole folder: displayByAll is nil only while no filter is on, so
 	// it says which of the two it is rather than leaving an empty slice to
@@ -38,7 +48,9 @@ func newPhotoList() *photoList {
 func (pl *photoList) reset(photos []model.Photo) uint64 {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	pl.allPhotos = photos
+	pl.allPhotos = slices.Clone(photos)
+	pl.scanPhotos = photos
+	pl.allByPath = nil
 	pl.allMeta = make([]model.PhotoMeta, len(photos))
 	pl.toggledFavorites = nil
 	pl.pinnedPath = ""
@@ -66,14 +78,40 @@ func (pl *photoList) setLoadedMeta(index int, meta imaging.LoadedMeta, gen uint6
 	if pl.generation != gen {
 		return -1, false
 	}
-	if index >= 0 && index < len(pl.allMeta) {
-		pl.allMeta[index].Thumbnail = meta.Thumbnail
-		pl.allMeta[index].Ratable = meta.Ratable
-		if !pl.toggledFavorites[pl.allPhotos[index].ImagePath] {
-			pl.allMeta[index].Favorite = meta.Favorite
+	allIdx := pl.scanTarget(index)
+	if allIdx < 0 {
+		return -1, true
+	}
+	pl.allMeta[allIdx].Thumbnail = meta.Thumbnail
+	pl.allMeta[allIdx].Ratable = meta.Ratable
+	if !pl.toggledFavorites[pl.allPhotos[allIdx].ImagePath] {
+		pl.allMeta[allIdx].Favorite = meta.Favorite
+	}
+	return pl.displayIndex(allIdx), true
+}
+
+// The place in the list of the photo a scan reports by its own index. Nothing
+// is ever added to the list, so a length still matching the scan's is a folder
+// nothing was deleted from and the index stands as it is; a photo deleted since
+// has no place left and is answered with -1.
+func (pl *photoList) scanTarget(index int) int {
+	if index < 0 || index >= len(pl.scanPhotos) {
+		return -1
+	}
+	if len(pl.allPhotos) == len(pl.scanPhotos) {
+		return index
+	}
+	if pl.allByPath == nil {
+		pl.allByPath = make(map[string]int, len(pl.allPhotos))
+		for i, photo := range pl.allPhotos {
+			pl.allByPath[photo.ImagePath] = i
 		}
 	}
-	return pl.displayIndex(index), true
+	allIdx, ok := pl.allByPath[pl.scanPhotos[index].ImagePath]
+	if !ok {
+		return -1
+	}
+	return allIdx
 }
 
 func (pl *photoList) favoriteRefilterNeeded(gen uint64) bool {
@@ -340,6 +378,7 @@ func (pl *photoList) removePhoto(imagePath string) bool {
 	}
 	pl.allPhotos = slices.Delete(pl.allPhotos, removeIdx, removeIdx+1)
 	pl.allMeta = slices.Delete(pl.allMeta, removeIdx, removeIdx+1)
+	pl.allByPath = nil
 	return true
 }
 
@@ -356,4 +395,5 @@ func (pl *photoList) removePhotos(paths map[string]bool) {
 	}
 	pl.allPhotos = newPhotos
 	pl.allMeta = newMeta
+	pl.allByPath = nil
 }

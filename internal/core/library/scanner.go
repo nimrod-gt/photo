@@ -75,17 +75,22 @@ func SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
 // without fall back to the name. Taking the name mid-comparison instead puts a
 // dated pair and an undated photo in a cycle, and a comparator that cycles
 // leaves the order of the whole folder to the internals of the sort.
+//
+// Two photos of the same second fall back to the name as well: the sort is not
+// a stable one, and a burst of frames all carrying the capture second would
+// otherwise come back in a different order every time the folder is sorted.
 func byTime(a, b model.Photo, ta, tb time.Time) int {
 	switch {
 	case !ta.IsZero() && !tb.IsZero():
-		return ta.Compare(tb)
+		if c := ta.Compare(tb); c != 0 {
+			return c
+		}
 	case !ta.IsZero():
 		return -1
 	case !tb.IsZero():
 		return 1
-	default:
-		return byName(a, b)
 	}
+	return byName(a, b)
 }
 
 func byName(a, b model.Photo) int {

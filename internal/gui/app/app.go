@@ -157,9 +157,9 @@ func (a *Application) Run() {
 		OnHelp:           a.handleHelp,
 		OnCopyClipboard:  a.handleCopyToClipboard,
 		OnToggleGrid:     a.handleToggleGrid,
-		OnZoomReset:      a.guarded(a.viewer.ResetZoom),
-		OnZoomIn:         a.guarded(a.viewer.ZoomIn),
-		OnZoomOut:        a.guarded(a.viewer.ZoomOut),
+		OnZoomReset:      a.guarded(func() { a.viewer.ResetZoom() }),
+		OnZoomIn:         a.guarded(func() { a.viewer.ZoomIn() }),
+		OnZoomOut:        a.guarded(func() { a.viewer.ZoomOut() }),
 		OnSettings:       a.handleSettings,
 	})
 

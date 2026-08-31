@@ -44,7 +44,7 @@ func (a *Application) clearTags() {
 	a.tagBar.Clear()
 }
 
-// Reached through tagsSession.storeStock, which a save runs on a worker
+// Reached through Application.storeStock, which a save runs on a worker
 // goroutine, so the hop is made here rather than at each call site. The bump
 // belongs inside the branch: a save for a photo the user has left behind must
 // not cancel the read the photo in front of them is still waiting for.

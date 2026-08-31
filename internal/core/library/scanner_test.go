@@ -178,6 +178,21 @@ func TestScanner_SortPhotos(t *testing.T) {
 		SortPhotos(photos, SortByTime)
 		assert.Equal(t, []string{"z.jpg", "a.jpg", "m.jpg"}, photoNames(photos))
 	})
+
+	// A burst of frames carries one capture second, and the sort is not stable:
+	// without the name the order of the burst is whatever the sort leaves.
+	t.Run("by time falls back to the name on the same moment", func(t *testing.T) {
+		shot := time.Date(2026, time.August, 9, 12, 0, 0, 0, time.UTC)
+		for _, order := range [][]string{{"c.jpg", "a.jpg", "b.jpg"}, {"b.jpg", "c.jpg", "a.jpg"}} {
+			photos := make([]model.Photo, 0, len(order))
+			for _, name := range order {
+				photos = append(photos, model.Photo{ImagePath: "/nonexistent/" + name, Name: name, ModTime: shot})
+			}
+
+			SortPhotos(photos, SortByTime)
+			assert.Equal(t, []string{"a.jpg", "b.jpg", "c.jpg"}, photoNames(photos))
+		}
+	})
 }
 
 // The dates come from the browser's meta rather than from the files, so every
@@ -222,6 +237,18 @@ func TestScanner_SortPhotosByDates(t *testing.T) {
 			photos: []model.Photo{photo("z.jpg"), photo("a.jpg")},
 			dates:  map[string]time.Time{"/nonexistent/a.jpg": day(1)},
 			want:   []string{"a.jpg", "z.jpg"},
+		},
+		{
+			// Where the ties actually come from: a capture date is read to the
+			// second, and a burst of frames shares one.
+			name:   "photos of the same moment fall back to the name",
+			photos: []model.Photo{photo("c.jpg"), photo("a.jpg"), photo("b.jpg")},
+			dates: map[string]time.Time{
+				"/nonexistent/a.jpg": day(1),
+				"/nonexistent/b.jpg": day(1),
+				"/nonexistent/c.jpg": day(1),
+			},
+			want: []string{"a.jpg", "b.jpg", "c.jpg"},
 		},
 		{
 			name:   "photos without dates fall back to the name",

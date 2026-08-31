@@ -134,7 +134,9 @@ func TestTagger_Generate(t *testing.T) {
 		req.Location = "Prague, Czechia"
 		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}
 
-		for _, r := range userMessage(req) {
+		message := userMessage(req)
+		require.NotEmpty(t, message)
+		for _, r := range message {
 			assert.LessOrEqual(t, r, rune(unicode.MaxASCII))
 		}
 	})
