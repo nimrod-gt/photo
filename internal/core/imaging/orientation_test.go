@@ -295,11 +295,7 @@ func TestToRGBA_ConvertsOtherTypes(t *testing.T) {
 
 func writeTestJPEG(t *testing.T, w, h int) string {
 	t.Helper()
-	var buf bytes.Buffer
-	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
-	path := filepath.Join(t.TempDir(), "test.jpg")
-	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
-	return path
+	return writeSizedPlainJPEG(t, filepath.Join(t.TempDir(), "test.jpg"), w, h)
 }
 
 // The loader reads through the ExifService, which is where the lock the writers

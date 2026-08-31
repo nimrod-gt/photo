@@ -18,13 +18,7 @@ const (
 	CopyOnlyRAW
 )
 
-type Copier struct{}
-
-func NewCopier() *Copier {
-	return &Copier{}
-}
-
-func (c *Copier) CopyWithContext(ctx context.Context, photo model.Photo, destDir string, mode CopyMode) error {
+func CopyWithContext(ctx context.Context, photo model.Photo, destDir string, mode CopyMode) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -84,10 +78,6 @@ func copySidecar(ctx context.Context, rawPath, destDir string) error {
 		return fmt.Errorf("copying sidecar %s: %w", sidecar, err)
 	}
 	return nil
-}
-
-func (c *Copier) Copy(photo model.Photo, destDir string, mode CopyMode) error {
-	return c.CopyWithContext(context.Background(), photo, destDir, mode)
 }
 
 func copyFile(ctx context.Context, src, dst string) error {

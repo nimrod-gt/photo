@@ -25,6 +25,12 @@ type hideable interface {
 	Hide()
 }
 
+type toggleableDialog interface {
+	hideable
+	Show()
+	SetOnClosed(func())
+}
+
 type dialogManager struct {
 	kind      dialogKind
 	dialog    hideable
@@ -91,6 +97,26 @@ func (m *dialogManager) cancel() {
 	if d != nil {
 		d.Hide()
 	}
+}
+
+// A second press of the key that opened the dialog closes it again, and another
+// dialog already up keeps it shut; closed by any means, it unregisters itself.
+func (a *Application) toggleDialog(kind dialogKind, build func() toggleableDialog) {
+	if a.dialogs.isOpen(kind) {
+		a.dialogs.cancel()
+		return
+	}
+	if a.dialogs.anyOpen() {
+		return
+	}
+	d := build()
+	d.SetOnClosed(func() {
+		if a.dialogs.isOpen(kind) {
+			a.dialogs.closed()
+		}
+	})
+	a.dialogs.open(kind, d, nil)
+	d.Show()
 }
 
 // A repeated press of the key that opened a confirm dialog answers it, so the

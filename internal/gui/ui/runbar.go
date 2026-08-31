@@ -171,11 +171,8 @@ func runElapsed(since time.Time) string {
 }
 
 type topRightLayout struct {
+	zeroMinSize
 	rows []*runRow
-}
-
-func (l *topRightLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
 }
 
 func (l *topRightLayout) Layout(_ []fyne.CanvasObject, containerSize fyne.Size) {

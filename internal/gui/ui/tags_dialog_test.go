@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-	"unicode"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
@@ -314,42 +313,18 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, "/usr/local/bin/claude", d.ClaudePath())
 	})
 
-	t.Run("sends no notes when nothing is filled in", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 
-		assert.Empty(t, d.Notes())
+	t.Run("editorial reveals the date", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		assert.False(t, d.dateRow.Visible())
-	})
-
-	t.Run("renders concept and location in the prompt input format", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
-
-		d.concept.SetText("  slow travel  ")
-		d.location.SetText(" Prague, Czechia ")
-
-		assert.Equal(t, "Concept: slow travel\nLocation: Prague, Czechia", d.Notes())
-	})
-
-	t.Run("editorial reveals the date and adds the date line", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
-		d.location.SetText("Prague, Czechia")
 
 		d.editorial.SetChecked(true)
 
 		assert.True(t, d.dateRow.Visible())
 		require.NotNil(t, d.date.Date)
 		assert.Equal(t, startOfDay(defaultTestDate), *d.date.Date, "the entry holds the day, not the moment")
-		assert.Equal(t, "Location: Prague, Czechia\nEditorial: August 18, 2026", d.Notes())
 	})
 
-	t.Run("editorial without a date stays a bare flag", func(t *testing.T) {
-		d := newTestTagsDialog(t, TagsDialogCallbacks{})
-		d.editorial.SetChecked(true)
-
-		d.date.SetDate(nil)
-
-		assert.Equal(t, "Editorial:", d.Notes())
-	})
 
 	t.Run("reports the ticked mark on the day of the entry", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
@@ -380,14 +355,14 @@ func TestTagsDialog(t *testing.T) {
 		assert.Equal(t, model.Editorial{Marked: true}, d.Editorial())
 	})
 
-	t.Run("unchecking editorial hides the date and drops the line", func(t *testing.T) {
+	t.Run("unchecking editorial hides the date and drops the mark", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
 		d.editorial.SetChecked(true)
 
 		d.editorial.SetChecked(false)
 
 		assert.False(t, d.dateRow.Visible())
-		assert.Empty(t, d.Notes())
+		assert.False(t, d.Editorial().Marked)
 	})
 
 	t.Run("shooting date replaces the default date", func(t *testing.T) {
@@ -396,7 +371,8 @@ func TestTagsDialog(t *testing.T) {
 		d.SetPhotoInfo(model.Tags{}, time.Date(2024, time.June, 13, 10, 0, 0, 0, time.UTC))
 
 		d.editorial.SetChecked(true)
-		assert.Equal(t, "Editorial: June 13, 2024", d.Notes())
+		want := model.Editorial{Marked: true, Date: time.Date(2024, time.June, 13, 0, 0, 0, 0, time.UTC)}
+		assert.Equal(t, want, d.Editorial())
 		assert.False(t, d.resultBox.Visible())
 	})
 
@@ -935,19 +911,6 @@ func TestTagsDialog(t *testing.T) {
 
 		assert.Empty(t, d.concept.Text)
 	})
-}
-
-func TestNotesStayASCII(t *testing.T) {
-	d := newTestTagsDialog(t, TagsDialogCallbacks{})
-	d.concept.SetText("slow travel")
-	d.location.SetText("Prague, Czechia")
-	d.editorial.SetChecked(true)
-
-	notes := d.Notes()
-	require.NotEmpty(t, notes)
-	for _, r := range notes {
-		assert.LessOrEqual(t, r, rune(unicode.MaxASCII), "notes must stay ASCII so they match the prompt")
-	}
 }
 
 func TestTagsDialog_Escape(t *testing.T) {

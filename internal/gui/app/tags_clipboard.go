@@ -20,14 +20,14 @@ func (s *tagsSession) copyTags() {
 	}
 	copied := s.dialog.Tags()
 	if copied.IsEmpty() {
-		s.app.mainWindow.ShowWarning("No tags to copy")
+		s.app.notifier.ShowWarning("No tags to copy")
 		return
 	}
 	// The place, the note and the editorial mark belong to the photo they were
 	// typed for; only what a generation produced travels to another one.
 	s.app.tagsCopy = model.Tags{Title: copied.Title, Keywords: copied.Keywords}
 	s.app.tagsCopied = true
-	s.app.mainWindow.ShowNotification("Tags copied")
+	s.app.notifier.ShowNotification("Tags copied")
 }
 
 // Nothing is written here: the fields are filled and the paths that already
@@ -37,7 +37,7 @@ func (s *tagsSession) pasteTags() {
 		return
 	}
 	if !s.app.tagsCopied {
-		s.app.mainWindow.ShowWarning("No tags copied yet")
+		s.app.notifier.ShowWarning("No tags copied yet")
 		return
 	}
 	if !s.dialog.HasTags() {

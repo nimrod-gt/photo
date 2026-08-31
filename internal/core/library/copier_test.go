@@ -76,8 +76,7 @@ func TestCopier_Copy(t *testing.T) {
 				photo.RAWPath = rawPath
 			}
 
-			c := NewCopier()
-			require.NoError(t, c.Copy(photo, destDir, tt.mode))
+			require.NoError(t, CopyWithContext(context.Background(), photo, destDir, tt.mode))
 
 			destJPEG := filepath.Join(destDir, "photo.jpg")
 			if tt.wantImg {
@@ -117,8 +116,7 @@ func TestCopier_Copy(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg"), 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
-		err := c.Copy(photo, destDir, CopyOnlyRAW)
+		err := CopyWithContext(context.Background(), photo, destDir, CopyOnlyRAW)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no RAW file")
 	})
@@ -131,8 +129,7 @@ func TestCopier_Copy(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, []byte("jpeg"), 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
-		err := c.Copy(photo, destDir, CopyMode(99))
+		err := CopyWithContext(context.Background(), photo, destDir, CopyMode(99))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unknown copy mode")
 	})
@@ -143,8 +140,7 @@ func TestCopier_Copy(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
-		err := c.Copy(photo, "/nonexistent/destination", CopyJPEGOnly)
+		err := CopyWithContext(context.Background(), photo, "/nonexistent/destination", CopyJPEGOnly)
 		assert.Error(t, err)
 	})
 
@@ -157,8 +153,7 @@ func TestCopier_Copy(t *testing.T) {
 		require.NoError(t, os.WriteFile(destFile, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
-		err := c.Copy(photo, destFile, CopyJPEGOnly)
+		err := CopyWithContext(context.Background(), photo, destFile, CopyJPEGOnly)
 		assert.Error(t, err)
 	})
 
@@ -174,8 +169,7 @@ func TestCopier_Copy(t *testing.T) {
 		require.NoError(t, os.WriteFile(existingPath, []byte("old-data"), 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
-		require.NoError(t, c.Copy(photo, destDir, CopyJPEGOnly))
+		require.NoError(t, CopyWithContext(context.Background(), photo, destDir, CopyJPEGOnly))
 
 		data, err := os.ReadFile(existingPath)
 		require.NoError(t, err)
@@ -194,12 +188,11 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, []byte("data"), 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		c := NewCopier()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := c.CopyWithContext(ctx, photo, destDir, CopyJPEGOnly)
+		err := CopyWithContext(ctx, photo, destDir, CopyJPEGOnly)
 		require.ErrorIs(t, err, context.Canceled)
 
 		_, statErr := os.Stat(filepath.Join(destDir, "photo.jpg"))
@@ -219,9 +212,8 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		require.NoError(t, os.WriteFile(rawPath, rawContent, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
-		c := NewCopier()
 
-		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, CopyWithRAW))
+		require.NoError(t, CopyWithContext(context.Background(), photo, destDir, CopyWithRAW))
 
 		data, err := os.ReadFile(filepath.Join(destDir, "photo.jpg"))
 		require.NoError(t, err)
@@ -256,9 +248,8 @@ func TestCopier_CopyWithContext(t *testing.T) {
 		require.NoError(t, os.WriteFile(rawPath, []byte("raw"), 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
-		c := NewCopier()
 
-		require.NoError(t, c.CopyWithContext(context.Background(), photo, destDir, CopyJPEGOnly))
+		require.NoError(t, CopyWithContext(context.Background(), photo, destDir, CopyJPEGOnly))
 
 		_, err := os.Stat(filepath.Join(destDir, "photo.jpg"))
 		require.NoError(t, err)
@@ -287,7 +278,7 @@ func TestCopier_CopiesTheSidecarWithTheRAW(t *testing.T) {
 			photo := writePair(t, srcDir)
 			require.NoError(t, os.WriteFile(model.SidecarPath(photo.RAWPath), []byte("<x:xmpmeta/>"), 0600))
 
-			require.NoError(t, NewCopier().Copy(photo, destDir, tt.mode))
+			require.NoError(t, CopyWithContext(context.Background(), photo, destDir, tt.mode))
 
 			copied := filepath.Join(destDir, "photo.xmp")
 			if !tt.want {
@@ -324,7 +315,7 @@ func TestCopier_LeavesTheSidecarOfAJPEGWithoutARAW(t *testing.T) {
 			photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
 			require.NoError(t, os.WriteFile(photo.SidecarPath(), []byte("<x:xmpmeta/>"), 0600))
 
-			require.NoError(t, NewCopier().Copy(photo, destDir, tt.mode))
+			require.NoError(t, CopyWithContext(context.Background(), photo, destDir, tt.mode))
 
 			assert.FileExists(t, filepath.Join(destDir, "photo.jpg"))
 			assert.NoFileExists(t, filepath.Join(destDir, "photo.xmp"))
@@ -338,7 +329,7 @@ func TestCopier_CopiesARAWWithoutASidecar(t *testing.T) {
 	srcDir, destDir := t.TempDir(), t.TempDir()
 	photo := writePair(t, srcDir)
 
-	require.NoError(t, NewCopier().Copy(photo, destDir, CopyWithRAW))
+	require.NoError(t, CopyWithContext(context.Background(), photo, destDir, CopyWithRAW))
 
 	assert.FileExists(t, filepath.Join(destDir, "photo.ARW"))
 	assert.NoFileExists(t, filepath.Join(destDir, "photo.xmp"))

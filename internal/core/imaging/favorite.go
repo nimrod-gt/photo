@@ -60,7 +60,7 @@ func (s *ExifService) ToggleFavorite(jpegPath string) (favorite bool, err error)
 // a photo that is showing a star. Writing into such a packet is refused further
 // down, where the refusal can be reported for what it is.
 func currentRating(data, packet []byte, source string) (int, error) {
-	if rating, found, _ := packetRating(packet); found {
+	if rating, found := packetRating(packet); found {
 		return rating, nil
 	}
 	sl, err := segmentsFromBytes(data, source)

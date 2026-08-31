@@ -69,11 +69,8 @@ type TagBar struct {
 }
 
 func NewTagBar() *TagBar {
-	title := widget.NewLabel("")
-	title.TextStyle = fyne.TextStyle{Bold: true}
-
 	bar := &TagBar{
-		title:    newTagRow(title, tagBarTitleWidthPct),
+		title:    newTagRow(boldLabel(""), tagBarTitleWidthPct),
 		keywords: newTagRow(widget.NewLabel(""), tagBarMaxWidthPct),
 		enabled:  true,
 	}
@@ -134,11 +131,8 @@ func showIf(obj fyne.CanvasObject, visible bool) {
 // share of the photo, so a long title truncates instead of stretching across the
 // image and the keywords are not dragged out to the width of the title.
 type bottomLeftLayout struct {
+	zeroMinSize
 	rows []*tagRow
-}
-
-func (l *bottomLeftLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
 }
 
 func (l *bottomLeftLayout) Layout(_ []fyne.CanvasObject, containerSize fyne.Size) {

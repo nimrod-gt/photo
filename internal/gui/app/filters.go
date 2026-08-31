@@ -45,9 +45,9 @@ func (a *Application) resortPhotos() {
 				dates[p.ImagePath] = allMeta[i].Date
 			}
 		}
-		a.scanner.SortPhotosByDates(photos, dates)
+		library.SortPhotosByDates(photos, dates)
 	} else {
-		a.scanner.SortPhotos(photos, a.sortOrder)
+		library.SortPhotos(photos, a.sortOrder)
 	}
 	if a.sortDescending {
 		slices.Reverse(photos)

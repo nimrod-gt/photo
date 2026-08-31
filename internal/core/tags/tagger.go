@@ -44,7 +44,6 @@ var tagsSchema = fmt.Sprintf(`{"type":"object","properties":{`+
 
 type Request struct {
 	Photo      model.Photo
-	Notes      string
 	Location   string
 	Concept    string
 	Editorial  model.Editorial
@@ -110,12 +109,30 @@ func taggerArgs(req Request) []string {
 	}
 }
 
+// The optional inputs are rendered in the input format the prompt expects.
 func userMessage(req Request) string {
 	message := "Photo: " + req.Photo.ImagePath
-	if notes := strings.TrimSpace(req.Notes); len(notes) != 0 {
-		message += "\n" + notes
+	if concept := strings.TrimSpace(req.Concept); len(concept) != 0 {
+		message += "\nConcept: " + concept
+	}
+	if location := strings.TrimSpace(req.Location); len(location) != 0 {
+		message += "\nLocation: " + location
+	}
+	if req.Editorial.Marked {
+		message += "\n" + strings.TrimSpace("Editorial: "+editorialDay(req.Editorial.Date))
 	}
 	return message
+}
+
+const editorialDateLayout = "January 2, 2006"
+
+// The prompt is told the same value the file is given: a day the two spell
+// differently is a day the user sees in one place and finds in the other.
+func editorialDay(date time.Time) string {
+	if date.IsZero() {
+		return ""
+	}
+	return date.Format(editorialDateLayout)
 }
 
 type claudeResponse struct {

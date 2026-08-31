@@ -31,7 +31,7 @@ func (a *Application) restoreSortOrder() {
 
 func (a *Application) restoreTagVisibility() {
 	a.showTags = a.fyneApp.Preferences().BoolWithFallback(showTagsKey, true)
-	a.mainWindow.SetTagsVisible(a.showTags)
+	a.tagBar.SetEnabled(a.showTags)
 }
 
 func (a *Application) saveTagVisibility() {
@@ -45,26 +45,17 @@ func (a *Application) restoreSaveSettings() {
 	a.showSaveButton = prefs.BoolWithFallback(showSaveButtonKey, true)
 }
 
-func (a *Application) saveAutoSaveXMP() {
-	a.fyneApp.Preferences().SetBool(autoSaveXMPKey, a.autoSaveXMP)
-}
-
-func (a *Application) saveAutoSaveJPEG() {
-	a.fyneApp.Preferences().SetBool(autoSaveJPEGKey, a.autoSaveJPEG)
-}
-
-func (a *Application) saveShowSaveButton() {
-	a.fyneApp.Preferences().SetBool(showSaveButtonKey, a.showSaveButton)
+func (a *Application) boolSetting(field *bool, key string) func(bool) {
+	return func(on bool) {
+		*field = on
+		a.fyneApp.Preferences().SetBool(key, on)
+	}
 }
 
 // Both files write themselves, so there is nothing left for the button to do
 // and it goes rather than standing there as a no-op.
-func saveButtonVisible(show, autoXMP, autoJPEG bool) bool {
-	return show && (!autoXMP || !autoJPEG)
-}
-
 func (a *Application) saveButtonVisible() bool {
-	return saveButtonVisible(a.showSaveButton, a.autoSaveXMP, a.autoSaveJPEG)
+	return a.showSaveButton && (!a.autoSaveXMP || !a.autoSaveJPEG)
 }
 
 func (a *Application) saveSortOrder() {

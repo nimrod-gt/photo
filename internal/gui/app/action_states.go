@@ -57,12 +57,10 @@ func (a *Application) setFavoriteButtonStates(favorite, ratable bool) {
 
 func (a *Application) updateColorButtonStates(colors []model.ColorLabel) {
 	activeSet := ui.ColorSet(colors)
-	a.actionPanel.SetColorActive(model.ColorRed, activeSet[model.ColorRed])
-	a.actionPanel.SetColorActive(model.ColorGreen, activeSet[model.ColorGreen])
-	a.actionPanel.SetColorActive(model.ColorBlue, activeSet[model.ColorBlue])
-	a.contextMenuItems.Red.Checked = activeSet[model.ColorRed]
-	a.contextMenuItems.Green.Checked = activeSet[model.ColorGreen]
-	a.contextMenuItems.Blue.Checked = activeSet[model.ColorBlue]
+	for label, item := range a.contextMenuItems.Colors {
+		a.actionPanel.SetColorActive(label, activeSet[label])
+		item.Checked = activeSet[label]
+	}
 }
 
 // The ratings arrive with the thumbnails, after the folder is shown, and the

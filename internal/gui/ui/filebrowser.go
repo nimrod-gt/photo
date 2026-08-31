@@ -32,6 +32,7 @@ type FileBrowserCallbacks struct {
 }
 
 type FileBrowser struct {
+	*photoList
 	container   *fyne.Container
 	list        *widget.List
 	nameSortBtn *widget.Button
@@ -48,25 +49,23 @@ type FileBrowser struct {
 	copyAllBtn     *widget.Button
 	unselectAllBtn *widget.Button
 
-	data          *photoList
 	imageProvider *imaging.Provider
 	colors        *library.ColorService
 	callbacks     FileBrowserCallbacks
 }
 
 func NewFileBrowser(
-	scanner *library.Scanner,
 	imageProvider *imaging.Provider,
 	colors *library.ColorService,
 	callbacks FileBrowserCallbacks,
 ) *FileBrowser {
 	fb := &FileBrowser{
+		photoList:     newPhotoList(),
 		imageProvider: imageProvider,
 		colors:        colors,
 		callbacks:     callbacks,
-		data:          newPhotoList(),
 	}
-	fb.dirTree = NewDirTree(scanner, callbacks.OnDirectorySelected)
+	fb.dirTree = NewDirTree(callbacks.OnDirectorySelected)
 	fb.build()
 	return fb
 }
@@ -75,26 +74,14 @@ func (fb *FileBrowser) Container() *fyne.Container {
 	return fb.container
 }
 
-func (fb *FileBrowser) SetPinnedPath(path string) {
-	fb.data.setPinnedPath(path)
-}
-
-func (fb *FileBrowser) ClearPinnedPath() {
-	fb.data.setPinnedPath("")
-}
-
-func (fb *FileBrowser) PinnedPath() string {
-	return fb.data.getPinnedPath()
-}
-
 func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
-	gen := fb.data.reset(photos)
+	gen := fb.reset(photos)
 
 	fb.loadInitialMeta(photos)
 	fb.refreshRows()
 
 	fb.imageProvider.LoadFolder(photos, func(index int, meta imaging.LoadedMeta) {
-		displayIdx, ok := fb.data.setLoadedMeta(index, meta, gen)
+		displayIdx, ok := fb.setLoadedMeta(index, meta, gen)
 		if ok && displayIdx >= 0 {
 			fyne.Do(func() {
 				fb.list.RefreshItem(displayIdx)
@@ -104,7 +91,7 @@ func (fb *FileBrowser) SetPhotos(photos []model.Photo) {
 			})
 		}
 	}, func() {
-		if fb.data.favoriteRefilterNeeded(gen) {
+		if fb.favoriteRefilterNeeded(gen) {
 			fyne.Do(func() {
 				fb.refreshRows()
 				if fb.callbacks.OnFilteredChanged != nil {
@@ -126,27 +113,23 @@ func (fb *FileBrowser) loadInitialMeta(photos []model.Photo) {
 		log.Printf("Failed to load color labels for %s: %v", dir, err)
 	}
 
-	fb.data.initMeta(photos, colorMap)
-}
-
-func (fb *FileBrowser) GetMeta(displayIndex int) model.PhotoMeta {
-	return fb.data.metaAt(displayIndex)
+	fb.initMeta(photos, colorMap)
 }
 
 func (fb *FileBrowser) RefreshItemMeta(displayIndex int, colors []model.ColorLabel, favorite bool) {
-	fb.data.setItemMeta(displayIndex, colors, favorite)
+	fb.setItemMeta(displayIndex, colors, favorite)
 	fb.list.RefreshItem(displayIndex)
 }
 
 // The colours of a photo change without its rating, which the folder scan may
 // still be on its way to read.
 func (fb *FileBrowser) RefreshItemColors(displayIndex int, colors []model.ColorLabel) {
-	fb.data.setItemColors(displayIndex, colors)
+	fb.setItemColors(displayIndex, colors)
 	fb.list.RefreshItem(displayIndex)
 }
 
 func (fb *FileBrowser) SelectIndex(index int) {
-	if index >= 0 && index < fb.data.count() {
+	if index >= 0 && index < fb.count() {
 		fb.list.Select(index)
 	}
 }
@@ -179,20 +162,8 @@ func (fb *FileBrowser) SetSortState(order library.SortOrder, descending bool) {
 	fb.timeSortBtn.Refresh()
 }
 
-func (fb *FileBrowser) HasFilter() bool {
-	return fb.data.hasFilter()
-}
-
-func (fb *FileBrowser) ToggleColorFilter(color model.ColorLabel) {
-	fb.data.toggleColorFilter(color)
-}
-
-func (fb *FileBrowser) ToggleFavoriteFilter() {
-	fb.data.toggleFavoriteFilter()
-}
-
 func (fb *FileBrowser) ClearFilter() {
-	fb.data.clearFilters()
+	fb.clearFilters()
 	fb.RefreshFilter()
 }
 
@@ -202,49 +173,25 @@ func (fb *FileBrowser) RefreshFilter() {
 }
 
 func (fb *FileBrowser) refreshRows() {
-	fb.data.applyFilter()
+	fb.applyFilter()
 	fb.updateBulkBarVisibility()
 	fb.list.Refresh()
 }
 
-func (fb *FileBrowser) ActiveFilterColors() []model.ColorLabel {
-	return fb.data.activeFilterColors()
-}
-
-func (fb *FileBrowser) RemoveColorLabels(paths map[string]bool, colors []model.ColorLabel) {
-	fb.data.removeColorsFromPaths(paths, colors)
-}
-
-func (fb *FileBrowser) FilteredPhotos() []model.Photo {
-	return fb.data.filteredPhotos()
-}
-
-func (fb *FileBrowser) FilteredMeta() []model.PhotoMeta {
-	return fb.data.filteredMeta()
-}
-
-func (fb *FileBrowser) AllMeta() []model.PhotoMeta {
-	return fb.data.allMetaCopy()
-}
-
-func (fb *FileBrowser) AllPhotos() []model.Photo {
-	return fb.data.allPhotosCopy()
-}
-
 func (fb *FileBrowser) RemovePhoto(imagePath string) {
-	if !fb.data.removePhoto(imagePath) {
+	if !fb.removePhoto(imagePath) {
 		return
 	}
 	fb.refreshRows()
 }
 
 func (fb *FileBrowser) RemovePhotos(paths map[string]bool) {
-	fb.data.removePhotos(paths)
+	fb.removePhotos(paths)
 	fb.refreshRows()
 }
 
 func (fb *FileBrowser) updateBulkBarVisibility() {
-	active, colorActive, count := fb.data.bulkState()
+	active, colorActive, count := fb.bulkState()
 	if active && count > 0 {
 		fb.bulkBar.Show()
 	} else {
@@ -258,7 +205,7 @@ func (fb *FileBrowser) updateBulkBarVisibility() {
 }
 
 func (fb *FileBrowser) updateFilterButtonStates() {
-	filterColors, filterFavorite := fb.data.filterState()
+	filterColors, filterFavorite := fb.filterState()
 	setFilterBtnState(fb.filterFavBtn, filterFavorite)
 	setFilterBtnState(fb.filterRedBtn, filterColors[model.ColorRed])
 	setFilterBtnState(fb.filterGreenBtn, filterColors[model.ColorGreen])
@@ -305,12 +252,12 @@ func (fb *FileBrowser) build() {
 
 func (fb *FileBrowser) buildList() {
 	fb.list = widget.NewList(
-		fb.data.count,
+		fb.count,
 		fb.createItem,
 		fb.updateItem,
 	)
 	fb.list.OnSelected = func(id widget.ListItemID) {
-		photo, ok := fb.data.photoAt(id)
+		photo, ok := fb.photoAt(id)
 		if ok && fb.callbacks.OnPhotoSelected != nil {
 			fb.callbacks.OnPhotoSelected(photo)
 		}

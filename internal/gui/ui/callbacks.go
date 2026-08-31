@@ -19,3 +19,16 @@ func iconButton(label string, icon fyne.Resource, fn func()) *widget.Button {
 		call(fn)
 	})
 }
+
+func boldLabel(text string) *widget.Label {
+	label := widget.NewLabel(text)
+	label.TextStyle = fyne.TextStyle{Bold: true}
+	return label
+}
+
+// The overlay layouts size themselves to their container alone.
+type zeroMinSize struct{}
+
+func (zeroMinSize) MinSize(_ []fyne.CanvasObject) fyne.Size {
+	return fyne.NewSize(0, 0)
+}

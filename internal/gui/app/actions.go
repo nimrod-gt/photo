@@ -59,12 +59,12 @@ func (a *Application) copyPhotoFiles(ctx context.Context, photo model.Photo, des
 	if photo.HasRAW() && mode != library.CopyJPEGOnly {
 		a.awaitTags(ctx, photo)
 	}
-	return a.copier.CopyWithContext(ctx, photo, dest, mode)
+	return library.CopyWithContext(ctx, photo, dest, mode)
 }
 
 func (a *Application) deletePhotoFiles(photo model.Photo, includeRAW bool) error {
 	a.stopTags(photo)
-	if err := a.deleter.DeleteWithOption(photo, includeRAW); err != nil {
+	if err := library.DeleteWithOption(photo, includeRAW); err != nil {
 		return err
 	}
 	a.imageProvider.Forget(photo.ImagePath)
@@ -83,7 +83,7 @@ func (a *Application) handleCopyToClipboard() {
 		a.showError("Failed to copy to clipboard", err)
 		return
 	}
-	a.mainWindow.ShowNotification("Copied to clipboard")
+	a.notifier.ShowNotification("Copied to clipboard")
 }
 
 func (a *Application) handleDelete() {
@@ -125,21 +125,9 @@ func (a *Application) handleDelete() {
 }
 
 func (a *Application) handleHelp() {
-	if a.dialogs.isOpen(dialogHelp) {
-		a.dialogs.cancel()
-		return
-	}
-	if a.dialogs.anyOpen() {
-		return
-	}
-	helpDialog := ui.NewHelp(a.mainWindow.Window())
-	helpDialog.SetOnClosed(func() {
-		if a.dialogs.isOpen(dialogHelp) {
-			a.dialogs.closed()
-		}
+	a.toggleDialog(dialogHelp, func() toggleableDialog {
+		return ui.NewHelp(a.mainWindow.Window())
 	})
-	a.dialogs.open(dialogHelp, helpDialog, nil)
-	helpDialog.Show()
 }
 
 // A canvas shortcut fires whenever no widget holds focus, which includes an open
@@ -182,7 +170,7 @@ func (a *Application) handleCopy() {
 		func() {
 			dest := destEntry.Text()
 			if len(dest) == 0 {
-				a.mainWindow.ShowError("No destination folder selected")
+				a.notifier.ShowError("No destination folder selected")
 				return
 			}
 			mode := modeSelect.Mode
@@ -195,9 +183,9 @@ func (a *Application) handleCopy() {
 						return
 					}
 					if mode == library.CopyWithRAW && !photo.HasRAW() {
-						a.mainWindow.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
+						a.notifier.ShowWarning(photo.Name + " copied without RAW (RAW file not found)")
 					} else {
-						a.mainWindow.ShowNotification(photo.Name + " copied")
+						a.notifier.ShowNotification(photo.Name + " copied")
 					}
 				})
 			}()

@@ -65,9 +65,9 @@ func (a *Application) runBulkDelete(photos []model.Photo, includeRAW bool) {
 			a.clearViewer()
 		}
 		if skipped > 0 {
-			a.mainWindow.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", len(deleted), skipped))
+			a.notifier.ShowWarning(fmt.Sprintf("Deleted %d photos (%d failed)", len(deleted), skipped))
 		} else {
-			a.mainWindow.ShowNotification(fmt.Sprintf("Deleted %d photos", len(deleted)))
+			a.notifier.ShowNotification(fmt.Sprintf("Deleted %d photos", len(deleted)))
 		}
 	})
 }
@@ -111,7 +111,7 @@ func (a *Application) handleUnselectAll() {
 					}
 					a.fileBrowser.ClearPinnedPath()
 					a.reapplyFilter()
-					a.mainWindow.ShowNotification(fmt.Sprintf("Removed color labels from %d photos", len(affected)))
+					a.notifier.ShowNotification(fmt.Sprintf("Removed color labels from %d photos", len(affected)))
 				})
 			}()
 		})
@@ -166,7 +166,7 @@ func (a *Application) beginBulkCopy(
 	dest := copyAllDialog.DestDir()
 	if len(dest) == 0 {
 		cancel()
-		a.mainWindow.ShowError("No destination folder selected")
+		a.notifier.ShowError("No destination folder selected")
 		closeDialog()
 		return
 	}
@@ -195,7 +195,7 @@ func (a *Application) runBulkCopy(
 		if err := a.copyPhotoFiles(ctx, photo, dest, mode); err != nil {
 			if ctx.Err() != nil {
 				fyne.Do(func() {
-					a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
+					a.notifier.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
 					closeDialog()
 				})
 				return
@@ -216,13 +216,13 @@ func (a *Application) runBulkCopy(
 	fyne.Do(func() {
 		closeDialog()
 		if cancelled {
-			a.mainWindow.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
+			a.notifier.ShowWarning(fmt.Sprintf("Copy cancelled after %d/%d photos", copied, total))
 			return
 		}
 		if skipped > 0 {
-			a.mainWindow.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
+			a.notifier.ShowWarning(fmt.Sprintf("Copied %d/%d photos (%d skipped)", copied, total, skipped))
 		} else {
-			a.mainWindow.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
+			a.notifier.ShowNotification(fmt.Sprintf("Copied %d/%d photos", copied, total))
 		}
 	})
 }

@@ -9,7 +9,9 @@ import (
 	"photo/internal/core/model"
 )
 
-type ActionPanelCallbacks struct {
+// The six actions of a photo, shared by every place that offers them - the
+// toolbar, the context menu and the shortcuts - so a new action is wired once.
+type PhotoActions struct {
 	OnFavorite func()
 	OnRed      func()
 	OnGreen    func()
@@ -20,14 +22,12 @@ type ActionPanelCallbacks struct {
 
 type ActionPanel struct {
 	container *fyne.Container
-	callbacks ActionPanelCallbacks
+	callbacks PhotoActions
 	favBtn    *widget.Button
-	redBtn    *widget.Button
-	greenBtn  *widget.Button
-	blueBtn   *widget.Button
+	colorBtns map[model.ColorLabel]*widget.Button
 }
 
-func NewActionPanel(callbacks ActionPanelCallbacks) *ActionPanel {
+func NewActionPanel(callbacks PhotoActions) *ActionPanel {
 	p := &ActionPanel{callbacks: callbacks}
 	p.build()
 	return p
@@ -52,15 +52,8 @@ func (p *ActionPanel) SetFavoriteActive(active bool) {
 }
 
 func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
-	var btn *widget.Button
-	switch label {
-	case model.ColorRed:
-		btn = p.redBtn
-	case model.ColorGreen:
-		btn = p.greenBtn
-	case model.ColorBlue:
-		btn = p.blueBtn
-	default:
+	btn, ok := p.colorBtns[label]
+	if !ok {
 		return
 	}
 	if active {
@@ -73,11 +66,15 @@ func (p *ActionPanel) SetColorActive(label model.ColorLabel, active bool) {
 
 func (p *ActionPanel) build() {
 	p.favBtn = iconButton("Favorite", iconHeartOutline, p.callbacks.OnFavorite)
-	p.redBtn = iconButton("Red", iconRedCircle, p.callbacks.OnRed)
-	p.greenBtn = iconButton("Green", iconGreenCircle, p.callbacks.OnGreen)
-	p.blueBtn = iconButton("Blue", iconBlueCircle, p.callbacks.OnBlue)
+	p.colorBtns = map[model.ColorLabel]*widget.Button{
+		model.ColorRed:   iconButton("Red", iconRedCircle, p.callbacks.OnRed),
+		model.ColorGreen: iconButton("Green", iconGreenCircle, p.callbacks.OnGreen),
+		model.ColorBlue:  iconButton("Blue", iconBlueCircle, p.callbacks.OnBlue),
+	}
 	tagsBtn := iconButton("Tags", theme.DocumentCreateIcon(), p.callbacks.OnTags)
 	deleteBtn := iconButton("Delete", theme.DeleteIcon(), p.callbacks.OnDelete)
 
-	p.container = container.NewGridWithColumns(6, p.favBtn, p.redBtn, p.greenBtn, p.blueBtn, tagsBtn, deleteBtn)
+	p.container = container.NewGridWithColumns(6, p.favBtn,
+		p.colorBtns[model.ColorRed], p.colorBtns[model.ColorGreen], p.colorBtns[model.ColorBlue],
+		tagsBtn, deleteBtn)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 
 	"photo/internal/core/claudebin"
 	"photo/internal/core/model"
@@ -53,10 +54,9 @@ func newTestTagger(run *fakeRun) *Tagger {
 	}
 }
 
-func testRequest(notes string) Request {
+func testRequest() Request {
 	return Request{
 		Photo: model.Photo{ImagePath: filepath.Join("/photos", "trip", "DSC1.JPG"), Name: "DSC1.JPG"},
-		Notes: notes,
 	}
 }
 
@@ -67,7 +67,7 @@ func TestTagger_Generate(t *testing.T) {
 		run := &fakeRun{output: `{"is_error":false,"result":"done",
 			"structured_output":{"title":"Sunset over the bay","keywords":["sunset","bay"]}}`}
 
-		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 		assert.Equal(t, "Sunset over the bay", tags.Title)
 		assert.Equal(t, []string{"sunset", "bay"}, tags.Keywords)
@@ -76,7 +76,7 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("builds the command line", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 
 		assert.Equal(t, "/usr/local/bin/claude", run.name)
@@ -91,20 +91,52 @@ func TestTagger_Generate(t *testing.T) {
 		assert.Contains(t, run.args, "--no-session-persistence")
 	})
 
-	t.Run("appends notes to the user message", func(t *testing.T) {
+	t.Run("renders the fields into the user message", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest()
+		req.Concept = "  slow travel  "
+		req.Location = " Prague, Czechia "
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest("  Location: Lisbon\nConcept: travel  "))
+		_, err := newTestTagger(run).Generate(t.Context(), req)
 		require.NoError(t, err)
-		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nLocation: Lisbon\nConcept: travel", run.argValue("-p"))
+		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nConcept: slow travel\nLocation: Prague, Czechia", run.argValue("-p"))
 	})
 
-	t.Run("blank notes leave the message unchanged", func(t *testing.T) {
+	t.Run("blank fields leave the message unchanged", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest()
+		req.Concept = "   "
+		req.Location = " "
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest("   \n  "))
+		_, err := newTestTagger(run).Generate(t.Context(), req)
 		require.NoError(t, err)
 		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG", run.argValue("-p"))
+	})
+
+	t.Run("the editorial mark adds its line, dated when a day is set", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest()
+		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}
+
+		_, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nEditorial: August 18, 2026", run.argValue("-p"))
+
+		req.Editorial = model.Editorial{Marked: true}
+		_, err = newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nEditorial:", run.argValue("-p"))
+	})
+
+	t.Run("the user message stays ASCII to match the prompt", func(t *testing.T) {
+		req := testRequest()
+		req.Concept = "slow travel"
+		req.Location = "Prague, Czechia"
+		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}
+
+		for _, r := range userMessage(req) {
+			assert.LessOrEqual(t, r, rune(unicode.MaxASCII))
+		}
 	})
 
 	t.Run("propagates the lookup failure", func(t *testing.T) {
@@ -115,7 +147,7 @@ func TestTagger_Generate(t *testing.T) {
 			timeout: time.Minute,
 		}
 
-		_, err := tagger.Generate(t.Context(), testRequest(""))
+		_, err := tagger.Generate(t.Context(), testRequest())
 		assert.ErrorIs(t, err, claudebin.ErrNotFound)
 	})
 
@@ -132,7 +164,7 @@ func TestTagger_Generate(t *testing.T) {
 			timeout: time.Minute,
 		}
 
-		req := testRequest("")
+		req := testRequest()
 		req.ClaudePath = "/opt/claude"
 		_, err := tagger.Generate(t.Context(), req)
 		require.NoError(t, err)
@@ -144,7 +176,7 @@ func TestTagger_Generate(t *testing.T) {
 		failure := errors.New("exit status 1")
 		run := &fakeRun{err: failure}
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		assert.ErrorIs(t, err, failure)
 	})
 
@@ -159,7 +191,7 @@ func TestTagger_Generate(t *testing.T) {
 			timeout: 10 * time.Millisecond,
 		}
 
-		_, err := tagger.Generate(t.Context(), testRequest(""))
+		_, err := tagger.Generate(t.Context(), testRequest())
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.Contains(t, err.Error(), "claude timed out after 10ms")
 	})
@@ -170,7 +202,7 @@ func TestTagger_Generate(t *testing.T) {
 			err:    errors.New("exit status 1"),
 		}
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.Error(t, err)
 		assert.Equal(t, "claude reported an error, error_during_execution, HTTP 429: Overloaded", err.Error())
 	})
@@ -181,7 +213,7 @@ func TestTagger_Generate(t *testing.T) {
 			err:    errors.New("exit status 1"),
 		}
 
-		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 		assert.Equal(t, "Sunset", tags.Title)
 	})
@@ -190,7 +222,7 @@ func TestTagger_Generate(t *testing.T) {
 		failure := errors.New("exit status 127")
 		run := &fakeRun{output: "command not found", err: failure}
 
-		_, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		_, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.ErrorIs(t, err, failure)
 		assert.Contains(t, err.Error(), "running claude")
 	})
@@ -198,7 +230,7 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("returns the place split beside the location the user typed", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],
 			"city":"Cascais","state":"Lisboa","country":"Portugal"}}`}
-		req := testRequest("Location: Cascais, Portugal")
+		req := testRequest()
 		req.Location = "  Cascais, Portugal  "
 
 		tags, err := newTestTagger(run).Generate(t.Context(), req)
@@ -213,7 +245,7 @@ func TestTagger_Generate(t *testing.T) {
 
 	t.Run("keeps the typed location when the model returns no split", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
-		req := testRequest("Location: somewhere in the woods")
+		req := testRequest()
 		req.Location = "somewhere in the woods"
 
 		tags, err := newTestTagger(run).Generate(t.Context(), req)
@@ -223,7 +255,7 @@ func TestTagger_Generate(t *testing.T) {
 
 	t.Run("keeps a partial split", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],"country":"Portugal"}}`}
-		req := testRequest("")
+		req := testRequest()
 		req.Location = "Portugal"
 
 		tags, err := newTestTagger(run).Generate(t.Context(), req)
@@ -236,14 +268,14 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("keeps a split the request did not ask for", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"],"city":"Lisbon"}}`}
 
-		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 		assert.Equal(t, model.Place{City: "Lisbon"}, tags.Place)
 	})
 
 	t.Run("a place alone is still a failed run", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[],"country":"Portugal"}}`}
-		req := testRequest("")
+		req := testRequest()
 		req.Location = "Portugal"
 
 		_, err := newTestTagger(run).Generate(t.Context(), req)
@@ -252,7 +284,7 @@ func TestTagger_Generate(t *testing.T) {
 
 	t.Run("returns the concept the user typed, trimmed", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
-		req := testRequest("Concept: tram 28 seen head-on")
+		req := testRequest()
 		req.Concept = "  tram 28 seen head-on  "
 
 		tags, err := newTestTagger(run).Generate(t.Context(), req)
@@ -262,7 +294,7 @@ func TestTagger_Generate(t *testing.T) {
 
 	t.Run("a concept alone is still a failed run", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[]}}`}
-		req := testRequest("")
+		req := testRequest()
 		req.Concept = "tram 28 seen head-on"
 
 		_, err := newTestTagger(run).Generate(t.Context(), req)
@@ -271,7 +303,7 @@ func TestTagger_Generate(t *testing.T) {
 
 	t.Run("returns the editorial mark the user ticked", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
-		req := testRequest("Editorial: June 13, 2026")
+		req := testRequest()
 		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 9, 41, 0, 0, time.UTC)}
 
 		tags, err := newTestTagger(run).Generate(t.Context(), req)
@@ -283,14 +315,14 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("leaves the mark out when the dialog made none", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
 
-		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 		assert.Equal(t, model.Editorial{}, tags.Editorial)
 	})
 
 	t.Run("a mark alone is still a failed run", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"","keywords":[]}}`}
-		req := testRequest("")
+		req := testRequest()
 		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)}
 
 		_, err := newTestTagger(run).Generate(t.Context(), req)
@@ -300,7 +332,7 @@ func TestTagger_Generate(t *testing.T) {
 	t.Run("keeps a response without keywords", func(t *testing.T) {
 		run := &fakeRun{output: `{"structured_output":{"title":"Only a title"}}`}
 
-		tags, err := newTestTagger(run).Generate(t.Context(), testRequest(""))
+		tags, err := newTestTagger(run).Generate(t.Context(), testRequest())
 		require.NoError(t, err)
 		assert.Equal(t, "Only a title", tags.Title)
 		assert.Empty(t, tags.Keywords)

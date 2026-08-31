@@ -1,7 +1,6 @@
 package library
 
 import (
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -53,24 +52,6 @@ func TestColorService_ToggleColor(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotContains(t, colors, model.ColorRed)
 	})
-}
-
-func TestColorService_HasColor(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	svc := NewColorService()
-	photo := testPhoto(dir, "photo.jpg")
-
-	has, err := svc.HasColor(photo, model.ColorGreen)
-	require.NoError(t, err)
-	assert.False(t, has)
-
-	require.NoError(t, svc.ToggleColor(photo, model.ColorGreen))
-
-	has, err = svc.HasColor(photo, model.ColorGreen)
-	require.NoError(t, err)
-	assert.True(t, has)
 }
 
 func TestColorService_RemoveColors(t *testing.T) {
@@ -231,26 +212,6 @@ func TestColorService_RemoveColorLabels(t *testing.T) {
 	})
 }
 
-func TestColorService_InvalidateCache(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	svc := NewColorService()
-	photo := testPhoto(dir, "photo.jpg")
-
-	require.NoError(t, svc.ToggleColor(photo, model.ColorRed))
-
-	cm := model.ColorMap{"photo.jpg": {model.ColorBlue}}
-	require.NoError(t, model.SaveColors(dir, cm))
-
-	svc.InvalidateCache(dir)
-
-	colors, err := svc.GetColors(photo)
-	require.NoError(t, err)
-	assert.Contains(t, colors, model.ColorBlue)
-	assert.NotContains(t, colors, model.ColorRed)
-}
-
 func TestColorService_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
@@ -270,32 +231,8 @@ func TestColorService_ConcurrentAccess(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, _ = svc.HasColor(testPhoto(dir, "photo.jpg"), model.ColorRed)
+			_, _ = svc.GetDirectoryColors(dir)
 		}()
 	}
 	wg.Wait()
-}
-
-func TestColorService_InvalidateCache_ReReadsFromDisk(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	svc := NewColorService()
-	photo := testPhoto(dir, "photo.jpg")
-
-	require.NoError(t, svc.ToggleColor(photo, model.ColorGreen))
-
-	data := `{"photo.jpg":["red"]}`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, model.ColorsFileName), []byte(data), 0600))
-
-	colors, err := svc.GetColors(photo)
-	require.NoError(t, err)
-	assert.Contains(t, colors, model.ColorGreen)
-
-	svc.InvalidateCache(dir)
-
-	colors, err = svc.GetColors(photo)
-	require.NoError(t, err)
-	assert.Contains(t, colors, model.ColorRed)
-	assert.NotContains(t, colors, model.ColorGreen)
 }

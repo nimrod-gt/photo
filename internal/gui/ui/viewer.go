@@ -6,7 +6,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -23,58 +22,6 @@ type ViewerCallbacks struct {
 }
 
 type Viewer struct {
-	container *fyne.Container
-	zoomW     *zoomWidget
-	callbacks ViewerCallbacks
-}
-
-func NewViewer(callbacks ViewerCallbacks) *Viewer {
-	v := &Viewer{callbacks: callbacks}
-	v.build()
-	return v
-}
-
-func (v *Viewer) Container() *fyne.Container {
-	return v.container
-}
-
-func (v *Viewer) ShowPhoto(img image.Image) {
-	v.zoomW.setImage(img)
-	v.resetZoom()
-}
-
-func (v *Viewer) UpdateImage(img image.Image) {
-	v.zoomW.setImage(img)
-	v.zoomW.Refresh()
-}
-
-func (v *Viewer) Clear() {
-	v.zoomW.image.Hide()
-	v.resetZoom()
-}
-
-func (v *Viewer) ResetZoom() {
-	v.resetZoom()
-}
-
-func (v *Viewer) ZoomIn() {
-	v.zoomW.zoomBy(keyboardZoomStep, v.zoomW.Size().Width/2, v.zoomW.Size().Height/2)
-}
-
-func (v *Viewer) ZoomOut() {
-	v.zoomW.zoomBy(1/keyboardZoomStep, v.zoomW.Size().Width/2, v.zoomW.Size().Height/2)
-}
-
-func (v *Viewer) resetZoom() {
-	v.zoomW.reset()
-}
-
-func (v *Viewer) build() {
-	v.zoomW = newZoomWidget(v.callbacks)
-	v.container = container.NewStack(v.zoomW)
-}
-
-type zoomWidget struct {
 	widget.BaseWidget
 	image     *canvas.Image
 	zoom      float32
@@ -83,10 +30,10 @@ type zoomWidget struct {
 	callbacks ViewerCallbacks
 }
 
-func newZoomWidget(callbacks ViewerCallbacks) *zoomWidget {
+func NewViewer(callbacks ViewerCallbacks) *Viewer {
 	img := &canvas.Image{}
 	img.FillMode = canvas.ImageFillStretch
-	z := &zoomWidget{
+	z := &Viewer{
 		image:     img,
 		zoom:      minZoom,
 		callbacks: callbacks,
@@ -95,11 +42,42 @@ func newZoomWidget(callbacks ViewerCallbacks) *zoomWidget {
 	return z
 }
 
-func (z *zoomWidget) CreateRenderer() fyne.WidgetRenderer {
+func (z *Viewer) Container() fyne.CanvasObject {
+	return z
+}
+
+func (z *Viewer) ShowPhoto(img image.Image) {
+	z.setImage(img)
+	z.reset()
+}
+
+func (z *Viewer) UpdateImage(img image.Image) {
+	z.setImage(img)
+	z.Refresh()
+}
+
+func (z *Viewer) Clear() {
+	z.image.Hide()
+	z.reset()
+}
+
+func (z *Viewer) ResetZoom() {
+	z.reset()
+}
+
+func (z *Viewer) ZoomIn() {
+	z.zoomBy(keyboardZoomStep, z.Size().Width/2, z.Size().Height/2)
+}
+
+func (z *Viewer) ZoomOut() {
+	z.zoomBy(1/keyboardZoomStep, z.Size().Width/2, z.Size().Height/2)
+}
+
+func (z *Viewer) CreateRenderer() fyne.WidgetRenderer {
 	return &zoomRenderer{z: z, objects: []fyne.CanvasObject{z.image}}
 }
 
-func (z *zoomWidget) setImage(img image.Image) {
+func (z *Viewer) setImage(img image.Image) {
 	if z.image.Image == img {
 		return
 	}
@@ -110,12 +88,12 @@ func (z *zoomWidget) setImage(img image.Image) {
 	z.image.Refresh()
 }
 
-func (z *zoomWidget) Scrolled(ev *fyne.ScrollEvent) {
+func (z *Viewer) Scrolled(ev *fyne.ScrollEvent) {
 	factor := float32(math.Pow(1.01, float64(ev.Scrolled.DY)))
 	z.zoomBy(factor, ev.Position.X, ev.Position.Y)
 }
 
-func (z *zoomWidget) zoomBy(factor, cursorX, cursorY float32) {
+func (z *Viewer) zoomBy(factor, cursorX, cursorY float32) {
 	newZoom := z.zoom * factor
 	if newZoom < minZoom {
 		newZoom = minZoom
@@ -140,7 +118,7 @@ func (z *zoomWidget) zoomBy(factor, cursorX, cursorY float32) {
 	}
 }
 
-func (z *zoomWidget) Dragged(ev *fyne.DragEvent) {
+func (z *Viewer) Dragged(ev *fyne.DragEvent) {
 	if z.zoom <= minZoom {
 		return
 	}
@@ -150,9 +128,9 @@ func (z *zoomWidget) Dragged(ev *fyne.DragEvent) {
 	z.Refresh()
 }
 
-func (z *zoomWidget) DragEnd() {}
+func (z *Viewer) DragEnd() {}
 
-func (z *zoomWidget) Tapped(_ *fyne.PointEvent) {
+func (z *Viewer) Tapped(_ *fyne.PointEvent) {
 	if z.zoom > minZoom {
 		z.reset()
 		return
@@ -160,20 +138,20 @@ func (z *zoomWidget) Tapped(_ *fyne.PointEvent) {
 	call(z.callbacks.OnTapped)
 }
 
-func (z *zoomWidget) reset() {
+func (z *Viewer) reset() {
 	z.zoom = minZoom
 	z.panX = 0
 	z.panY = 0
 	z.Refresh()
 }
 
-func (z *zoomWidget) TappedSecondary(ev *fyne.PointEvent) {
+func (z *Viewer) TappedSecondary(ev *fyne.PointEvent) {
 	if z.callbacks.OnSecondaryTapped != nil {
 		z.callbacks.OnSecondaryTapped(ev.AbsolutePosition)
 	}
 }
 
-func (z *zoomWidget) clampPan() {
+func (z *Viewer) clampPan() {
 	size := z.Size()
 	fitted := z.fittedSize(size)
 	dispW := fitted.Width * z.zoom
@@ -186,7 +164,7 @@ func (z *zoomWidget) clampPan() {
 	z.panY = max(-maxPanY, min(z.panY, maxPanY))
 }
 
-func (z *zoomWidget) fittedSize(containerSize fyne.Size) fyne.Size {
+func (z *Viewer) fittedSize(containerSize fyne.Size) fyne.Size {
 	if z.image.Image == nil {
 		return fyne.NewSize(0, 0)
 	}
@@ -201,7 +179,7 @@ func (z *zoomWidget) fittedSize(containerSize fyne.Size) fyne.Size {
 }
 
 type zoomRenderer struct {
-	z       *zoomWidget
+	z       *Viewer
 	objects []fyne.CanvasObject
 }
 

@@ -101,9 +101,7 @@ func buildHelpColumn(sections []shortcutSection) *fyne.Container {
 		if i > 0 {
 			col.Add(widget.NewSeparator())
 		}
-		title := widget.NewLabel(section.title)
-		title.TextStyle = fyne.TextStyle{Bold: true}
-		col.Add(title)
+		col.Add(boldLabel(section.title))
 		for _, entry := range section.entries {
 			row := container.NewHBox(
 				container.New(layout.NewGridWrapLayout(fyne.NewSize(keyWidth, 0)), newKeyLabel(entry.key)),

@@ -24,10 +24,7 @@ const largeFolderWarnThreshold = 10000
 type Application struct {
 	contextMenuItems ui.ContextMenuItems
 	fyneApp          fyne.App
-	scanner          *library.Scanner
 	colorService     *library.ColorService
-	deleter          *library.Deleter
-	copier           *library.Copier
 	navigator        *library.Navigator
 	exifService      *imaging.ExifService
 	imageProvider    *imaging.Provider
@@ -38,6 +35,9 @@ type Application struct {
 	viewer           *ui.Viewer
 	gridViewer       *ui.GridViewer
 	mainWindow       *ui.MainWindow
+	notifier         *ui.Notifier
+	tagBar           *ui.TagBar
+	runBar           *ui.RunBar
 	dialogs          dialogManager
 	fullImageSize    func() int
 	sortOrder        library.SortOrder
@@ -56,10 +56,7 @@ type Application struct {
 func New() *Application {
 	exifService := imaging.NewExifService()
 	a := &Application{
-		scanner:       library.NewScanner(),
 		colorService:  library.NewColorService(),
-		deleter:       library.NewDeleter(),
-		copier:        library.NewCopier(),
 		navigator:     library.NewNavigator(),
 		exifService:   exifService,
 		imageProvider: imaging.NewProvider(exifService),
@@ -94,16 +91,17 @@ func (a *Application) Run() {
 	declareThreadingMigration(fyneApp)
 	fyneApp.Settings().SetTheme(ui.NewDarkTheme())
 
-	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{
+	actions := ui.PhotoActions{
 		OnFavorite: a.handleFavorite,
 		OnRed:      func() { a.handleColorToggle(model.ColorRed) },
 		OnGreen:    func() { a.handleColorToggle(model.ColorGreen) },
 		OnBlue:     func() { a.handleColorToggle(model.ColorBlue) },
 		OnTags:     a.handleTags,
 		OnDelete:   a.handleDelete,
-	})
+	}
+	a.actionPanel = ui.NewActionPanel(actions)
 
-	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.imageProvider, a.colorService, ui.FileBrowserCallbacks{
+	a.fileBrowser = ui.NewFileBrowser(a.imageProvider, a.colorService, ui.FileBrowserCallbacks{
 		OnPhotoSelected:     a.handlePhotoSelected,
 		OnDirectorySelected: a.handleDirectorySelected,
 		OnChooseFolder:      a.handleChooseFolder,
@@ -136,28 +134,21 @@ func (a *Application) Run() {
 	})
 
 	a.contextMenuItems = ui.NewContextMenu(ui.ContextMenuCallbacks{
-		OnFavorite:      a.handleFavorite,
-		OnRed:           func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:         func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:          func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:        a.handleDelete,
+		PhotoActions:    actions,
 		OnCopyClipboard: a.handleCopyToClipboard,
-		OnTags:          a.handleTags,
 	})
 
-	notifier := ui.NewNotifier()
-	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, notifier)
+	a.notifier = ui.NewNotifier()
+	a.tagBar = ui.NewTagBar()
+	a.runBar = ui.NewRunBar()
+	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, a.notifier, a.tagBar, a.runBar)
 
 	// The window has no native handle to maximize before the driver loop has
 	// created it, which the loop does on its way to the first frame.
 	fyneApp.Lifecycle().SetOnStarted(a.mainWindow.Maximize)
 
 	ui.SetupShortcuts(a.mainWindow.Window().Canvas(), ui.ShortcutCallbacks{
-		OnFavorite:       a.handleFavorite,
-		OnRed:            func() { a.handleColorToggle(model.ColorRed) },
-		OnGreen:          func() { a.handleColorToggle(model.ColorGreen) },
-		OnBlue:           func() { a.handleColorToggle(model.ColorBlue) },
-		OnDelete:         a.handleDelete,
+		PhotoActions:     actions,
 		OnCopy:           a.handleCopy,
 		OnCancel:         a.handleCancel,
 		OnNext:           a.handleNext,
@@ -173,7 +164,6 @@ func (a *Application) Run() {
 		OnZoomReset:      a.handleZoomReset,
 		OnZoomIn:         a.handleZoomIn,
 		OnZoomOut:        a.handleZoomOut,
-		OnTags:           a.handleTags,
 		OnSettings:       a.handleSettings,
 	})
 
@@ -196,7 +186,7 @@ func (a *Application) Run() {
 func (a *Application) showError(msg string, err error) {
 	full := fmt.Sprintf("%s: %v", msg, err)
 	log.Println(full)
-	a.mainWindow.ShowError(full)
+	a.notifier.ShowError(full)
 }
 
 func (a *Application) handleDirectorySelected(dir string) {
@@ -249,7 +239,7 @@ func (a *Application) loadInitialDirectory() {
 }
 
 func (a *Application) loadDirectory(dir string) {
-	photos, err := a.scanner.ScanDirectory(dir)
+	photos, err := library.ScanDirectory(dir)
 	if err != nil {
 		a.showError("Failed to scan directory", err)
 		return
@@ -269,7 +259,7 @@ func (a *Application) loadDirectory(dir string) {
 		a.fileBrowser.ClearFilter()
 	}
 
-	a.scanner.SortPhotos(photos, a.sortOrder)
+	library.SortPhotos(photos, a.sortOrder)
 	if a.sortDescending {
 		slices.Reverse(photos)
 	}

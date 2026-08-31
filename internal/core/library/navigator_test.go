@@ -24,7 +24,7 @@ func TestNavigator_SetPhotos(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(nil)
-		assert.Equal(t, 0, nav.Count())
+		assert.Equal(t, -1, nav.CurrentIndex())
 		_, ok := nav.Current()
 		assert.False(t, ok)
 	})
@@ -32,7 +32,7 @@ func TestNavigator_SetPhotos(t *testing.T) {
 	t.Run("non-empty", func(t *testing.T) {
 		nav := NewNavigator()
 		nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
-		assert.Equal(t, 2, nav.Count())
+		assert.Equal(t, 0, nav.CurrentIndex())
 		p, ok := nav.Current()
 		assert.True(t, ok)
 		assert.Equal(t, "a.jpg", p.Name)
@@ -251,7 +251,7 @@ func TestNavigator_RemoveCurrent(t *testing.T) {
 		nav.SetPhotos(makePhotos("a.jpg"))
 		_, _, _, ok := nav.RemoveCurrent()
 		assert.False(t, ok)
-		assert.Equal(t, 0, nav.Count())
+		assert.Equal(t, -1, nav.CurrentIndex())
 	})
 
 	t.Run("empty", func(t *testing.T) {
@@ -259,15 +259,6 @@ func TestNavigator_RemoveCurrent(t *testing.T) {
 		_, _, _, ok := nav.RemoveCurrent()
 		assert.False(t, ok)
 	})
-}
-
-func TestNavigator_Count(t *testing.T) {
-	t.Parallel()
-
-	nav := NewNavigator()
-	assert.Equal(t, 0, nav.Count())
-	nav.SetPhotos(makePhotos("a.jpg", "b.jpg"))
-	assert.Equal(t, 2, nav.Count())
 }
 
 func TestNavigator_ConcurrentAccess(t *testing.T) {
@@ -293,7 +284,7 @@ func TestNavigator_ConcurrentAccess(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			nav.Count()
+			nav.CurrentIndex()
 		}()
 	}
 	wg.Wait()

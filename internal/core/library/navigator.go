@@ -37,53 +37,27 @@ func (n *Navigator) Current() (model.Photo, bool) {
 	return n.currentLocked()
 }
 
-func (n *Navigator) Count() int {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	return len(n.photos)
-}
-
 func (n *Navigator) Next() (model.Photo, int, bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	if n.current < len(n.photos)-1 {
-		n.current++
-	}
-	photo, ok := n.currentLocked()
-	return photo, n.current, ok
+	return n.move(func(i int) int { return i + 1 })
 }
 
 func (n *Navigator) Previous() (model.Photo, int, bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	if n.current > 0 {
-		n.current--
-	}
-	photo, ok := n.currentLocked()
-	return photo, n.current, ok
+	return n.move(func(i int) int { return i - 1 })
 }
 
 func (n *Navigator) GoTo(index int) (model.Photo, int, bool) {
+	return n.move(func(int) int { return index })
+}
+
+func (n *Navigator) move(to func(int) int) (model.Photo, int, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if index >= 0 && index < len(n.photos) {
-		n.current = index
+	if idx := to(n.current); idx >= 0 && idx < len(n.photos) {
+		n.current = idx
 	}
 	photo, ok := n.currentLocked()
 	return photo, n.current, ok
-}
-
-func (n *Navigator) Photos() []model.Photo {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	result := make([]model.Photo, len(n.photos))
-	copy(result, n.photos)
-	return result
 }
 
 func (n *Navigator) Peek(offset int) (model.Photo, bool) {

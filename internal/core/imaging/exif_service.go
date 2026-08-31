@@ -109,7 +109,7 @@ func (s *ExifService) GetPhotoInfo(jpegPath string) (PhotoInfo, error) {
 		}
 	}
 	// A packet the parser rejects still leaves the EXIF rating to show.
-	info.Rating, _ = ratingOf(sl, rootIfd)
+	info.Rating = ratingOf(sl, rootIfd)
 	info.Ratable = packetTakesRating(xmpPacketOf(sl))
 	return info, nil
 }
@@ -125,23 +125,22 @@ func packetTakesRating(packet []byte) bool {
 // The camera and Lightroom keep the rating in the XMP packet and only older
 // tools in the EXIF, so the packet wins whenever it says anything, zero
 // included: that is what the camera shows.
-func ratingOf(sl *jpegstructure.SegmentList, rootIfd *exif.Ifd) (int, error) {
-	rating, found, err := packetRating(xmpPacketOf(sl))
-	if found {
-		return rating, nil
+func ratingOf(sl *jpegstructure.SegmentList, rootIfd *exif.Ifd) int {
+	if rating, found := packetRating(xmpPacketOf(sl)); found {
+		return rating
 	}
-	return exifRating(rootIfd), err
+	return exifRating(rootIfd)
 }
 
-func packetRating(packet []byte) (rating int, found bool, err error) {
+func packetRating(packet []byte) (rating int, found bool) {
 	if len(packet) == 0 {
-		return 0, false, nil
+		return 0, false
 	}
 	parsed, err := parseSidecar(packet)
 	if err != nil {
-		return 0, false, err
+		return 0, false
 	}
-	return parsed.rating, parsed.rated, nil
+	return parsed.rating, parsed.rated
 }
 
 func exifRating(rootIfd *exif.Ifd) int {

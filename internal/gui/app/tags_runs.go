@@ -12,7 +12,6 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"photo/internal/core/imaging"
 	"photo/internal/core/model"
 	"photo/internal/core/tags"
 	"photo/internal/gui/ui"
@@ -260,10 +259,10 @@ func (r *tagRunner) finishDetached(run *tagRun, generated model.Tags, err error)
 	// stood rather than being added to it.
 	r.saveFiles(run, generated, run.dateAt(r.app), true, func(_, note string) {
 		if len(note) != 0 {
-			r.app.mainWindow.ShowWarning("Tags generated for " + run.photo.Name + " - " + note)
+			r.app.notifier.ShowWarning("Tags generated for " + run.photo.Name + " - " + note)
 			return
 		}
-		r.app.mainWindow.ShowNotification("Tags generated for " + run.photo.Name)
+		r.app.notifier.ShowNotification("Tags generated for " + run.photo.Name)
 	})
 }
 
@@ -300,38 +299,21 @@ func (r *tagRunner) saveTyped(run *tagRun, failure error) {
 // nothing but the cache, the overlay and its notification to offer: the tags
 // are shown and wait for the Save button of a dialog reopened on the photo.
 func (r *tagRunner) saveFiles(run *tagRun, written model.Tags, taken time.Time, complete bool, saved func(target, note string)) {
-	plan := r.app.autoWrite()
-	plan.jpeg = plan.jpeg && run.photo.IsJPEG() && len(written.Problems()) == 0
+	plan := r.app.autoWrite().forPhoto(run.photo, written)
 	if plan.none() {
 		r.release(run)
 		if r.dropped(run) {
 			return
 		}
-		r.store(run, written, taken, false)
+		r.app.storeStock(run.photo.ImagePath, written, taken, false)
 		saved("", "")
 		return
 	}
 
-	path := run.photo.SidecarPath()
 	target := writeTarget(run.photo, plan)
 	r.writeStarted(run)
 	go func() {
-		// What the sidecar already holds is folded in whichever file is
-		// written: the fields a closed dialog handed over may have been typed
-		// into a dialog that never read it, and the JPEG would lose them as
-		// readily as the sidecar.
-		written, err := completed(path, written, complete)
-		if err == nil && plan.sidecar {
-			err = imaging.WriteSidecar(path, written)
-		}
-		var note string
-		if err == nil && plan.jpeg {
-			var write imaging.StockWrite
-			write, err = r.app.exifService.WriteStockTags(run.photo.ImagePath, written)
-			if err == nil {
-				note = writeNote(write)
-			}
-		}
+		written, note, err := r.app.writeTagFiles(run.photo, written, plan, complete)
 		// Freed by the file being on disk, not by the UI goroutine being free:
 		// a copy waiting on this run needs the sidecar, not the notification.
 		r.release(run)
@@ -343,7 +325,7 @@ func (r *tagRunner) saveFiles(run *tagRun, written model.Tags, taken time.Time, 
 				r.app.showError("Failed to save tags to "+target, err)
 				return
 			}
-			r.store(run, written, taken, plan.sidecar)
+			r.app.storeStock(run.photo.ImagePath, written, taken, plan.sidecar)
 			saved(target, note)
 		})
 	}()
@@ -356,12 +338,6 @@ func (r *tagRunner) writeStarted(run *tagRun) {
 	defer r.mu.Unlock()
 
 	run.writing = true
-}
-
-func (r *tagRunner) store(run *tagRun, written model.Tags, taken time.Time, sidecar bool) {
-	r.app.imageProvider.StoreStockInfo(run.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
-	r.app.tagsUnsaved.mark(run.photo.ImagePath, !sidecar)
-	r.app.setTagsIfCurrent(run.photo.ImagePath, written)
 }
 
 // The date the run started with is the one the cache held then, which for a
@@ -434,7 +410,7 @@ func (r *tagRunner) live() []ui.RunItem {
 // kills has nowhere left to be shown.
 func (r *tagRunner) reportRuns() {
 	fyne.Do(func() {
-		r.app.mainWindow.SetRunningTags(r.live())
+		r.app.runBar.SetRuns(r.live())
 	})
 }
 
@@ -449,7 +425,7 @@ func (a *Application) awaitTags(ctx context.Context, photo model.Photo) {
 		return
 	}
 	fyne.Do(func() {
-		a.mainWindow.ShowNotification("Waiting for tags of " + photo.Name)
+		a.notifier.ShowNotification("Waiting for tags of " + photo.Name)
 	})
 	a.tagRuns.wait(ctx, photo.ImagePath)
 }
@@ -480,7 +456,7 @@ func (r *tagRunner) stopAll() {
 	// carry the hop is over, and a corner left with a plate on it keeps arming a
 	// tick for a run that was just killed. It comes after the kill, so a run that
 	// answers in the meantime finds itself cancelled and puts nothing back.
-	r.app.mainWindow.SetRunningTags(nil)
+	r.app.runBar.SetRuns(nil)
 
 	done := make(chan struct{})
 	go func() {
@@ -521,20 +497,11 @@ func (r *tagRunner) flushTyped(run *tagRun) {
 	if !ok || nothingToWrite(typed) {
 		return
 	}
-	plan := r.app.autoWrite()
-	plan.jpeg = plan.jpeg && run.photo.IsJPEG() && len(typed.Problems()) == 0
+	plan := r.app.autoWrite().forPhoto(run.photo, typed)
 	if plan.none() {
 		return
 	}
-	path := run.photo.SidecarPath()
-	written, err := completed(path, typed, complete)
-	if err == nil && plan.sidecar {
-		err = imaging.WriteSidecar(path, written)
-	}
-	if err == nil && plan.jpeg {
-		_, err = r.app.exifService.WriteStockTags(run.photo.ImagePath, written)
-	}
-	if err != nil {
+	if _, _, err := r.app.writeTagFiles(run.photo, typed, plan, complete); err != nil {
 		log.Println("Failed to save tags on the way out:", err)
 	}
 }

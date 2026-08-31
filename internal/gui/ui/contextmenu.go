@@ -4,35 +4,32 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"photo/internal/core/model"
 )
 
 type ContextMenuCallbacks struct {
-	OnFavorite      func()
-	OnRed           func()
-	OnGreen         func()
-	OnBlue          func()
-	OnDelete        func()
+	PhotoActions
 	OnCopyClipboard func()
-	OnTags          func()
 }
 
 type ContextMenuItems struct {
 	Menu     *fyne.Menu
 	Favorite *fyne.MenuItem
-	Red      *fyne.MenuItem
-	Green    *fyne.MenuItem
-	Blue     *fyne.MenuItem
+	Colors   map[model.ColorLabel]*fyne.MenuItem
 }
 
 func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 	favoriteItem := fyne.NewMenuItemWithIcon("Favorite", iconHeart, func() { call(callbacks.OnFavorite) })
-	redItem := fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() { call(callbacks.OnRed) })
-	greenItem := fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() { call(callbacks.OnGreen) })
-	blueItem := fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() { call(callbacks.OnBlue) })
+	colors := map[model.ColorLabel]*fyne.MenuItem{
+		model.ColorRed:   fyne.NewMenuItemWithIcon("Red", iconRedCircle, func() { call(callbacks.OnRed) }),
+		model.ColorGreen: fyne.NewMenuItemWithIcon("Green", iconGreenCircle, func() { call(callbacks.OnGreen) }),
+		model.ColorBlue:  fyne.NewMenuItemWithIcon("Blue", iconBlueCircle, func() { call(callbacks.OnBlue) }),
+	}
 	menu := fyne.NewMenu("",
 		favoriteItem,
 		fyne.NewMenuItemSeparator(),
-		redItem, greenItem, blueItem,
+		colors[model.ColorRed], colors[model.ColorGreen], colors[model.ColorBlue],
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Copy to Clipboard", func() { call(callbacks.OnCopyClipboard) }),
 		fyne.NewMenuItem("Generate Tags", func() { call(callbacks.OnTags) }),
@@ -42,9 +39,7 @@ func NewContextMenu(callbacks ContextMenuCallbacks) ContextMenuItems {
 	return ContextMenuItems{
 		Menu:     menu,
 		Favorite: favoriteItem,
-		Red:      redItem,
-		Green:    greenItem,
-		Blue:     blueItem,
+		Colors:   colors,
 	}
 }
 

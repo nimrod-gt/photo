@@ -15,15 +15,13 @@ import (
 
 type DirTree struct {
 	tree        *widget.Tree
-	scanner     *library.Scanner
 	mu          sync.RWMutex
 	root        string
 	hasChildren map[string]bool
 }
 
-func NewDirTree(scanner *library.Scanner, onSelected func(string)) *DirTree {
+func NewDirTree(onSelected func(string)) *DirTree {
 	dt := &DirTree{
-		scanner:     scanner,
 		hasChildren: make(map[string]bool),
 	}
 
@@ -80,14 +78,14 @@ func (dt *DirTree) childUIDs(uid widget.TreeNodeID) []widget.TreeNodeID {
 		}
 		return []string{root}
 	}
-	dirs, err := dt.scanner.ListDirectories(uid)
+	dirs, err := library.ListDirectories(uid)
 	if err != nil {
 		return nil
 	}
 
 	dt.mu.Lock()
 	for _, d := range dirs {
-		children, _ := dt.scanner.ListDirectories(d)
+		children, _ := library.ListDirectories(d)
 		dt.hasChildren[d] = len(children) > 0
 	}
 	dt.mu.Unlock()

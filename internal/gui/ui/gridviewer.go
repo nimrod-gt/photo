@@ -240,12 +240,9 @@ func (gv *GridViewer) scheduleRefresh(index int) {
 }
 
 type gridResizeLayout struct {
+	zeroMinSize
 	onResize func(fyne.Size)
 	lastSize fyne.Size
-}
-
-func (l *gridResizeLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
 }
 
 func (l *gridResizeLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {

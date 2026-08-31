@@ -75,8 +75,7 @@ func NewCopyModeSelect(initial library.CopyMode) *CopyModeSelect {
 const copyDialogWidth = float32(500)
 
 func NewCopyDialogContent(filename string, destRow *fyne.Container, modeSelect *CopyModeSelect) *fyne.Container {
-	nameLabel := widget.NewLabel(filename)
-	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
+	nameLabel := boldLabel(filename)
 	content := container.NewVBox(
 		nameLabel,
 		destRow,

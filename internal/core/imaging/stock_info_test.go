@@ -19,8 +19,13 @@ import (
 
 func writeJPEGWithIfdTags(t *testing.T, dir, name string, byIfd map[string]map[string]any) string {
 	t.Helper()
+	return writeSizedJPEGWithIfdTags(t, dir, name, 8, 6, byIfd)
+}
+
+func writeSizedJPEGWithIfdTags(t *testing.T, dir, name string, w, h int, byIfd map[string]map[string]any) string {
+	t.Helper()
 	var buf bytes.Buffer
-	require.NoError(t, jpeg.Encode(&buf, makeTestImage(8, 6), nil))
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
 
 	jmp := jpegstructure.NewJpegMediaParser()
 	intfc, err := jmp.ParseBytes(buf.Bytes())

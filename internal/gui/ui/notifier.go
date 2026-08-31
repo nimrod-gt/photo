@@ -82,11 +82,7 @@ func (n *Notifier) show(msg string, bgColor color.Color) {
 	})
 }
 
-type bottomRightLayout struct{}
-
-func (l *bottomRightLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
-	return fyne.NewSize(0, 0)
-}
+type bottomRightLayout struct{ zeroMinSize }
 
 func (l *bottomRightLayout) Layout(objects []fyne.CanvasObject, containerSize fyne.Size) {
 	for _, obj := range objects {

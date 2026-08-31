@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 20,
+  "next_id": 21,
   "todos": [
     {
       "id": 19,
@@ -21,6 +21,27 @@
       "branch": null,
       "created_at": "2026-08-28T12:53:31Z",
       "updated_at": "2026-08-28T12:53:31Z",
+      "plan": null
+    },
+    {
+      "id": 20,
+      "description": "Support the Claude API as a tag-generation backend alongside the claude -p CLI.",
+      "context": "Stock tag generation today shells out to the `claude -p` CLI: `internal/core/tags/tagger.go` owns the whole path (binary lookup via `internal/core/claudebin`, CLI flags in `taggerArgs`, embedded system prompt `internal/core/tags/prompts/stock_photo.txt`, JSON schema pinned to `model.MaxTitleLength`/`model.KeywordCount`, and parsing of the CLI's `structured_output` report including usage-limit and api_error_status handling). The task is to add the direct Claude API as an alternative backend behind the same `Tagger.Generate(ctx, Request) (model.Tags, error)` seam, which is injected as `run`/`lookup` function fields and driven from the GUI by `internal/gui/app/tags_action.go` and `tags_runs.go`; the API key/backend choice needs a home next to the existing `claudePath` preference, which is entered in the Tags dialog path row (`internal/gui/ui/tags_dialog.go`) and persisted to Fyne preferences after a successful run. Note the model is currently hardcoded as `taggerModel = \"opus\"` with a 3-minute timeout, and errors are surfaced to the user as text, so the API path must produce comparable messages.",
+      "docs": [
+        "internal/core/tags/tagger.go",
+        "internal/core/tags/tagger_test.go",
+        "internal/core/claudebin/lookup.go",
+        "internal/core/tags/prompts/stock_photo.txt",
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/tags_runs.go",
+        "internal/gui/ui/tags_dialog.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-08-31T11:17:17Z",
+      "updated_at": "2026-08-31T11:17:17Z",
       "plan": null
     }
   ]

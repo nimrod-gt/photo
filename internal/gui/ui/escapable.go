@@ -138,13 +138,33 @@ func (e *dialogDateEntry) KeyUp(ev *fyne.KeyEvent) {
 	e.DateEntry.KeyUp(ev)
 }
 
-type dialogCheck struct {
-	widget.Check
+// Checks and buttons take no shortcut and no raw key of their own, so what the
+// dialog turns down is over and the forwarder answers all three whole. The
+// entry types cannot share it: their embedded widgets implement the same
+// methods, and a second embed would silence the promotion instead of failing.
+type keyForwarder struct {
 	keys dialogKeys
 }
 
+func (f *keyForwarder) TypedShortcut(shortcut fyne.Shortcut) {
+	f.keys.handleShortcut(shortcut)
+}
+
+func (f *keyForwarder) KeyDown(ev *fyne.KeyEvent) {
+	f.keys.trackKey(ev, true)
+}
+
+func (f *keyForwarder) KeyUp(ev *fyne.KeyEvent) {
+	f.keys.trackKey(ev, false)
+}
+
+type dialogCheck struct {
+	widget.Check
+	keyForwarder
+}
+
 func newDialogCheck(label string, changed func(bool), keys dialogKeys) *dialogCheck {
-	c := &dialogCheck{keys: keys}
+	c := &dialogCheck{keyForwarder: keyForwarder{keys: keys}}
 	c.Text = label
 	c.OnChanged = changed
 	c.ExtendBaseWidget(c)
@@ -158,22 +178,9 @@ func (c *dialogCheck) TypedKey(ev *fyne.KeyEvent) {
 	c.Check.TypedKey(ev)
 }
 
-// A check takes no shortcut of its own, so what the dialog turns down is over.
-func (c *dialogCheck) TypedShortcut(shortcut fyne.Shortcut) {
-	c.keys.handleShortcut(shortcut)
-}
-
-func (c *dialogCheck) KeyDown(ev *fyne.KeyEvent) {
-	c.keys.trackKey(ev, true)
-}
-
-func (c *dialogCheck) KeyUp(ev *fyne.KeyEvent) {
-	c.keys.trackKey(ev, false)
-}
-
 type dialogButton struct {
 	widget.Button
-	keys  dialogKeys
+	keyForwarder
 	label string
 }
 
@@ -188,7 +195,7 @@ func (b *dialogButton) AccessibilityLabel() string {
 }
 
 func newDialogButton(label string, tapped func(), keys dialogKeys) *dialogButton {
-	b := &dialogButton{keys: keys}
+	b := &dialogButton{keyForwarder: keyForwarder{keys: keys}}
 	b.Text = label
 	b.OnTapped = tapped
 	b.ExtendBaseWidget(b)
@@ -208,18 +215,6 @@ func (b *dialogButton) TypedKey(ev *fyne.KeyEvent) {
 			call(b.OnTapped)
 		}
 	}
-}
-
-func (b *dialogButton) TypedShortcut(shortcut fyne.Shortcut) {
-	b.keys.handleShortcut(shortcut)
-}
-
-func (b *dialogButton) KeyDown(ev *fyne.KeyEvent) {
-	b.keys.trackKey(ev, true)
-}
-
-func (b *dialogButton) KeyUp(ev *fyne.KeyEvent) {
-	b.keys.trackKey(ev, false)
 }
 
 type unfocusableButton struct {

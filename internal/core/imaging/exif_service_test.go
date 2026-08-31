@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	exif "github.com/dsoprea/go-exif/v3"
-	jpegstructure "github.com/dsoprea/go-jpeg-image-structure/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,9 +22,13 @@ func exifRootFromFile(jpegPath string) (*exif.Ifd, error) {
 
 func writePlainJPEG(t *testing.T, dir, name string) string {
 	t.Helper()
-	path := filepath.Join(dir, name)
+	return writeSizedPlainJPEG(t, filepath.Join(dir, name), 8, 6)
+}
+
+func writeSizedPlainJPEG(t *testing.T, path string, w, h int) string {
+	t.Helper()
 	var buf bytes.Buffer
-	require.NoError(t, jpeg.Encode(&buf, makeTestImage(8, 6), nil))
+	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
 	require.NoError(t, os.WriteFile(path, buf.Bytes(), 0600))
 	return path
 }
@@ -37,29 +40,7 @@ func writeJPEGWithTags(t *testing.T, dir, name string, tags map[string]any) stri
 
 func writeJPEGSizedWithTags(t *testing.T, dir, name string, w, h int, tags map[string]any) string {
 	t.Helper()
-	var buf bytes.Buffer
-	require.NoError(t, jpeg.Encode(&buf, makeTestImage(w, h), nil))
-
-	jmp := jpegstructure.NewJpegMediaParser()
-	intfc, err := jmp.ParseBytes(buf.Bytes())
-	require.NoError(t, err)
-	sl, ok := intfc.(*jpegstructure.SegmentList)
-	require.True(t, ok)
-
-	rootIb, err := sl.ConstructExifBuilder()
-	require.NoError(t, err)
-	ifd0, err := exif.GetOrCreateIbFromRootIb(rootIb, "IFD0")
-	require.NoError(t, err)
-	for tagName, value := range tags {
-		require.NoError(t, ifd0.SetStandardWithName(tagName, value))
-	}
-	require.NoError(t, sl.SetExif(rootIb))
-
-	var out bytes.Buffer
-	require.NoError(t, sl.Write(&out))
-	path := filepath.Join(dir, name)
-	require.NoError(t, os.WriteFile(path, out.Bytes(), 0600))
-	return path
+	return writeSizedJPEGWithIfdTags(t, dir, name, w, h, map[string]map[string]any{"IFD0": tags})
 }
 
 func TestExifService_GetPhotoInfo(t *testing.T) {

@@ -25,9 +25,6 @@ const (
 	tagsLabelWidth  = float32(90)
 	keywordRows     = 5
 	titleRows       = 2
-	// The prompt spells editorial dates out as "June 13, 2026", while the entry
-	// itself shows and accepts the user's own locale format.
-	editorialDateLayout = "January 2, 2006"
 
 	generateLabel   = "Generate (" + keyname.Shift + "+Enter)"
 	regenerateLabel = "Regenerate (" + keyname.Shift + "+Enter)"
@@ -97,8 +94,7 @@ func NewTagsDialog(opts TagsDialogOptions, window fyne.Window, callbacks TagsDia
 }
 
 func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
-	nameLabel := widget.NewLabel(opts.Filename)
-	nameLabel.TextStyle = fyne.TextStyle{Bold: true}
+	nameLabel := boldLabel(opts.Filename)
 
 	d.buildInputs(opts)
 
@@ -386,31 +382,6 @@ func (d *TagsDialog) Hide() {
 	d.shown = false
 	d.progress.Stop()
 	d.dialog.Hide()
-}
-
-// Notes renders the optional inputs in the input format the prompt expects.
-func (d *TagsDialog) Notes() string {
-	var lines []string
-	if concept := d.Concept(); len(concept) != 0 {
-		lines = append(lines, "Concept: "+concept)
-	}
-	if location := d.Location(); len(location) != 0 {
-		lines = append(lines, "Location: "+location)
-	}
-	if editorial := d.Editorial(); editorial.Marked {
-		lines = append(lines, strings.TrimSpace("Editorial: "+editorialDay(editorial.Date)))
-	}
-	return strings.Join(lines, "\n")
-}
-
-// The prompt is told the same value the file is given, rather than reading the
-// widgets a second time: a day the two spell differently is a day the user sees
-// in one place and finds in the other.
-func editorialDay(date time.Time) string {
-	if date.IsZero() {
-		return ""
-	}
-	return date.Format(editorialDateLayout)
 }
 
 func (d *TagsDialog) ClaudePath() string {

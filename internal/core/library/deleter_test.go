@@ -20,8 +20,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, Name: "photo.jpg"}
-		d := NewDeleter()
-		require.NoError(t, d.Delete(photo))
+				require.NoError(t, DeleteWithOption(photo, true))
 
 		_, err := os.Stat(jpegPath)
 		assert.True(t, os.IsNotExist(err))
@@ -35,8 +34,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(rawPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: rawPath, Name: "photo.jpg"}
-		d := NewDeleter()
-		require.NoError(t, d.Delete(photo))
+				require.NoError(t, DeleteWithOption(photo, true))
 
 		_, err := os.Stat(jpegPath)
 		assert.True(t, os.IsNotExist(err))
@@ -46,8 +44,7 @@ func TestDeleter_Delete(t *testing.T) {
 
 	t.Run("JPEG already gone", func(t *testing.T) {
 		photo := model.Photo{ImagePath: "/nonexistent/photo.jpg", Name: "photo.jpg"}
-		d := NewDeleter()
-		assert.NoError(t, d.Delete(photo))
+				assert.NoError(t, DeleteWithOption(photo, true))
 	})
 
 	t.Run("RAW already gone", func(t *testing.T) {
@@ -56,8 +53,7 @@ func TestDeleter_Delete(t *testing.T) {
 		require.NoError(t, os.WriteFile(jpegPath, nil, 0600))
 
 		photo := model.Photo{ImagePath: jpegPath, RAWPath: "/nonexistent/photo.ARW", Name: "photo.jpg"}
-		d := NewDeleter()
-		assert.NoError(t, d.Delete(photo))
+				assert.NoError(t, DeleteWithOption(photo, true))
 	})
 }
 
@@ -104,8 +100,7 @@ func TestDeleter_DeleteWithOption(t *testing.T) {
 				photo.RAWPath = rawPath
 			}
 
-			d := NewDeleter()
-			require.NoError(t, d.DeleteWithOption(photo, tt.includeRAW))
+						require.NoError(t, DeleteWithOption(photo, tt.includeRAW))
 
 			_, err := os.Stat(jpegPath)
 			assert.True(t, os.IsNotExist(err), "JPEG should be deleted")
@@ -129,7 +124,7 @@ func TestDeleter_DeletesTheSidecar(t *testing.T) {
 		t.Parallel()
 		photo, sidecar := writePairWithSidecar(t)
 
-		require.NoError(t, NewDeleter().Delete(photo))
+		require.NoError(t, DeleteWithOption(photo, true))
 
 		assert.NoFileExists(t, photo.RAWPath)
 		assert.NoFileExists(t, sidecar)
@@ -139,7 +134,7 @@ func TestDeleter_DeletesTheSidecar(t *testing.T) {
 		t.Parallel()
 		photo, sidecar := writePairWithSidecar(t)
 
-		require.NoError(t, NewDeleter().DeleteWithOption(photo, false))
+		require.NoError(t, DeleteWithOption(photo, false))
 
 		assert.FileExists(t, photo.RAWPath)
 		assert.FileExists(t, sidecar)
@@ -154,7 +149,7 @@ func TestDeleter_DeletesTheSidecar(t *testing.T) {
 		require.NoError(t, os.Mkdir(sidecar, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(sidecar, "blocker"), nil, 0600))
 
-		require.NoError(t, NewDeleter().Delete(photo))
+		require.NoError(t, DeleteWithOption(photo, true))
 
 		assert.NoFileExists(t, photo.ImagePath)
 		assert.NoFileExists(t, photo.RAWPath)
@@ -169,7 +164,7 @@ func TestDeleter_DeletesTheSidecar(t *testing.T) {
 		for _, includeRAW := range []bool{true, false} {
 			photo, sidecar := writeJPEGWithSidecar(t)
 
-			require.NoError(t, NewDeleter().DeleteWithOption(photo, includeRAW))
+			require.NoError(t, DeleteWithOption(photo, includeRAW))
 
 			assert.NoFileExists(t, photo.ImagePath)
 			assert.NoFileExists(t, sidecar)
@@ -181,7 +176,7 @@ func TestDeleter_DeletesTheSidecar(t *testing.T) {
 		photo, sidecar := writePairWithSidecar(t)
 		require.NoError(t, os.Remove(sidecar))
 
-		assert.NoError(t, NewDeleter().Delete(photo))
+		assert.NoError(t, DeleteWithOption(photo, true))
 	})
 }
 

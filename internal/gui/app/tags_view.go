@@ -15,11 +15,11 @@ import (
 func (a *Application) showTagsFor(photo model.Photo) {
 	a.tagGeneration++
 	if info, ok := a.imageProvider.PeekStockInfo(photo.ImagePath); ok {
-		a.mainWindow.SetPhotoTags(info.Tags)
+		a.tagBar.SetTags(info.Tags)
 		return
 	}
 
-	a.mainWindow.ClearPhotoTags()
+	a.tagBar.Clear()
 	generation := a.tagGeneration
 	go func() {
 		info, err := a.imageProvider.StockInfo(photo)
@@ -34,14 +34,14 @@ func (a *Application) showTagsFor(photo model.Photo) {
 			if generation != a.tagGeneration {
 				return
 			}
-			a.mainWindow.SetPhotoTags(info.Tags)
+			a.tagBar.SetTags(info.Tags)
 		})
 	}()
 }
 
 func (a *Application) clearTags() {
 	a.tagGeneration++
-	a.mainWindow.ClearPhotoTags()
+	a.tagBar.Clear()
 }
 
 // Reached through tagsSession.storeStock, which a save runs on a worker
@@ -52,7 +52,7 @@ func (a *Application) setTagsIfCurrent(path string, tags model.Tags) {
 	fyne.Do(func() {
 		if photo, ok := a.navigator.Current(); ok && photo.ImagePath == path {
 			a.tagGeneration++
-			a.mainWindow.SetPhotoTags(tags)
+			a.tagBar.SetTags(tags)
 		}
 	})
 }
@@ -61,6 +61,6 @@ func (a *Application) setTagsIfCurrent(path string, tags model.Tags) {
 // there simply takes effect on the way out.
 func (a *Application) setTagsVisible(on bool) {
 	a.showTags = on
-	a.mainWindow.SetTagsVisible(a.showTags)
+	a.tagBar.SetEnabled(a.showTags)
 	a.saveTagVisibility()
 }

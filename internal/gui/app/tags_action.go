@@ -43,11 +43,11 @@ func (a *Application) handleTags() {
 		OnBackground: session.background,
 		OnCopyTitle: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().Title)
-			a.mainWindow.ShowNotification("Title copied to clipboard")
+			a.notifier.ShowNotification("Title copied to clipboard")
 		},
 		OnCopyKeywords: func() {
 			a.fyneApp.Clipboard().SetContent(session.dialog.Tags().KeywordLine())
-			a.mainWindow.ShowNotification("Keywords copied to clipboard")
+			a.notifier.ShowNotification("Keywords copied to clipboard")
 		},
 		OnCopyTags:  session.copyTags,
 		OnPasteTags: session.pasteTags,
@@ -108,10 +108,10 @@ func (s *tagsSession) seed() {
 // read for the photo is kept beside the tags the app itself wrote. A save that
 // beat the read to it has no date of its own and the cache keeps the one it
 // already holds.
-func (s *tagsSession) storeStock(written model.Tags, taken time.Time, sidecar bool) {
-	s.app.imageProvider.StoreStockInfo(s.photo.ImagePath, imaging.StockInfo{Tags: written, Taken: taken})
-	s.app.tagsUnsaved.mark(s.photo.ImagePath, !sidecar)
-	s.app.setTagsIfCurrent(s.photo.ImagePath, written)
+func (a *Application) storeStock(path string, written model.Tags, taken time.Time, sidecar bool) {
+	a.imageProvider.StoreStockInfo(path, imaging.StockInfo{Tags: written, Taken: taken})
+	a.tagsUnsaved.mark(path, !sidecar)
+	a.setTagsIfCurrent(path, written)
 }
 
 // The cache means "this is what the photo has", which is what a dialog opening
@@ -152,7 +152,6 @@ func (u *unsavedTags) has(path string) bool {
 func (s *tagsSession) generate() {
 	s.app.tagRuns.start(s, tags.Request{
 		Photo:      s.photo,
-		Notes:      s.dialog.Notes(),
 		Location:   s.dialog.Location(),
 		Concept:    s.dialog.Concept(),
 		Editorial:  s.dialog.Editorial(),
@@ -168,7 +167,7 @@ func (s *tagsSession) runFinished(generated model.Tags, err error) {
 		return
 	}
 	s.dialog.SetTags(generated)
-	s.storeStock(generated, s.taken, false)
+	s.app.storeStock(s.photo.ImagePath, generated, s.taken, false)
 	s.autoSave(generated)
 }
 
@@ -206,6 +205,13 @@ func (w tagWrite) none() bool {
 	return !w.sidecar && !w.jpeg
 }
 
+// A JPEG is only written with tags a stock site would take: that file is the
+// photo itself, and the status line already spells out what is missing.
+func (w tagWrite) forPhoto(photo model.Photo, written model.Tags) tagWrite {
+	w.jpeg = w.jpeg && photo.IsJPEG() && len(written.Problems()) == 0
+	return w
+}
+
 func (a *Application) autoWrite() tagWrite {
 	return tagWrite{sidecar: a.autoSaveXMP, jpeg: a.autoSaveJPEG}
 }
@@ -234,9 +240,6 @@ func (s *tagsSession) save() {
 	s.write(s.dialog.Tags(), tagWrite{sidecar: true, jpeg: true}, true)
 }
 
-// A JPEG is only written with tags a stock site would take: that file is the
-// photo itself, and the status line already spells out what is missing.
-//
 // Tags the files already hold are left alone unless the save was asked for by
 // hand, and the JPEG goes by the same rule as the sidecar: rewriting it over
 // nothing costs a read of the whole file, and on the EXIF fallback path a
@@ -248,8 +251,8 @@ func (s *tagsSession) writePlan(written model.Tags, want tagWrite, manual bool) 
 	changed := manual || !written.Equal(s.saved)
 	return tagWrite{
 		sidecar: want.sidecar && !blank && changed,
-		jpeg:    want.jpeg && changed && s.photo.IsJPEG() && len(written.Problems()) == 0,
-	}
+		jpeg:    want.jpeg && changed,
+	}.forPhoto(s.photo, written)
 }
 
 // A save asked for by hand that leaves the JPEG behind says why, and says it
@@ -273,7 +276,7 @@ func (s *tagsSession) write(written model.Tags, want tagWrite, manual bool) {
 	skipped := s.skipNote(written, want, plan, manual)
 	if plan.none() {
 		if len(skipped) != 0 {
-			s.app.mainWindow.ShowWarning(skipped)
+			s.app.notifier.ShowWarning(skipped)
 		}
 		return
 	}
@@ -281,29 +284,15 @@ func (s *tagsSession) write(written model.Tags, want tagWrite, manual bool) {
 	s.saved = written
 	taken := s.taken
 	known := s.known
-	path := s.photo.SidecarPath()
 	s.app.saveTags(written, writeTarget(s.photo, plan), func(saved model.Tags) (string, error) {
-		// What the sidecar already holds is folded in whichever file is
-		// written: a dialog that never read it knows nothing of the fields it
-		// left empty, and the JPEG would lose them as readily as the sidecar.
-		saved, err := completed(path, saved, known)
+		saved, note, err := s.app.writeTagFiles(s.photo, saved, plan, known)
 		if err != nil {
 			return "", err
 		}
-		if plan.sidecar {
-			if err := imaging.WriteSidecar(path, saved); err != nil {
-				return "", err
-			}
+		if len(note) == 0 {
+			note = skipped
 		}
-		note := skipped
-		if plan.jpeg {
-			write, err := s.app.exifService.WriteStockTags(s.photo.ImagePath, saved)
-			if err != nil {
-				return "", err
-			}
-			note = writeNote(write)
-		}
-		s.storeStock(saved, taken, plan.sidecar)
+		s.app.storeStock(s.photo.ImagePath, saved, taken, plan.sidecar)
 		return note, nil
 	}, func() {
 		s.saved = previous
@@ -329,6 +318,30 @@ func writeTarget(photo model.Photo, plan tagWrite) string {
 		targets = append(targets, photo.Name)
 	}
 	return strings.Join(targets, " and ")
+}
+
+// What the sidecar already holds is folded in whichever file is written: the
+// fields may have been typed into a dialog that never read it, and the JPEG
+// would lose them as readily as the sidecar. The note comes back only from a
+// JPEG write - the sidecar takes everything and has nothing to remark on.
+func (a *Application) writeTagFiles(photo model.Photo, written model.Tags, plan tagWrite, known bool) (model.Tags, string, error) {
+	saved, err := completed(photo.SidecarPath(), written, known)
+	if err != nil {
+		return saved, "", err
+	}
+	if plan.sidecar {
+		if err := imaging.WriteSidecar(photo.SidecarPath(), saved); err != nil {
+			return saved, "", err
+		}
+	}
+	if !plan.jpeg {
+		return saved, "", nil
+	}
+	write, err := a.exifService.WriteStockTags(photo.ImagePath, saved)
+	if err != nil {
+		return saved, "", err
+	}
+	return saved, writeNote(write), nil
 }
 
 // A dialog closed before the read of its photo landed knows nothing of what the
@@ -445,10 +458,10 @@ func (a *Application) saveTags(written model.Tags, target string, save func(mode
 				return
 			}
 			if len(note) != 0 {
-				a.mainWindow.ShowWarning("Tags saved to " + target + " - " + note)
+				a.notifier.ShowWarning("Tags saved to " + target + " - " + note)
 				return
 			}
-			a.mainWindow.ShowNotification("Tags saved to " + target)
+			a.notifier.ShowNotification("Tags saved to " + target)
 		})
 	}()
 }

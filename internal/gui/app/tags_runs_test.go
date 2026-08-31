@@ -94,11 +94,14 @@ func newTestApplication(t *testing.T, generator tagGenerator) *Application {
 	// The settings the app starts with, which Run restores from the preferences.
 	a.autoSaveXMP = true
 	a.showSaveButton = true
-	a.actionPanel = ui.NewActionPanel(ui.ActionPanelCallbacks{})
-	a.fileBrowser = ui.NewFileBrowser(a.scanner, a.imageProvider, a.colorService, ui.FileBrowserCallbacks{})
+	a.actionPanel = ui.NewActionPanel(ui.PhotoActions{})
+	a.fileBrowser = ui.NewFileBrowser(a.imageProvider, a.colorService, ui.FileBrowserCallbacks{})
 	a.viewer = ui.NewViewer(ui.ViewerCallbacks{})
 	a.gridViewer = ui.NewGridViewer(a.imageProvider, ui.GridViewerCallbacks{})
-	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, ui.NewNotifier())
+	a.notifier = ui.NewNotifier()
+	a.tagBar = ui.NewTagBar()
+	a.runBar = ui.NewRunBar()
+	a.mainWindow = ui.NewMainWindow(fyneApp, a.actionPanel, a.fileBrowser, a.viewer, a.gridViewer, a.notifier, a.tagBar, a.runBar)
 	// The corner ticks for as long as a run is listed, and under the test driver
 	// the tick draws where it stands: a test that walks away from a generation it
 	// left hanging would keep relabelling a plate next to the test after it.

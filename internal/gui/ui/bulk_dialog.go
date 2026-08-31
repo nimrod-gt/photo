@@ -14,8 +14,7 @@ import (
 )
 
 func NewDeleteAllDialogContent(count int) (*fyne.Container, *widget.Check) {
-	label := widget.NewLabel(fmt.Sprintf("Delete %d filtered photos?", count))
-	label.TextStyle = fyne.TextStyle{Bold: true}
+	label := boldLabel(fmt.Sprintf("Delete %d filtered photos?", count))
 
 	rawCheck := widget.NewCheck("Delete with RAW files", nil)
 	rawCheck.SetChecked(true)
@@ -30,8 +29,7 @@ func NewUnselectAllDialogContent(count int, colors []model.ColorLabel) *fyne.Con
 		name := string(c)
 		names = append(names, strings.ToUpper(name[:1])+name[1:])
 	}
-	label := widget.NewLabel(fmt.Sprintf("Remove %s labels from %d photos?", strings.Join(names, ", "), count))
-	label.TextStyle = fyne.TextStyle{Bold: true}
+	label := boldLabel(fmt.Sprintf("Remove %s labels from %d photos?", strings.Join(names, ", "), count))
 
 	content := container.NewVBox(label)
 	return container.New(&minWidthLayout{width: copyDialogWidth}, content)
@@ -51,8 +49,7 @@ type CopyAllDialog struct {
 }
 
 func NewCopyAllDialog(count int, destDir string, copyMode library.CopyMode, window fyne.Window, onCopy func(), onCancel func()) *CopyAllDialog {
-	label := widget.NewLabel(fmt.Sprintf("Copy %d filtered photos", count))
-	label.TextStyle = fyne.TextStyle{Bold: true}
+	label := boldLabel(fmt.Sprintf("Copy %d filtered photos", count))
 
 	destEntry := NewDestinationEntry(destDir, window)
 

@@ -4,7 +4,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 
-	"photo/internal/core/model"
 	"photo/internal/gui/nativewin"
 )
 
@@ -26,7 +25,7 @@ type MainWindow struct {
 	viewStack   *fyne.Container
 }
 
-func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, gridViewer *GridViewer, notifier *Notifier) *MainWindow {
+func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrowser, viewer *Viewer, gridViewer *GridViewer, notifier *Notifier, tagBar *TagBar, runBar *RunBar) *MainWindow {
 	w := app.NewWindow("Photo Viewer")
 	w.Resize(fyne.NewSize(defaultWindowWidth, defaultWindowHeight))
 
@@ -37,8 +36,8 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 		viewer:      viewer,
 		gridViewer:  gridViewer,
 		notifier:    notifier,
-		tagBar:      NewTagBar(),
-		runBar:      NewRunBar(),
+		tagBar:      tagBar,
+		runBar:      runBar,
 	}
 	mw.build()
 	return mw
@@ -46,34 +45,6 @@ func NewMainWindow(app fyne.App, actionPanel *ActionPanel, fileBrowser *FileBrow
 
 func (mw *MainWindow) Window() fyne.Window {
 	return mw.window
-}
-
-func (mw *MainWindow) ShowError(msg string) {
-	mw.notifier.ShowError(msg)
-}
-
-func (mw *MainWindow) ShowWarning(msg string) {
-	mw.notifier.ShowWarning(msg)
-}
-
-func (mw *MainWindow) ShowNotification(msg string) {
-	mw.notifier.ShowNotification(msg)
-}
-
-func (mw *MainWindow) SetPhotoTags(tags model.Tags) {
-	mw.tagBar.SetTags(tags)
-}
-
-func (mw *MainWindow) ClearPhotoTags() {
-	mw.tagBar.Clear()
-}
-
-func (mw *MainWindow) SetRunningTags(items []RunItem) {
-	mw.runBar.SetRuns(items)
-}
-
-func (mw *MainWindow) SetTagsVisible(visible bool) {
-	mw.tagBar.SetEnabled(visible)
 }
 
 func (mw *MainWindow) Maximize() {

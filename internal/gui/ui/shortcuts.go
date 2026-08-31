@@ -10,11 +10,7 @@ import (
 var keyScanCode = glfw.GetKeyScancode
 
 type ShortcutCallbacks struct {
-	OnFavorite       func()
-	OnRed            func()
-	OnGreen          func()
-	OnBlue           func()
-	OnDelete         func()
+	PhotoActions
 	OnCopy           func()
 	OnCancel         func()
 	OnNext           func()
@@ -30,7 +26,6 @@ type ShortcutCallbacks struct {
 	OnZoomReset      func()
 	OnZoomIn         func()
 	OnZoomOut        func()
-	OnTags           func()
 	OnSettings       func()
 }
 

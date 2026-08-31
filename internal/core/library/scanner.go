@@ -18,13 +18,7 @@ const (
 	SortByTime
 )
 
-type Scanner struct{}
-
-func NewScanner() *Scanner {
-	return &Scanner{}
-}
-
-func (s *Scanner) ScanDirectory(dir string) ([]model.Photo, error) {
+func ScanDirectory(dir string) ([]model.Photo, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", dir, err)
@@ -60,7 +54,7 @@ func (s *Scanner) ScanDirectory(dir string) ([]model.Photo, error) {
 	return photos, nil
 }
 
-func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
+func SortPhotos(photos []model.Photo, order SortOrder) {
 	switch order {
 	case SortByName:
 		sort.Slice(photos, func(i, j int) bool {
@@ -77,7 +71,7 @@ func (s *Scanner) SortPhotos(photos []model.Photo, order SortOrder) {
 	}
 }
 
-func (s *Scanner) SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
+func SortPhotosByDates(photos []model.Photo, dates map[string]time.Time) {
 	sort.Slice(photos, func(i, j int) bool {
 		ti, oki := dates[photos[i].ImagePath]
 		tj, okj := dates[photos[j].ImagePath]
@@ -91,7 +85,7 @@ func (s *Scanner) SortPhotosByDates(photos []model.Photo, dates map[string]time.
 	})
 }
 
-func (s *Scanner) ListDirectories(root string) ([]string, error) {
+func ListDirectories(root string) ([]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, fmt.Errorf("reading directory %s: %w", root, err)

@@ -27,7 +27,7 @@ func TestPhotoListFilteredRows(t *testing.T) {
 	pl := newPhotoList()
 	gen := pl.reset(photos)
 	pl.initMeta(photos, model.ColorMap{"b.jpg": {model.ColorRed}})
-	pl.toggleColorFilter(model.ColorRed)
+	pl.ToggleColorFilter(model.ColorRed)
 	pl.applyFilter()
 	require.Equal(t, 1, pl.count())
 
@@ -43,9 +43,9 @@ func TestPhotoListFilteredRows(t *testing.T) {
 	assert.Equal(t, "b.jpg", photo.Name)
 	assert.Equal(t, thumbnail, meta.Thumbnail)
 	assert.True(t, meta.Favorite)
-	assert.Equal(t, meta, pl.metaAt(0))
-	assert.Equal(t, []model.Photo{photos[1]}, pl.filteredPhotos())
-	assert.Equal(t, []model.PhotoMeta{meta}, pl.filteredMeta())
+	assert.Equal(t, meta, pl.GetMeta(0))
+	assert.Equal(t, []model.Photo{photos[1]}, pl.FilteredPhotos())
+	assert.Equal(t, []model.PhotoMeta{meta}, pl.FilteredMeta())
 }
 
 func TestPhotoListRatingWrittenByTheApp(t *testing.T) {
@@ -63,7 +63,7 @@ func TestPhotoListRatingWrittenByTheApp(t *testing.T) {
 	_, ok := pl.setLoadedMeta(0, imaging.LoadedMeta{Thumbnail: thumbnail}, gen)
 	require.True(t, ok)
 
-	meta := pl.metaAt(0)
+	meta := pl.GetMeta(0)
 	assert.True(t, meta.Favorite, "the rating the app wrote is the one on disk")
 	assert.Equal(t, thumbnail, meta.Thumbnail, "the thumbnail it carries is still wanted")
 	assert.Equal(t, []model.ColorLabel{model.ColorRed}, meta.Colors)
@@ -81,7 +81,7 @@ func TestPhotoListColorChangeLeavesTheRatingToTheScan(t *testing.T) {
 	_, ok := pl.setLoadedMeta(0, imaging.LoadedMeta{Favorite: true}, gen)
 	require.True(t, ok)
 
-	meta := pl.metaAt(0)
+	meta := pl.GetMeta(0)
 	assert.True(t, meta.Favorite)
 	assert.Equal(t, []model.ColorLabel{model.ColorBlue}, meta.Colors)
 }
@@ -96,12 +96,12 @@ func TestPhotoListFilterMatchingNothing(t *testing.T) {
 	pl := newPhotoList()
 	pl.reset(photos)
 	pl.initMeta(photos, model.ColorMap{})
-	pl.toggleColorFilter(model.ColorRed)
+	pl.ToggleColorFilter(model.ColorRed)
 	pl.applyFilter()
 
 	assert.Equal(t, 0, pl.count())
-	assert.Empty(t, pl.filteredPhotos())
-	assert.Empty(t, pl.filteredMeta())
+	assert.Empty(t, pl.FilteredPhotos())
+	assert.Empty(t, pl.FilteredMeta())
 	_, ok := pl.photoAt(0)
 	assert.False(t, ok)
 	_, _, ok = pl.itemAt(0)

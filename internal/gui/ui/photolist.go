@@ -82,31 +82,35 @@ func (pl *photoList) favoriteRefilterNeeded(gen uint64) bool {
 	return pl.generation == gen && pl.filterFavorite
 }
 
-func (pl *photoList) setPinnedPath(path string) {
+func (pl *photoList) SetPinnedPath(path string) {
 	pl.mu.Lock()
 	pl.pinnedPath = path
 	pl.mu.Unlock()
 }
 
-func (pl *photoList) getPinnedPath() string {
+func (pl *photoList) ClearPinnedPath() {
+	pl.SetPinnedPath("")
+}
+
+func (pl *photoList) PinnedPath() string {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	return pl.pinnedPath
 }
 
-func (pl *photoList) hasFilter() bool {
+func (pl *photoList) HasFilter() bool {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	return HasActiveFilter(pl.filterColors, pl.filterFavorite)
 }
 
-func (pl *photoList) toggleColorFilter(color model.ColorLabel) {
+func (pl *photoList) ToggleColorFilter(color model.ColorLabel) {
 	pl.mu.Lock()
 	pl.filterColors[color] = !pl.filterColors[color]
 	pl.mu.Unlock()
 }
 
-func (pl *photoList) toggleFavoriteFilter() {
+func (pl *photoList) ToggleFavoriteFilter() {
 	pl.mu.Lock()
 	pl.filterFavorite = !pl.filterFavorite
 	pl.mu.Unlock()
@@ -137,7 +141,7 @@ func (pl *photoList) bulkState() (active bool, colorActive bool, count int) {
 		pl.displayed()
 }
 
-func (pl *photoList) activeFilterColors() []model.ColorLabel {
+func (pl *photoList) ActiveFilterColors() []model.ColorLabel {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	var colors []model.ColorLabel
@@ -149,7 +153,7 @@ func (pl *photoList) activeFilterColors() []model.ColorLabel {
 	return colors
 }
 
-func (pl *photoList) removeColorsFromPaths(paths map[string]bool, colors []model.ColorLabel) {
+func (pl *photoList) RemoveColorLabels(paths map[string]bool, colors []model.ColorLabel) {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	for i, p := range pl.allPhotos {
@@ -259,7 +263,7 @@ func (pl *photoList) itemAt(displayIndex int) (model.Photo, model.PhotoMeta, boo
 	return pl.allPhotos[allIdx], pl.allMeta[allIdx], true
 }
 
-func (pl *photoList) metaAt(displayIndex int) model.PhotoMeta {
+func (pl *photoList) GetMeta(displayIndex int) model.PhotoMeta {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	allIdx := pl.allIndex(displayIndex)
@@ -295,7 +299,7 @@ func (pl *photoList) setItemMeta(displayIndex int, colors []model.ColorLabel, fa
 	pl.toggledFavorites[pl.allPhotos[allIdx].ImagePath] = true
 }
 
-func (pl *photoList) filteredPhotos() []model.Photo {
+func (pl *photoList) FilteredPhotos() []model.Photo {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	result := make([]model.Photo, 0, pl.displayed())
@@ -305,7 +309,7 @@ func (pl *photoList) filteredPhotos() []model.Photo {
 	return result
 }
 
-func (pl *photoList) filteredMeta() []model.PhotoMeta {
+func (pl *photoList) FilteredMeta() []model.PhotoMeta {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
 	result := make([]model.PhotoMeta, 0, pl.displayed())
@@ -315,20 +319,16 @@ func (pl *photoList) filteredMeta() []model.PhotoMeta {
 	return result
 }
 
-func (pl *photoList) allMetaCopy() []model.PhotoMeta {
+func (pl *photoList) AllMeta() []model.PhotoMeta {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	result := make([]model.PhotoMeta, len(pl.allMeta))
-	copy(result, pl.allMeta)
-	return result
+	return slices.Clone(pl.allMeta)
 }
 
-func (pl *photoList) allPhotosCopy() []model.Photo {
+func (pl *photoList) AllPhotos() []model.Photo {
 	pl.mu.Lock()
 	defer pl.mu.Unlock()
-	result := make([]model.Photo, len(pl.allPhotos))
-	copy(result, pl.allPhotos)
-	return result
+	return slices.Clone(pl.allPhotos)
 }
 
 func (pl *photoList) removePhoto(imagePath string) bool {

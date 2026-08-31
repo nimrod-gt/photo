@@ -80,7 +80,7 @@ func (bi *browserItem) CreateRenderer() fyne.WidgetRenderer {
 func (bi *browserItem) update(photo model.Photo, meta model.PhotoMeta, thumbnail image.Image) {
 	updateThumbnail(bi.thumb, thumbnail)
 	updateName(bi.name, photo.Name)
-	updateStar(bi.star, meta.Favorite)
+	showIf(bi.star, meta.Favorite)
 	updateColorDots(bi.dots, meta.Colors)
 	updateDateText(bi.dateText, meta.Date)
 }
@@ -90,7 +90,7 @@ func (fb *FileBrowser) createItem() fyne.CanvasObject {
 }
 
 func (fb *FileBrowser) updateItem(id widget.ListItemID, obj fyne.CanvasObject) {
-	photo, meta, ok := fb.data.itemAt(id)
+	photo, meta, ok := fb.itemAt(id)
 	if !ok {
 		return
 	}
@@ -120,14 +120,6 @@ func updateName(label *widget.Label, name string) {
 		return
 	}
 	label.SetText(name)
-}
-
-func updateStar(star *canvas.Text, favorite bool) {
-	if favorite {
-		star.Show()
-	} else {
-		star.Hide()
-	}
 }
 
 func updateColorDots(dotsContainer *fyne.Container, colors []model.ColorLabel) {

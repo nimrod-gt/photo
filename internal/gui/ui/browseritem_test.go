@@ -50,10 +50,10 @@ func TestBrowserItemStarFollowsFavorite(t *testing.T) {
 	star := canvas.NewText(favoriteMark, favoriteColor)
 	star.Hide()
 
-	updateStar(star, true)
+	showIf(star, true)
 	assert.True(t, star.Visible())
 
-	updateStar(star, false)
+	showIf(star, false)
 	assert.False(t, star.Visible())
 }
 

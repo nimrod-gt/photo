@@ -35,91 +35,37 @@ func (s *ColorService) GetColors(photo model.Photo) ([]model.ColorLabel, error) 
 }
 
 func (s *ColorService) ToggleColor(photo model.Photo, color model.ColorLabel) error {
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
-
-	dir := filepath.Dir(photo.ImagePath)
-
-	s.mu.Lock()
-	cm, err := s.loadOrGet(dir)
-	if err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	cm.ToggleColor(photo.Name, color)
-	snapshot := cm.Clone()
-	s.mu.Unlock()
-
-	return model.SaveColors(dir, snapshot)
-}
-
-func (s *ColorService) HasColor(photo model.Photo, color model.ColorLabel) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	dir := filepath.Dir(photo.ImagePath)
-	cm, err := s.loadOrGet(dir)
-	if err != nil {
-		return false, err
-	}
-	return cm.HasColor(photo.Name, color), nil
+	return s.updateDirs([]model.Photo{photo}, func(cm model.ColorMap, name string) bool {
+		cm.ToggleColor(name, color)
+		return true
+	})
 }
 
 func (s *ColorService) RemoveColors(photo model.Photo) error {
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
-
-	dir := filepath.Dir(photo.ImagePath)
-
-	s.mu.Lock()
-	cm, err := s.loadOrGet(dir)
-	if err != nil {
-		s.mu.Unlock()
-		return err
-	}
-	if _, exists := cm[photo.Name]; !exists {
-		s.mu.Unlock()
-		return nil
-	}
-	delete(cm, photo.Name)
-	snapshot := cm.Clone()
-	s.mu.Unlock()
-
-	return model.SaveColors(dir, snapshot)
+	return s.updateDirs([]model.Photo{photo}, func(cm model.ColorMap, name string) bool {
+		if _, exists := cm[name]; !exists {
+			return false
+		}
+		delete(cm, name)
+		return true
+	})
 }
 
 func (s *ColorService) RemoveMultipleColors(photos []model.Photo) error {
-	s.saveMu.Lock()
-	defer s.saveMu.Unlock()
-
-	grouped := make(map[string][]string)
-	for _, p := range photos {
-		dir := filepath.Dir(p.ImagePath)
-		grouped[dir] = append(grouped[dir], p.Name)
-	}
-
-	for dir, names := range grouped {
-		s.mu.Lock()
-		cm, err := s.loadOrGet(dir)
-		if err != nil {
-			s.mu.Unlock()
-			return err
-		}
-		for _, name := range names {
-			delete(cm, name)
-		}
-		snapshot := cm.Clone()
-		s.mu.Unlock()
-
-		if err := model.SaveColors(dir, snapshot); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return s.updateDirs(photos, func(cm model.ColorMap, name string) bool {
+		delete(cm, name)
+		return true
+	})
 }
 
 func (s *ColorService) RemoveColorLabels(photos []model.Photo, colors []model.ColorLabel) error {
+	return s.updateDirs(photos, func(cm model.ColorMap, name string) bool {
+		cm.RemoveLabels(name, colors)
+		return true
+	})
+}
+
+func (s *ColorService) updateDirs(photos []model.Photo, apply func(model.ColorMap, string) bool) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 
@@ -136,12 +82,18 @@ func (s *ColorService) RemoveColorLabels(photos []model.Photo, colors []model.Co
 			s.mu.Unlock()
 			return err
 		}
+		changed := false
 		for _, name := range names {
-			cm.RemoveLabels(name, colors)
+			if apply(cm, name) {
+				changed = true
+			}
 		}
 		snapshot := cm.Clone()
 		s.mu.Unlock()
 
+		if !changed {
+			continue
+		}
 		if err := model.SaveColors(dir, snapshot); err != nil {
 			return err
 		}
@@ -159,13 +111,6 @@ func (s *ColorService) GetDirectoryColors(dir string) (model.ColorMap, error) {
 		return nil, err
 	}
 	return cm.Clone(), nil
-}
-
-func (s *ColorService) InvalidateCache(dir string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.colors, dir)
 }
 
 func (s *ColorService) ClearCache() {
