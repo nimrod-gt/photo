@@ -618,6 +618,7 @@ func TestTagsDialog(t *testing.T) {
 			"date":      func(d *TagsDialog) fyne.Focusable { return d.date },
 			"editorial": func(d *TagsDialog) fyne.Focusable { return d.editorial },
 			"keywords":  func(d *TagsDialog) fyne.Focusable { return d.keywords },
+			"notes":     func(d *TagsDialog) fyne.Focusable { return d.notes },
 		}
 
 		for name, input := range inputs {
@@ -885,6 +886,7 @@ func TestTagsDialog(t *testing.T) {
 			Keywords: fullKeywords(),
 			Place:    model.Place{Location: "Porto", City: "Porto"},
 			Concept:  "the old note",
+			Notes:    "the old extras",
 		}, time.Time{})
 		d.Generating()
 
@@ -893,21 +895,86 @@ func TestTagsDialog(t *testing.T) {
 			Keywords: []string{"tram"},
 			Place:    model.Place{Location: "Lisbon"},
 			Concept:  "the handed note",
+			Notes:    "the handed extras",
 		})
 
 		assert.Equal(t, "Lisbon", d.location.Text)
 		assert.Equal(t, "the handed note", d.concept.Text)
+		assert.Equal(t, "the handed extras", d.notes.Text)
 		assert.Equal(t, "The handed title.", d.title.Text)
 	})
 
 	t.Run("a restored dialog that handed over an empty field leaves it empty", func(t *testing.T) {
 		d := newTestTagsDialog(t, TagsDialogCallbacks{})
-		d.SetPhotoInfo(model.Tags{Concept: "the old note"}, time.Time{})
+		d.SetPhotoInfo(model.Tags{Concept: "the old note", Notes: "the old extras"}, time.Time{})
 		d.Generating()
 
 		d.RestoreTags(model.Tags{Title: "A calm morning.", Keywords: fullKeywords()})
 
 		assert.Empty(t, d.concept.Text)
+		assert.Empty(t, d.notes.Text)
+	})
+}
+
+func TestTagsDialog_Notes(t *testing.T) {
+	t.Run("the notes ride out with the tags, trimmed", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.notes.SetText("  the tram is a replica  ")
+
+		assert.Equal(t, "the tram is a replica", d.Notes())
+		assert.Equal(t, "the tram is a replica", d.Tags().Notes)
+	})
+
+	t.Run("the notes of the file fill an empty field", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.SetPhotoInfo(model.Tags{Notes: "the tram is a replica"}, time.Time{})
+
+		assert.Equal(t, "the tram is a replica", d.notes.Text)
+	})
+
+	// The same rule the concept goes by: what was typed while the read was in
+	// flight is the newer of the two and is never written over.
+	t.Run("a note typed before the read landed stays", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.notes.SetText("what I typed")
+
+		d.SetPhotoInfo(model.Tags{Notes: "what the file had"}, time.Time{})
+
+		assert.Equal(t, "what I typed", d.notes.Text)
+	})
+
+	t.Run("the notes come with the tags a file already holds", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+
+		d.SetPhotoInfo(model.Tags{
+			Title:    "A tram climbs the hill.",
+			Keywords: fullKeywords(),
+			Notes:    "the tram is a replica",
+		}, time.Time{})
+
+		assert.Equal(t, "the tram is a replica", d.notes.Text)
+	})
+
+	// Tags travel between photos; the note does not, any more than the place or
+	// the mark does.
+	t.Run("a paste leaves the notes of this photo alone", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.notes.SetText("this photo's note")
+
+		d.PasteTags(model.Tags{Title: "A pasted title.", Keywords: fullKeywords(), Notes: "the other photo's note"})
+
+		assert.Equal(t, "this photo's note", d.notes.Text)
+	})
+
+	t.Run("an emptied field clears the notes", func(t *testing.T) {
+		d := newTestTagsDialog(t, TagsDialogCallbacks{})
+		d.SetPhotoInfo(model.Tags{Notes: "the tram is a replica"}, time.Time{})
+
+		d.notes.SetText("")
+
+		assert.Empty(t, d.Tags().Notes)
 	})
 }
 
@@ -929,13 +996,13 @@ func TestTagsDialog_Escape(t *testing.T) {
 		var escapes int
 		d := newTestTagsDialog(t, TagsDialogCallbacks{OnEscape: func() { escapes++ }})
 
-		for _, entry := range []*dialogEntry{d.concept, d.location, d.pathEntry, d.title, d.keywords} {
+		for _, entry := range []*dialogEntry{d.concept, d.location, d.notes, d.pathEntry, d.title, d.keywords} {
 			entry.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
 		}
 		d.date.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
 		d.editorial.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
 
-		assert.Equal(t, 7, escapes)
+		assert.Equal(t, 8, escapes)
 	})
 
 	t.Run("Escape closes when the app registers no handler", func(t *testing.T) {
@@ -952,6 +1019,7 @@ func TestTagsDialog_Escape(t *testing.T) {
 
 		assert.False(t, d.title.AcceptsTab())
 		assert.False(t, d.keywords.AcceptsTab())
+		assert.False(t, d.notes.AcceptsTab())
 	})
 
 	t.Run("the Close button closes whatever else is on screen", func(t *testing.T) {

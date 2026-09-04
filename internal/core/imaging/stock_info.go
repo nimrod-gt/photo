@@ -114,6 +114,7 @@ func FillMissing(tags, fallback model.Tags) model.Tags {
 	}
 	tags.Place = fillMissingPlace(tags.Place, fallback.Place)
 	tags.Concept = orFallback(tags.Concept, fallback.Concept)
+	tags.Notes = orFallback(tags.Notes, fallback.Notes)
 	tags.Editorial = fillMissingEditorial(tags.Editorial, fallback.Editorial)
 	return tags
 }

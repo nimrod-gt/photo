@@ -357,6 +357,25 @@ func TestExifService_GetStockInfo_XMP(t *testing.T) {
 		assert.Equal(t, "the sidecar's idea", info.Tags.Concept)
 	})
 
+	// The notes travel with the tags exactly as the concept does, and the two are
+	// filled apart: a sidecar that has one of them keeps the other from the
+	// packet rather than dropping it.
+	t.Run("fills the notes and the concept level by level", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		packed := model.Tags{Title: "From the packet.", Concept: "the packet's idea", Notes: "the packet's note"}
+		path := writeJPEGWithPacket(t, dir, "DSC032.jpg", exifTags, packetWith(t, packed))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "DSC032.ARW"), []byte("raw"), 0600))
+		require.NoError(t, WriteSidecar(filepath.Join(dir, "DSC032.xmp"),
+			model.Tags{Title: "From the sidecar.", Notes: "the sidecar's note"}))
+
+		info, err := svc.GetStockInfo(model.NewPhoto(path))
+
+		require.NoError(t, err)
+		assert.Equal(t, "the sidecar's note", info.Tags.Notes, "the sidecar holds the newer note")
+		assert.Equal(t, "the packet's idea", info.Tags.Concept, "the packet fills what the sidecar lacks")
+	})
+
 	// The mark rides with the tags the same way, so a JPEG saved with Save JPEG
 	// carries it in its packet even when no sidecar was ever written.
 	t.Run("reads the editorial mark out of the packet", func(t *testing.T) {

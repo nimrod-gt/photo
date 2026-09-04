@@ -46,6 +46,7 @@ type Request struct {
 	Photo      model.Photo
 	Location   string
 	Concept    string
+	Notes      string
 	Editorial  model.Editorial
 	ClaudePath string
 }
@@ -83,6 +84,7 @@ func (t *Tagger) Generate(ctx context.Context, req Request) (model.Tags, error) 
 		// and nothing else, so a mark it dropped would go missing from the file.
 		generated.Place.Location = strings.TrimSpace(req.Location)
 		generated.Concept = strings.TrimSpace(req.Concept)
+		generated.Notes = strings.TrimSpace(req.Notes)
 		generated.Editorial = req.Editorial.Normalized()
 		return generated, nil
 	case runErr == nil || !errors.Is(err, errNoReport):
@@ -120,6 +122,12 @@ func userMessage(req Request) string {
 	}
 	if req.Editorial.Marked {
 		message += "\n" + strings.TrimSpace("Editorial: "+editorialDay(req.Editorial.Date))
+	}
+	// Last, because it is the one input the user may write several lines of: a
+	// newline inside any line above would read as the end of the Key: value
+	// format, while behind them the note simply runs to the end of the message.
+	if notes := strings.TrimSpace(req.Notes); len(notes) != 0 {
+		message += "\nNotes: " + notes
 	}
 	return message
 }

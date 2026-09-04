@@ -96,10 +96,39 @@ func TestTagger_Generate(t *testing.T) {
 		req := testRequest()
 		req.Concept = "  slow travel  "
 		req.Location = " Prague, Czechia "
+		req.Notes = "  the tram is a replica  "
 
 		_, err := newTestTagger(run).Generate(t.Context(), req)
 		require.NoError(t, err)
-		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nConcept: slow travel\nLocation: Prague, Czechia", run.argValue("-p"))
+		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nConcept: slow travel\nLocation: Prague, Czechia"+
+			"\nNotes: the tram is a replica", run.argValue("-p"))
+	})
+
+	// The note is the one input that may hold newlines, so it goes behind every
+	// other line rather than cutting the Key: value format in half.
+	t.Run("the notes come last and keep their own lines", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest()
+		req.Concept = "slow travel"
+		req.Notes = "the tram is a replica\nthe line reopened in 2024"
+		req.Editorial = model.Editorial{Marked: true, Date: time.Date(2026, time.August, 18, 0, 0, 0, 0, time.UTC)}
+
+		_, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, "Photo: /photos/trip/DSC1.JPG\nConcept: slow travel\nEditorial: August 18, 2026"+
+			"\nNotes: the tram is a replica\nthe line reopened in 2024", run.argValue("-p"))
+	})
+
+	// The note is the user's own, so a run brings it back the way it does the
+	// concept: a generation that dropped it would erase it from the sidecar.
+	t.Run("carries the notes back with the generated tags", func(t *testing.T) {
+		run := &fakeRun{output: `{"structured_output":{"title":"t","keywords":["k"]}}`}
+		req := testRequest()
+		req.Notes = "  the tram is a replica  "
+
+		generated, err := newTestTagger(run).Generate(t.Context(), req)
+		require.NoError(t, err)
+		assert.Equal(t, "the tram is a replica", generated.Notes)
 	})
 
 	t.Run("blank fields leave the message unchanged", func(t *testing.T) {
@@ -107,6 +136,7 @@ func TestTagger_Generate(t *testing.T) {
 		req := testRequest()
 		req.Concept = "   "
 		req.Location = " "
+		req.Notes = " \n "
 
 		_, err := newTestTagger(run).Generate(t.Context(), req)
 		require.NoError(t, err)
@@ -482,7 +512,7 @@ func TestStockPhotoPrompt(t *testing.T) {
 
 	assert.NotEmpty(t, stockPhotoPrompt)
 	assert.Contains(t, stockPhotoPrompt, "keywords")
-	for _, key := range []string{"Photo:", "Concept:", "Location:", "Editorial:"} {
+	for _, key := range []string{"Photo:", "Concept:", "Location:", "Editorial:", "Notes:"} {
 		assert.Contains(t, stockPhotoPrompt, key, "the prompt must document every request key the dialog sends")
 	}
 	for _, field := range []string{"city", "state", "country"} {

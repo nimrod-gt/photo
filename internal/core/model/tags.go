@@ -15,10 +15,14 @@ const (
 )
 
 type Tags struct {
-	Title     string
-	Keywords  []string
-	Place     Place
-	Concept   string
+	Title    string
+	Keywords []string
+	Place    Place
+	Concept  string
+	// Notes is what the user tells the generator beyond the concept: standing
+	// information about the photo the tags have to take into account. It is
+	// never part of what the generator answers with.
+	Notes     string
 	Editorial Editorial
 }
 
@@ -79,17 +83,18 @@ func (t Tags) KeywordLine() string {
 	return strings.Join(t.Keywords, ", ")
 }
 
-// Neither the place, the concept nor the editorial flag is looked at: callers
-// read IsEmpty as "the generator produced nothing", and none of the three is
-// something it produces - a place, a note or a mark alone must not pass for a
-// result, or an empty run would overwrite a sidecar or blank the dialog.
+// Neither the place, the concept, the notes nor the editorial flag is looked at:
+// callers read IsEmpty as "the generator produced nothing", and none of the four
+// is something it produces - a place, a concept, a note or a mark alone must not
+// pass for a result, or an empty run would overwrite a sidecar or blank the
+// dialog.
 func (t Tags) IsEmpty() bool {
 	return len(strings.TrimSpace(t.Title)) == 0 && len(t.Keywords) == 0
 }
 
 func (t Tags) Equal(other Tags) bool {
 	return t.Title == other.Title && t.Place == other.Place && t.Concept == other.Concept &&
-		t.Editorial.Normalized() == other.Editorial.Normalized() &&
+		t.Notes == other.Notes && t.Editorial.Normalized() == other.Editorial.Normalized() &&
 		slices.Equal(t.Keywords, other.Keywords)
 }
 

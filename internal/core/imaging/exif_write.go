@@ -39,12 +39,13 @@ const (
 // in the same breath as the save.
 type StockWrite struct {
 	Rewritten bool
-	// The EXIF has no field for a place, for the concept, nor for the editorial
-	// mark, so the fallback path carries the title and the keywords and leaves
-	// those three behind. They survive in the sidecar of the photo, where nothing
-	// has to fit in a fixed space.
+	// The EXIF has no field for a place, for the concept, for the notes, nor for
+	// the editorial mark, so the fallback path carries the title and the keywords
+	// and leaves those four behind. They survive in the sidecar of the photo,
+	// where nothing has to fit in a fixed space.
 	PlaceDropped     bool
 	ConceptDropped   bool
+	NotesDropped     bool
 	EditorialDropped bool
 }
 
@@ -82,6 +83,7 @@ func (s *ExifService) WriteStockTags(jpegPath string, tags model.Tags) (StockWri
 		Rewritten:        rewritten,
 		PlaceDropped:     !tags.Place.IsEmpty(),
 		ConceptDropped:   len(strings.TrimSpace(tags.Concept)) != 0,
+		NotesDropped:     len(strings.TrimSpace(tags.Notes)) != 0,
 		EditorialDropped: tags.Editorial.Marked,
 	}, err
 }

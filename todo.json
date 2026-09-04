@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "next_id": 23,
+  "next_id": 25,
   "todos": [
     {
       "id": 19,
@@ -30,37 +30,74 @@
           {
             "title": "Add the FolderList widget with tests",
             "details": "Create ui.FolderList in internal/gui/ui/folderlist.go: a widget.List over a slice of absolute paths. Each row shows a folder icon (reuse iconFolderClosed from internal/gui/ui/icons.go, same 16x16 canvas.Image pattern as DirTree rows) plus a label with filepath.Base(path), and a small low-importance remove button (theme.CancelIcon). API: NewFolderList(onSelected func(string), onRemoved func(string)), SetFolders([]string), Folders() []string, SelectFolder(path string) to highlight the current folder, Widget() fyne.CanvasObject. On row tap call onSelected; on remove-button tap drop the path from the slice, refresh, and call onRemoved without firing onSelected (mirror DirTree's UnselectAll trick so a removal does not double as a selection). Guard the slice with a mutex like DirTree does. Add internal/gui/ui/folderlist_test.go in the style of runbar_test.go (test.NewTempWindow, non-parallel subtests, testify): rows render base names, tapping a row fires onSelected with the full path, tapping remove drops the row and fires onRemoved, SetFolders replaces the list. Leave dirtree.go untouched so everything still builds.",
-            "files": ["internal/gui/ui/folderlist.go", "internal/gui/ui/folderlist_test.go"]
+            "files": [
+              "internal/gui/ui/folderlist.go",
+              "internal/gui/ui/folderlist_test.go"
+            ]
           },
           {
             "title": "Add saved-folders persistence to settings",
             "details": "In internal/gui/app/settings.go add savedFoldersKey = \"savedFolders\" and helpers: normalizeSavedFolders([]string) []string (drop empty strings, dedupe preserving order), (a *Application) savedFolders() []string reading prefs.StringListWithFallback and — when the stored list is empty — seeding from the legacy \"lastRoot\"/\"lastDirectory\" string keys (each only if isValidDirectory), and (a *Application) saveSavedFolders([]string) writing prefs.SetStringList. Extend internal/gui/app/settings_test.go with a table-driven TestNormalizeSavedFolders (duplicates, empties, order kept) following the existing TestNormalizeSortOrder style. The helpers are exercised by the tests, so the step builds and lints clean before the wiring lands.",
-            "files": ["internal/gui/app/settings.go", "internal/gui/app/settings_test.go"]
+            "files": [
+              "internal/gui/app/settings.go",
+              "internal/gui/app/settings_test.go"
+            ]
           },
           {
             "title": "Wire FolderList into FileBrowser and Application, delete DirTree",
             "details": "In internal/gui/ui/filebrowser.go: replace the dirTree field with folderList *FolderList; construct it in NewFileBrowser from two new FileBrowserCallbacks fields (OnFolderRemoved func(remaining []string); folder selection reuses the existing OnDirectorySelected); replace SetRoot/OpenDirectory with SetSavedFolders(folders []string) and SelectFolder(path string); in build() put the folder list where the tree widget sat (same Border layout under the Open Folder/help bar, same VSplit at 0.4). Delete internal/gui/ui/dirtree.go. In internal/gui/app/app.go: handleChooseFolder appends the chosen path to a.savedFolders() (via normalizeSavedFolders), saves with saveSavedFolders, pushes the list into the browser with SetSavedFolders, then loadDirectory(path) — and stops writing the obsolete \"lastRoot\" key; loadInitialDirectory calls a.fileBrowser.SetSavedFolders(a.savedFolders()), then opens lastDirectory if valid, else the first saved folder, else falls back to os.UserHomeDir (adding home to the saved list so the panel is never empty); add a handler for OnFolderRemoved that persists the remaining list. loadDirectory additionally calls a.fileBrowser.SelectFolder(dir) so the active folder stays highlighted (also covers selection from copy destinations and startup). This step must land atomically to keep the build green.",
-            "files": ["internal/gui/ui/filebrowser.go", "internal/gui/ui/dirtree.go", "internal/gui/app/app.go"]
+            "files": [
+              "internal/gui/ui/filebrowser.go",
+              "internal/gui/ui/dirtree.go",
+              "internal/gui/app/app.go"
+            ]
           },
           {
             "title": "Remove the now-unused tree support code",
             "details": "library.ListDirectories in internal/core/library/scanner.go was only called by DirTree — remove it and TestScanner_ListDirectories in internal/core/library/scanner_test.go. In internal/gui/ui/icons.go drop iconFolderOpen and iconFolderLeaf if the new list only uses iconFolderClosed (keep whichever the FolderList rows use). Run go build ./... and go tool golangci-lint run to confirm nothing else referenced them.",
-            "files": ["internal/core/library/scanner.go", "internal/core/library/scanner_test.go", "internal/gui/ui/icons.go"]
+            "files": [
+              "internal/core/library/scanner.go",
+              "internal/core/library/scanner_test.go",
+              "internal/gui/ui/icons.go"
+            ]
           },
           {
             "title": "Update CLAUDE.md",
             "details": "Rewrite the 'Left panel' bullet in the UI Layout section of CLAUDE.md: the directory tree is gone, replaced by a saved list of folders for quick access — 'Open Folder...' adds a folder to the list and opens it, each entry can be removed, the list is persisted in preferences, and the active folder is highlighted. Keep the rest of the bullet (non-RAW files only, sorting, color indicators) intact.",
-            "files": ["CLAUDE.md"]
+            "files": [
+              "CLAUDE.md"
+            ]
           }
         ],
         "questions": [
-          {"question": "Should 'Open Folder...' both add the chosen folder to the saved list and open it in one action (affects step 3)? Assume yes unless told otherwise.", "answer": null},
-          {"question": "How is a folder removed from the list — a small per-row X button (assumed default, step 1) or a right-click context menu on the row?", "answer": null},
-          {"question": "List ordering: assume insertion order with the newest folder appended at the bottom (steps 1 and 3); should it instead be most-recently-used first or alphabetical?", "answer": null},
-          {"question": "Should saved folders that no longer exist on disk be silently dropped at startup, or kept in the list with an error shown only when opened (assumed default: kept; loadDirectory already reports the scan error) (step 3)?", "answer": null},
-          {"question": "Seed the saved list from the legacy lastRoot/lastDirectory preferences on first run so existing users keep their folders (step 2)? Assume yes.", "answer": null},
-          {"question": "With the tree gone there is no way to drill into subfolders from the panel — is losing subfolder browsing acceptable, i.e. every folder of interest must be bookmarked via 'Open Folder...' (affects the whole design)? Assume yes since that is the stated intent of the todo.", "answer": null},
-          {"question": "Should each row show only the base name (assumed, step 1), or the full path / a parent hint to disambiguate two folders with the same base name (e.g. multiple '2024-08' folders)?", "answer": null}
+          {
+            "question": "Should 'Open Folder...' both add the chosen folder to the saved list and open it in one action (affects step 3)? Assume yes unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "How is a folder removed from the list — a small per-row X button (assumed default, step 1) or a right-click context menu on the row?",
+            "answer": null
+          },
+          {
+            "question": "List ordering: assume insertion order with the newest folder appended at the bottom (steps 1 and 3); should it instead be most-recently-used first or alphabetical?",
+            "answer": null
+          },
+          {
+            "question": "Should saved folders that no longer exist on disk be silently dropped at startup, or kept in the list with an error shown only when opened (assumed default: kept; loadDirectory already reports the scan error) (step 3)?",
+            "answer": null
+          },
+          {
+            "question": "Seed the saved list from the legacy lastRoot/lastDirectory preferences on first run so existing users keep their folders (step 2)? Assume yes.",
+            "answer": null
+          },
+          {
+            "question": "With the tree gone there is no way to drill into subfolders from the panel — is losing subfolder browsing acceptable, i.e. every folder of interest must be bookmarked via 'Open Folder...' (affects the whole design)? Assume yes since that is the stated intent of the todo.",
+            "answer": null
+          },
+          {
+            "question": "Should each row show only the base name (assumed, step 1), or the full path / a parent hint to disambiguate two folders with the same base name (e.g. multiple '2024-08' folders)?",
+            "answer": null
+          }
         ],
         "risks": [
           "Loss of subdirectory navigation is a real workflow change: today a user can browse anywhere under the root without a dialog; afterwards only bookmarked folders are one click away.",
@@ -100,42 +137,85 @@
           {
             "title": "Imaging helper: JPEG bytes sized for API upload",
             "details": "New exported function in internal/core/imaging (e.g. JPEGForUpload(path string) ([]byte, error)): read the file, decode through the existing robust decodeJPEG (its fit parameter already drives DCT scale-decode), downscale with the existing DownscaleToFit to a 1568px long edge, re-encode with image/jpeg at quality ~85, return the bytes. This keeps the upload well under the API's 5MB-per-image limit regardless of camera JPEG size and reuses the CMYK/truncated-file fallbacks. Table-driven tests with small generated JPEGs (already-small image passes through downscaling unchanged in dimensions; oversized image comes back within the cap; unreadable file errors).",
-            "files": ["internal/core/imaging/upload.go", "internal/core/imaging/upload_test.go"]
+            "files": [
+              "internal/core/imaging/upload.go",
+              "internal/core/imaging/upload_test.go"
+            ]
           },
           {
             "title": "Core seam: backend choice in Request, shared post-processing",
             "details": "In internal/core/tags/tagger.go: add a Backend type with BackendCLI/BackendAPI constants and Backend+APIKey fields on Request (zero value = CLI, so existing callers are unchanged); extract the success-path post-processing from Generate (trimmed req.Location/req.Concept, req.Editorial.Normalized() applied over the generated tags) into a helper both backends will use; add an exported sentinel ErrNoAPIKey (analogous to claudebin.ErrNotFound) returned when Backend is API and the key is blank. Generate dispatches on Backend; the API branch returns ErrNoAPIKey for now behind the same timeout wrapper. No behaviour change for the CLI path — existing tests must stay green; add tests for the dispatch and the blank-key error.",
-            "files": ["internal/core/tags/tagger.go", "internal/core/tags/tagger_test.go"]
+            "files": [
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/tagger_test.go"
+            ]
           },
           {
             "title": "API backend: request builder, parser, SDK transport",
             "details": "Add github.com/anthropics/anthropic-sdk-go to go.mod. New internal/core/tags/api.go: an apiRequest struct (APIKey, Model, System, Message string, Image []byte, Schema string) built from Request — System is the embedded stockPhotoPrompt, Message reuses userMessage(req), Schema is tagsSchema, Image comes from a new injected Tagger field photo func(path string) ([]byte, error) defaulting to imaging.JPEGForUpload; a new injected field api func(ctx context.Context, req apiRequest) ([]byte, error) whose default implementation creates anthropic.NewClient(option.WithAPIKey(...)), calls Messages.New with Model \"claude-opus-5\" (new taggerAPIModel const), MaxTokens ~16000, System as a text block, and one user message holding the base64 JPEG image block plus the text; request structured output with tagsSchema via output_config.format (use the SDK's OutputConfig binding if the pinned version exposes it, else option.WithJSONSet — verify at implementation, forced strict tool-use with the same schema is the fallback). Parse the returned JSON text into the same title/keywords/city/state/country shape and run it through the shared post-processing; an empty answer is 'claude returned no tags' exactly as on the CLI path. Map SDK errors into the CLI-comparable wording: errors.As into the SDK error type for the HTTP status ('claude reported an error, HTTP 429: <excerptText(body)>'), wrap an invalid-key 401 so the GUI can recognize it (errors.Is ErrNoAPIKey or a second sentinel ErrBadAPIKey), keep the existing 'claude timed out after %s' deadline message and excerptText capping. Tests fake the api and photo fields (mirroring fakeRun): assert the built apiRequest (system prompt, schema, message lines, image bytes), success parsing, empty-output failure, error mapping, timeout naming, and that NewTagger wires real defaults.",
-            "files": ["go.mod", "go.sum", "internal/core/tags/api.go", "internal/core/tags/api_test.go", "internal/core/tags/tagger.go"]
+            "files": [
+              "go.mod",
+              "go.sum",
+              "internal/core/tags/api.go",
+              "internal/core/tags/api_test.go",
+              "internal/core/tags/tagger.go"
+            ]
           },
           {
             "title": "Tags dialog: backend selector and API key row",
             "details": "In internal/gui/ui/tags_dialog.go: TagsDialogOptions gains Backend and APIKey; buildInputs adds a labeled 'Backend:' row with a two-option radio/select ('claude CLI' / 'Claude API', defaulting from the option) and a key row (widget password entry, placeholder 'Claude API key') shown only while the API backend is selected; the existing claude-path row keeps its show-on-ErrNotFound behaviour but is only relevant for the CLI backend. Add Backend() and APIKey() getters (trimmed, like ClaudePath()). Fail(err) learns a second recovery target: on tags.ErrNoAPIKey/ErrBadAPIKey it shows the key row and focuses it, exactly as claudebin.ErrNotFound focuses the path entry. Extend internal/gui/ui/tags_dialog_test.go: getters, row visibility toggling with the selector, Fail focusing the key entry on the new sentinels and the path entry on ErrNotFound as before.",
-            "files": ["internal/gui/ui/tags_dialog.go", "internal/gui/ui/tags_dialog_test.go"]
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
           },
           {
             "title": "App wiring: pass backend through, persist preferences per backend",
             "details": "internal/gui/app/tags_action.go: handleTags reads prefs.String(\"tagsBackend\") and prefs.String(\"claudeAPIKey\") into TagsDialogOptions beside claudePath; tagsSession.generate() fills tags.Request.Backend and APIKey from the dialog getters. internal/gui/app/tags_runs.go: finish currently receives claudePath and persists it unconditionally on success — change it to receive the request (or backend+path+key) and persist per backend: a successful CLI run stores claudePath (existing empty-clears-it rule), a successful API run stores claudeAPIKey and leaves claudePath untouched; every successful run stores tagsBackend. Extend internal/gui/app/tags_runs_test.go (fake tagGenerator already injected via a.tagger) to cover: API-backend request fields reaching the generator, preference persistence per backend on success, no persistence on failure, and that an API run does not clear a stored claudePath.",
-            "files": ["internal/gui/app/tags_action.go", "internal/gui/app/tags_runs.go", "internal/gui/app/tags_runs_test.go", "internal/gui/app/tags_action_test.go"]
+            "files": [
+              "internal/gui/app/tags_action.go",
+              "internal/gui/app/tags_runs.go",
+              "internal/gui/app/tags_runs_test.go",
+              "internal/gui/app/tags_action_test.go"
+            ]
           },
           {
             "title": "Documentation",
             "details": "Update CLAUDE.md: the Stock tags feature paragraph and the project-layout note for internal/core/tags ('stock metadata generation via the claude CLI + prompts/') to mention the two backends (claude CLI or the Claude API with an API key chosen in the Tags dialog); mention the new imaging upload helper only if the layout table warrants it. Run go build ./..., go test ./... and golangci-lint per the Commands section as the final check.",
-            "files": ["CLAUDE.md"]
+            "files": [
+              "CLAUDE.md"
+            ]
           }
         ],
         "questions": [
-          {"question": "Model for the API backend: the CLI pins taggerModel=\"opus\" (an alias); assume the API uses the concrete id \"claude-opus-5\" unless told otherwise (affects step 3).", "answer": null},
-          {"question": "Backend selection UI: assume an always-visible 'Backend:' radio row in the Tags dialog ('claude CLI' / 'Claude API') with the API key row shown only while API is selected, while the claude-path row keeps its current show-on-failure behaviour — or should the backend row also stay hidden until relevant? (step 4)", "answer": null},
-          {"question": "The shared system prompt tells the model to read the file at the 'Photo:' path; assume the API path keeps the same prompt and user-message lines and simply attaches the downscaled image (the model uses the attachment), rather than adding an API-specific prompt variant (step 3).", "answer": null},
-          {"question": "API key storage: Fyne preferences are plaintext JSON on disk, same as claudePath; assume that is acceptable rather than an OS keychain (step 5).", "answer": null},
-          {"question": "Assume the key is persisted only after a successful run and an empty key entry clears the stored one, mirroring the claudePath rule (step 5).", "answer": null},
-          {"question": "Image sizing: assume 1568px long edge re-encoded at JPEG quality ~85 for upload (step 1).", "answer": null},
-          {"question": "Assume thinking is left at its Opus 5 default (adaptive, omitted parameter) and the call is non-streaming with max_tokens ~16000 under the existing 3-minute timeout (step 3).", "answer": null}
+          {
+            "question": "Model for the API backend: the CLI pins taggerModel=\"opus\" (an alias); assume the API uses the concrete id \"claude-opus-5\" unless told otherwise (affects step 3).",
+            "answer": null
+          },
+          {
+            "question": "Backend selection UI: assume an always-visible 'Backend:' radio row in the Tags dialog ('claude CLI' / 'Claude API') with the API key row shown only while API is selected, while the claude-path row keeps its current show-on-failure behaviour — or should the backend row also stay hidden until relevant? (step 4)",
+            "answer": null
+          },
+          {
+            "question": "The shared system prompt tells the model to read the file at the 'Photo:' path; assume the API path keeps the same prompt and user-message lines and simply attaches the downscaled image (the model uses the attachment), rather than adding an API-specific prompt variant (step 3).",
+            "answer": null
+          },
+          {
+            "question": "API key storage: Fyne preferences are plaintext JSON on disk, same as claudePath; assume that is acceptable rather than an OS keychain (step 5).",
+            "answer": null
+          },
+          {
+            "question": "Assume the key is persisted only after a successful run and an empty key entry clears the stored one, mirroring the claudePath rule (step 5).",
+            "answer": null
+          },
+          {
+            "question": "Image sizing: assume 1568px long edge re-encoded at JPEG quality ~85 for upload (step 1).",
+            "answer": null
+          },
+          {
+            "question": "Assume thinking is left at its Opus 5 default (adaptive, omitted parameter) and the call is non-streaming with max_tokens ~16000 under the existing 3-minute timeout (step 3).",
+            "answer": null
+          }
         ],
         "risks": [
           "The pinned anthropic-sdk-go version may not expose a typed output_config.format binding; fallback is option.WithJSONSet with the raw schema map or forced strict tool-use with the same schema — must be settled at implementation, and the empty/invalid-answer handling must stay identical either way.",
@@ -171,26 +251,50 @@
           {
             "title": "Add release workflow with per-platform packaging jobs",
             "details": "Create `.github/workflows/release.yml` triggered by `push: tags: ['v*']` and `workflow_dispatch` (for dry runs that only upload artifacts). Three parallel jobs, each: checkout, `actions/setup-go@v5` with `go-version-file: go.mod`, `go install fyne.io/tools/cmd/fyne@latest`. (1) `linux` on ubuntu-latest: install the same apt packages as ci.yml (`libgl1-mesa-dev xorg-dev libxkbcommon-dev libwayland-dev`), run `fyne package --release --os linux`, rename the produced 'Photo Viewer.tar.xz' to `photo-linux-amd64.tar.xz`. (2) `windows` on ubuntu-latest: additionally install `gcc-mingw-w64-x86-64`, run `CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64 fyne package --release --os windows`, then `zip photo-windows-amd64.zip \"Photo Viewer.exe\"` exactly as CLAUDE.md documents. (3) `macos` on macos-latest (arm64): run `fyne package --release --os darwin`, archive with `ditto -c -k --keepParent \"Photo Viewer.app\" photo-macos-arm64.zip` (plain `zip -r` can break the bundle's symlinks/permissions). Each job uploads its archive with `actions/upload-artifact@v4`. Name, id, icon and version come from `FyneApp.toml` automatically; the build-number bump `fyne package` writes back into FyneApp.toml is discarded with the runner, which is fine.",
-            "files": [".github/workflows/release.yml"]
+            "files": [
+              ".github/workflows/release.yml"
+            ]
           },
           {
             "title": "Add the publish job that creates the GitHub Release",
             "details": "Extend `.github/workflows/release.yml` with a `release` job: `needs: [linux, windows, macos]`, `if: startsWith(github.ref, 'refs/tags/')`, `permissions: contents: write`. First step checks the tag against the app version: extract `Version` from `FyneApp.toml` (e.g. `grep '^Version' FyneApp.toml`) and fail if `${GITHUB_REF_NAME#v}` differs, so a mistagged release cannot ship a wrong version string. Then `actions/download-artifact@v4` (merge into one dir) and `softprops/action-gh-release@v2` with `generate_release_notes: true`, attaching `photo-macos-arm64.zip`, `photo-windows-amd64.zip` and `photo-linux-amd64.tar.xz`. On `workflow_dispatch` this job is skipped and only build artifacts are produced.",
-            "files": [".github/workflows/release.yml"]
+            "files": [
+              ".github/workflows/release.yml"
+            ]
           },
           {
             "title": "Document the release process in CLAUDE.md",
             "details": "Add a short 'Releasing' subsection under Commands in `CLAUDE.md`: bump `Version` in `FyneApp.toml`, push a matching `vX.Y.Z` tag, and `.github/workflows/release.yml` packages macOS (arm64), Windows (amd64, mingw cross-compile) and Linux (amd64) and publishes them on the GitHub Release; `workflow_dispatch` gives a dry run with artifacts only. Keep the existing manual cross-compile recipe as-is since it documents the same command the workflow uses.",
-            "files": ["CLAUDE.md"]
+            "files": [
+              "CLAUDE.md"
+            ]
           }
         ],
         "questions": [
-          {"question": "Trigger model (step 1/2): assume releases are cut by pushing a `v*` tag whose version must equal `Version` in FyneApp.toml, plus `workflow_dispatch` for artifact-only dry runs — OK, or should every push to main also build artifacts?", "answer": null},
-          {"question": "macOS coverage (step 1): assume Apple Silicon only (macos-latest is arm64) with artifact `photo-macos-arm64.zip`; should an Intel build (macos-15-intel runner) be added as a fourth job?", "answer": null},
-          {"question": "The macOS app will be unsigned and unnotarized (no signing secrets exist), so Gatekeeper will require right-click-Open or `xattr -dr com.apple.quarantine`; acceptable for now? (affects step 1)", "answer": null},
-          {"question": "fyne CLI version: assume `go install fyne.io/tools/cmd/fyne@latest` in the workflow rather than pinning or adding it as a go.mod tool dependency — OK, or pin a specific version for reproducibility?", "answer": null},
-          {"question": "Windows build: assume mingw-w64 cross-compile on ubuntu-latest per CLAUDE.md rather than a native windows-latest job — OK? (affects step 1; native build would be the fallback if the glfw pre-release pin ever breaks under mingw)", "answer": null},
-          {"question": "Release publishing: assume a normal (non-draft, non-prerelease) release with auto-generated notes; should it be created as a draft for manual review instead? (affects step 2)", "answer": null}
+          {
+            "question": "Trigger model (step 1/2): assume releases are cut by pushing a `v*` tag whose version must equal `Version` in FyneApp.toml, plus `workflow_dispatch` for artifact-only dry runs — OK, or should every push to main also build artifacts?",
+            "answer": null
+          },
+          {
+            "question": "macOS coverage (step 1): assume Apple Silicon only (macos-latest is arm64) with artifact `photo-macos-arm64.zip`; should an Intel build (macos-15-intel runner) be added as a fourth job?",
+            "answer": null
+          },
+          {
+            "question": "The macOS app will be unsigned and unnotarized (no signing secrets exist), so Gatekeeper will require right-click-Open or `xattr -dr com.apple.quarantine`; acceptable for now? (affects step 1)",
+            "answer": null
+          },
+          {
+            "question": "fyne CLI version: assume `go install fyne.io/tools/cmd/fyne@latest` in the workflow rather than pinning or adding it as a go.mod tool dependency — OK, or pin a specific version for reproducibility?",
+            "answer": null
+          },
+          {
+            "question": "Windows build: assume mingw-w64 cross-compile on ubuntu-latest per CLAUDE.md rather than a native windows-latest job — OK? (affects step 1; native build would be the fallback if the glfw pre-release pin ever breaks under mingw)",
+            "answer": null
+          },
+          {
+            "question": "Release publishing: assume a normal (non-draft, non-prerelease) release with auto-generated notes; should it be created as a draft for manual review instead? (affects step 2)",
+            "answer": null
+          }
         ],
         "risks": [
           "`fyne package` rewrites the build number in FyneApp.toml during packaging; harmless on ephemeral runners, but the version-check in the release job must read the file before/independently of packaging jobs (it does — it checks out fresh).",
@@ -198,6 +302,200 @@
           "The exact output filename of `fyne package --os linux` ('Photo Viewer.tar.xz') is assumed from the app Name; the rename step should glob (`*.tar.xz`) to be safe.",
           "Zipping the .app with `zip -r` instead of `ditto` can corrupt the bundle; the plan uses `ditto` deliberately.",
           "Repo has stray build leftovers at root ('Photo Viewer.exe', 'photo-windows-amd64.zip', 'fyne-cross/'); CI runners start clean so they don't interfere, but zip/rename steps should still target explicit names to avoid picking up wrong files if patterns are used."
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "description": "Add in-app documentation on how to use the app.",
+      "context": "The app only has a keyboard-shortcuts help dialog (internal/gui/ui/help.go, built from shortcutSection/shortcutEntry data, key names from internal/gui/keyname for cross-OS modifier symbols); there is no broader in-app usage documentation yet, so this means extending the help dialog or adding a new one rather than writing an external doc. CLAUDE.md's shortcuts section documents the existing shortcuts and the keyname convention any new in-app docs should follow.",
+      "docs": [
+        "internal/gui/ui/help.go",
+        "internal/gui/ui/help_test.go",
+        "internal/gui/ui/shortcuts.go",
+        "internal/gui/keyname",
+        "internal/gui/app/dialogs.go",
+        "internal/gui/app/actions.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "open",
+      "branch": null,
+      "created_at": "2026-09-01T09:56:33Z",
+      "updated_at": "2026-09-04T13:48:01Z",
+      "plan": {
+        "created_at": "2026-09-04T13:48:01Z",
+        "revised_at": null,
+        "base_commit": "b211b1f",
+        "summary": "Turn the existing Keyboard Shortcuts dialog (internal/gui/ui/help.go, opened by `H`, the help button in the file browser, and on first launch) into a two-tab Help dialog: the present shortcut columns stay as a \"Shortcuts\" tab and a new \"Guide\" tab renders a usage guide. The guide is an embedded markdown file (internal/gui/ui/guide.md) with `{{Shift}}`/`{{Ctrl}}`/`{{Alt}}` placeholders expanded from internal/gui/keyname so macOS shows the symbols, rendered with widget.NewRichTextFromMarkdown inside a scroll whose minimum size is pinned to the shortcuts content so the dialog keeps one size across tabs. No app-level wiring changes are needed: handleHelp/toggleDialog/dialogHelp in internal/gui/app keep working since ui.NewHelp keeps its signature and dialog.CustomDialog still satisfies toggleableDialog. Tests extend help_test.go so the guide is checked for unexpanded placeholders and, on darwin, for spelled-out modifier names, and CLAUDE.md/README get a note on the Guide tab and the `H` key.",
+        "steps": [
+          {
+            "title": "Add the embedded usage guide and its builder",
+            "details": "Create internal/gui/ui/guide.md: a short user guide in markdown limited to what Fyne's RichText renders well (## headings, paragraphs, `-` bullet lists, `code` spans; no tables). Sections, drawn from CLAUDE.md/README: Folders (Open Folder..., directory tree, sort bar with `S`, Today button, favorite/color filter bar with `1`-`4` and the bulk Delete/Copy/Unselect actions on the filtered set); Viewing (arrow keys / click for next, `+`/`-`/wheel zoom, `Z`, grid view `L`, top bar and right-click menu); Favorites and color labels (`F` writes `xmp:Rating` into the JPEG packet, `R`/`G`/`B` labels stored in `.photo-colors.json` per folder, several at once); Copy and delete (`C` with or without RAW, `Y` to clipboard, `D` deletes JPEG + RAW after confirming with `D`/`N`, sidecar follows the RAW); Stock tags (`T` opens the Tags dialog, Generate `{{Shift}}+Enter`, Stop `Esc`, Background `{{Ctrl}}+Enter`, running plates top-right, overlay bottom-left, `{{Alt}}+C`/`{{Alt}}+V` to carry title and keywords between photos, what Save and the autosaves write: XMP sidecar vs JPEG packet, Concept note and Editorial mark); Settings (`I`: overlay, the two autosaves, the Save button switch). Refer to the Shortcuts tab for the full key list instead of repeating it. Never write the words Shift/Ctrl/Alt literally in the prose; only through placeholders. Create internal/gui/ui/guide.go: `//go:embed guide.md` into a string, `guideMarkdown()` expanding the placeholders with strings.NewReplacer(\"{{Shift}}\", keyname.Shift, \"{{Ctrl}}\", keyname.Ctrl, \"{{Alt}}\", keyname.Alt), and `buildGuide(minSize fyne.Size) fyne.CanvasObject` that makes widget.NewRichTextFromMarkdown(guideMarkdown()), sets Wrapping = fyne.TextWrapWord, wraps it in container.NewVScroll and calls SetMinSize(minSize). Create internal/gui/ui/guide_test.go with test.NewTempApp(t): (1) guideMarkdown() contains no \"{{\" or \"}}\" left and mentions each of keyname.Shift+\"+Enter\", keyname.Ctrl+\"+Enter\", keyname.Alt+\"+C\"; (2) the RichText built from it has more than one segment and the expected section headings appear in the markdown; (3) buildGuide returns an object whose MinSize equals the size passed in.",
+            "files": [
+              "internal/gui/ui/guide.md",
+              "internal/gui/ui/guide.go",
+              "internal/gui/ui/guide_test.go"
+            ]
+          },
+          {
+            "title": "Put the shortcuts and the guide into one tabbed Help dialog",
+            "details": "In internal/gui/ui/help.go change NewHelp: build the shortcut columns as today into `shortcuts := container.NewHBox(left, widget.NewSeparator(), right)`, then `guide := buildGuide(shortcuts.MinSize())`, then `tabs := container.NewAppTabs(container.NewTabItem(\"Shortcuts\", shortcuts), container.NewTabItem(\"Guide\", guide))` with tabs.SetTabLocation(container.TabLocationTop), and return dialog.NewCustom(\"Help\", \"Close\", tabs, window). Keep the signature `NewHelp(window fyne.Window) *dialog.CustomDialog` so internal/gui/app/actions.go handleHelp and the toggleableDialog contract in internal/gui/app/dialogs.go are untouched. Rename the `H` entry description from \"Toggle this help\" to \"Toggle help\" only if wanted (optional). Extend internal/gui/ui/help_test.go: in TestHelpNamesTheModifiersOfThisPlatform append guideMarkdown() to the `shown` slice so the darwin pass also rejects a spelled-out Shift/Ctrl/Alt in the guide prose; add TestHelpDialogOffersShortcutsAndGuide that builds NewHelp on a test window (pattern of newTestSettingsDialog in settings_dialog_test.go) and asserts the two tab titles in order; keep TestHelpKeyColumnFitsEveryKey as is. Run `go test ./internal/gui/...` and `go tool golangci-lint run`.",
+            "files": [
+              "internal/gui/ui/help.go",
+              "internal/gui/ui/help_test.go",
+              "internal/gui/ui/guide.go"
+            ]
+          },
+          {
+            "title": "Document the Guide tab in the project docs",
+            "details": "CLAUDE.md: in the UI Layout section (or Features) add a line that `H` and the help button open the Help dialog with a Shortcuts tab and a Guide tab, that the guide text lives in internal/gui/ui/guide.md and must be kept in step when a feature changes, and that its modifier placeholders `{{Shift}}`/`{{Ctrl}}`/`{{Alt}}` are expanded from internal/gui/keyname; add `H — toggle the help` to the Keyboard Shortcuts list; adjust the sentence 'the help dialog and the Tags dialog buttons show ⇧, ⌃ and ⌥' to cover the guide. README.md: add a `H` row to the Keyboard shortcuts table and one sentence in Features about the in-app guide.",
+            "files": [
+              "CLAUDE.md",
+              "README.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Step 2: extend the existing dialog with tabs (Shortcuts + Guide) behind the same `H` key and help button, rather than adding a second dialog and key? Assume tabs unless told otherwise.",
+            "answer": null
+          },
+          {
+            "question": "Step 2: which tab is selected when the dialog opens? Assume Shortcuts first and selected (what `H` stood for so far) and the Guide second, with no special case for the first launch (the `helpShown` preference in internal/gui/app/app.go stays as is). Say 'Guide first' to flip it.",
+            "answer": null
+          },
+          {
+            "question": "Step 1: keep the guide text in an embedded guide.md with `{{Shift}}`-style placeholders (default) rather than as Go string constants per section like helpLeft/helpRight?",
+            "answer": null
+          },
+          {
+            "question": "Step 1: how deep should the guide go on stock tags — a short overview of what Generate/Stop/Background/Save and the two autosaves write (default), or the full rule set from CLAUDE.md (run hand-over, copy/delete waiting, EXIF fallback)? Assume the short overview.",
+            "answer": null
+          },
+          {
+            "question": "Step 3: also add the undocumented `S` and `1`-`4` keys to the CLAUDE.md and README shortcut lists while adding `H`? Assume yes, since the guide names them and the lists should match.",
+            "answer": null
+          }
+        ],
+        "risks": [
+          "Fyne's markdown renderer (widget.RichText) supports headings, paragraphs, lists, code spans and emphasis only; tables or nested lists render badly, so the guide must stay within that subset.",
+          "The dialog is sized by the shortcut columns; pinning the guide scroll to that MinSize keeps one size across tabs, but if the shortcut columns grow taller than the window the dialog is clipped exactly as today. Verify visually on both platforms.",
+          "AppTabs tab buttons are not fyne.Focusable in Fyne 2.8, so `H` and `Esc` keep reaching the canvas handler after a tab click; if a future Fyne makes them focusable the toggle key would stop working while the dialog is open — check once by hand.",
+          "The darwin test rejects any literal 'Shift', 'Ctrl', 'Alt' in the guide, so prose must always go through the placeholders; forgetting one fails the test only on macOS runners.",
+          "The misspell linter runs over Go source but not over the embedded guide.md; spelling in the guide is unchecked. The guide duplicates feature descriptions from CLAUDE.md and will drift unless kept in step (todos #19 and #24 change folder browsing and the tags dialog and will need a guide edit)."
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "description": "Add a persistent notes field with extra information to the stock tag generation and pass it to the AI.",
+      "context": "The Tags dialog needs a new free-form \"notes\" field for extra information that, unlike the existing per-photo Concept note, is remembered across sessions via fyne Preferences and is passed into the AI prompt. The dialog fields and their accessors live in internal/gui/ui/tags_dialog.go (buildInputs/build, Concept()/Location()/Editorial()); internal/gui/app/tags_action.go assembles tags.Request from the dialog and already reads/writes fyneApp.Preferences() (the claude binary path), with the preference key constants and restore/save helpers in internal/gui/app/settings.go. The request struct, the CLI invocation and the user message that renders optional inputs (\"Concept: ...\", \"Editorial: ...\") are in internal/core/tags/tagger.go, and the system prompt describing those input lines is the embedded internal/core/tags/prompts/stock_photo.txt.",
+      "docs": [
+        "internal/gui/ui/tags_dialog.go",
+        "internal/gui/app/tags_action.go",
+        "internal/gui/app/settings.go",
+        "internal/core/tags/tagger.go",
+        "internal/core/tags/prompts/stock_photo.txt",
+        "internal/core/tags/tagger_test.go",
+        "internal/gui/ui/tags_dialog_test.go",
+        "CLAUDE.md"
+      ],
+      "depends_on": [],
+      "status": "in_progress",
+      "branch": "todo/24-stock-tag-notes",
+      "created_at": "2026-09-04T13:41:56Z",
+      "updated_at": "2026-09-04T14:03:56Z",
+      "plan": {
+        "created_at": "2026-09-04T13:47:28Z",
+        "revised_at": "2026-09-04T14:03:56Z",
+        "base_commit": "b211b1f",
+        "summary": "Add a Notes field to the Stock Tags dialog for extra information the generator should take into account. It is not a global preference: the note belongs to the photo and is saved the same way photo:Concept is, into the XMP sidecar and into the JPEG XMP packet. The work follows Concept site for site - model.Tags gains the field, the sidecar reader and writer gain a photo:Notes property, FillMissing merges it, the EXIF fallback reports it dropped, the tagger carries it in Request and renders it last in the user message, and the dialog gets a two-row entry under Location whose value rides in Tags(). No preference key is added and settings.go is untouched. Alt+C does not carry the note, which stays with the photo it was typed for.",
+        "steps": [
+          {
+            "title": "Carry the note through the model and both metadata writers",
+            "details": "In internal/core/model/tags.go add `Notes string` to `Tags` beside `Concept` and add it to `Equal`; leave `IsEmpty` and `Problems` alone, since a note alone is not a generator result. In internal/core/imaging/sidecar.go add `notesProperty = \"Notes\"`, a `notes` field on `sidecarTags` and in its `tags()`, an `ownedProperties` entry reading photoNamespace/Notes, and a `writtenProperties` entry with a `notesValues` function appended after `editorialDateProperty` so the photo-namespace block stays last and contiguous, which `ownDescriptionPattern` depends on. In internal/core/imaging/stock_info.go add `tags.Notes = orFallback(tags.Notes, fallback.Notes)` to `FillMissing`. In internal/core/imaging/exif_write.go add `NotesDropped bool` to `StockWrite`, set from the trimmed note on the EXIF fallback path, and extend the comment listing what that path leaves behind. Tests in the same step: Equal sees the note and IsEmpty ignores it; the sidecar round-trips photo:Notes in element and attribute form and keeps it through a Lightroom sidecar with develop settings; FillMissing fills it; the JPEG packet carries it and the fallback reports it dropped.",
+            "files": [
+              "internal/core/model/tags.go",
+              "internal/core/model/tags_test.go",
+              "internal/core/imaging/sidecar.go",
+              "internal/core/imaging/sidecar_test.go",
+              "internal/core/imaging/stock_info.go",
+              "internal/core/imaging/stock_info_test.go",
+              "internal/core/imaging/exif_write.go",
+              "internal/core/imaging/exif_write_test.go",
+              "internal/core/imaging/xmp_packet_test.go"
+            ]
+          },
+          {
+            "title": "Send the note to the generator",
+            "details": "In internal/core/tags/tagger.go add `Notes string` to `Request`; in `Generate` carry it back with `generated.Notes = strings.TrimSpace(req.Notes)` beside the concept, because a run writes what it answers with; in `userMessage` append \"\\nNotes: \" plus the trimmed note last, after the editorial line, so a note with newlines runs to the end of the message and cannot break the Key: value lines above it. In internal/core/tags/prompts/stock_photo.txt add a Notes: bullet to the ФОРМАТ ЗАПРОСА section, in Russian to match the file: the author's extra information for this photo, free text that may span several lines to the end of the request, to be taken into account for the title and keywords without being echoed verbatim. In internal/core/tags/tagger_test.go extend the field-rendering case with a note and assert the order Photo / Concept / Location / Editorial / Notes, add a multi-line note kept whole at the end, add a blank note to the blank-fields case, and add \"Notes:\" to the key list in TestStockPhotoPrompt.",
+            "files": [
+              "internal/core/tags/tagger.go",
+              "internal/core/tags/prompts/stock_photo.txt",
+              "internal/core/tags/tagger_test.go"
+            ]
+          },
+          {
+            "title": "Add the Notes row to the Tags dialog",
+            "details": "In internal/gui/ui/tags_dialog.go add a `notesRows = 2` constant and a `notes *dialogEntry` field, built in `buildInputs` with `newDialogMultiLineEntry(notesRows, d)` and a placeholder for extra information; place `labeledRow(\"Notes:\", d.notes)` in `build` after the Location row and before `d.editorial`; add a trimming `Notes()` accessor and put `Notes` into `Tags()`; add a `takeNotes` helper mirroring `takeConcept`, so a note typed before the read lands is the newer one and is never overwritten, called from `showTags` and from the IsEmpty branch of `SetPhotoInfo`; put the handed note back in `RestoreTags`. `PasteTags` is not touched - the note stays with its photo, like the place and the editorial mark. In internal/gui/ui/tags_dialog_test.go cover the round trip through Tags() with trimming, a read not overwriting a typed note, RestoreTags putting a handed note back, PasteTags leaving it alone, the note in the escape entry list (7 -> 8 escapes) and in the focus map, and AcceptsTab() being false.",
+            "files": [
+              "internal/gui/ui/tags_dialog.go",
+              "internal/gui/ui/tags_dialog_test.go"
+            ]
+          },
+          {
+            "title": "Wire the dialog to the run and the writers, document it",
+            "details": "In internal/gui/app/tags_action.go pass `Notes: s.dialog.Notes()` in `tagsSession.generate`, add the trimmed note to `nothingToWrite` so a note alone is worth a sidecar, and add a `notesDroppedNote` constant with its branch in `writeNote`. In internal/gui/app/tags_action_test.go cover a note typed into the dialog reaching the request, a note alone making the close write a sidecar, and a saved note coming back on the next open. In CLAUDE.md extend the Stock tags paragraph: the Notes field holds extra information for the generation, is saved with the tags as photo:Notes in the sidecar and in the JPEG packet the way the Concept note is, is not carried by Alt+C, and has no field on the EXIF fallback path.",
+            "files": [
+              "internal/gui/app/tags_action.go",
+              "internal/gui/app/tags_action_test.go",
+              "CLAUDE.md"
+            ]
+          }
+        ],
+        "questions": [
+          {
+            "question": "Where should the persistent Notes field live: the Tags dialog, the Settings window, or both?",
+            "answer": "In the Tags dialog"
+          },
+          {
+            "question": "What shape should the Notes entry have: 2-row multi-line, single-line, or 4-row multi-line?",
+            "answer": "2-row multi-line"
+          },
+          {
+            "question": "When should the note be written to Preferences: on generate and close, on every keystroke, or on generate only?",
+            "answer": "В какой еще preference? оно должно сохраняться также как и concept в xmp/jpeg"
+          },
+          {
+            "question": "Should the note ever be written to the photo's files, or stay prompt-only?",
+            "answer": "Только в sidecar"
+          },
+          {
+            "question": "The two answers above differ on the JPEG: sidecar only, or sidecar and JPEG like Concept?",
+            "answer": "Sidecar and JPEG, like Concept"
+          },
+          {
+            "question": "Where should the Notes row sit in the Stock Tags dialog: under Concept, under Location, or above Concept?",
+            "answer": "Under Location"
+          },
+          {
+            "question": "Where should the Notes line go in the message sent to the AI: last, or right after Concept?",
+            "answer": "Last, after every other line"
+          },
+          {
+            "question": "Should Alt+C carry the note to another photo?",
+            "answer": "No, it stays with the photo"
+          }
+        ],
+        "risks": [
+          "One property table feeds both the sidecar and the JPEG packet writer, which is what makes \"like Concept\" cheap here, but it means the first step changes what lands in JPEGs too: the packet must still fit, and packetWithTags falls back to the EXIF path when it does not.",
+          "ownDescriptionPattern builds its branches from the namespace bindings, so a fourth photo-namespace property is safe only while the photo block stays last and contiguous in writtenProperties.",
+          "A note with newlines enters a line-oriented request format; placing it last and documenting that in the prompt mitigates it, but the model may still treat trailing lines loosely.",
+          "The prompt is in Russian and the new bullet must match its tone; TestStockPhotoPrompt only checks that the key is present.",
+          "Non-ASCII notes reach the CLI unchanged: the prompt's ASCII rule governs output rather than input, and the ASCII test covers only the fixed fields.",
+          "The dialog grows by one two-row entry, which lengthens the Tab walk and the dialog height; the tests counting escapes across inputs must be updated.",
+          "Todo #20 (Claude API backend) will also touch tagger.go and Request, so merge order may conflict on userMessage."
         ]
       }
     }

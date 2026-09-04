@@ -25,6 +25,7 @@ const (
 	tagsLabelWidth  = float32(90)
 	keywordRows     = 5
 	titleRows       = 2
+	notesRows       = 2
 
 	generateLabel   = "Generate (" + keyname.Shift + "+Enter)"
 	regenerateLabel = "Regenerate (" + keyname.Shift + "+Enter)"
@@ -57,6 +58,7 @@ type TagsDialog struct {
 	callbacks        TagsDialogCallbacks
 	concept          *dialogEntry
 	location         *dialogEntry
+	notes            *dialogEntry
 	split            model.Place
 	editorial        *dialogCheck
 	date             *dialogDateEntry
@@ -108,6 +110,7 @@ func (d *TagsDialog) build(opts TagsDialogOptions, window fyne.Window) {
 		nameLabel,
 		labeledRow("Concept:", d.concept),
 		labeledRow("Location:", d.location),
+		labeledRow("Notes:", d.notes),
 		d.editorial,
 		d.dateRow,
 		d.pathRow,
@@ -134,6 +137,9 @@ func (d *TagsDialog) buildInputs(opts TagsDialogOptions) {
 
 	d.location = newDialogEntry(d)
 	d.location.SetPlaceHolder("City, country, optional")
+
+	d.notes = newDialogMultiLineEntry(notesRows, d)
+	d.notes.SetPlaceHolder("Anything else the generation should know, optional")
 
 	d.date = newDialogDateEntry(d)
 	if !opts.Date.IsZero() {
@@ -396,12 +402,17 @@ func (d *TagsDialog) Concept() string {
 	return strings.TrimSpace(d.concept.Text)
 }
 
+func (d *TagsDialog) Notes() string {
+	return strings.TrimSpace(d.notes.Text)
+}
+
 func (d *TagsDialog) Tags() model.Tags {
 	return model.Tags{
 		Title:     strings.TrimSpace(d.title.Text),
 		Keywords:  model.ParseKeywordLine(d.keywords.Text),
 		Place:     d.place(),
 		Concept:   d.Concept(),
+		Notes:     d.Notes(),
 		Editorial: d.Editorial(),
 	}
 }
@@ -449,6 +460,7 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if existing.IsEmpty() {
 		d.takePlace(existing.Place)
 		d.takeConcept(existing.Concept)
+		d.takeNotes(existing.Notes)
 		d.takeEditorial(existing.Editorial)
 		return
 	}
@@ -529,6 +541,7 @@ func (d *TagsDialog) RestoreTags(handed model.Tags) {
 	d.split = handed.Place.Trimmed()
 	d.location.SetText(d.split.Location)
 	d.concept.SetText(strings.TrimSpace(handed.Concept))
+	d.notes.SetText(strings.TrimSpace(handed.Notes))
 	d.restoreEditorial(handed.Editorial)
 	d.showResult(handed)
 }
@@ -558,8 +571,9 @@ func (d *TagsDialog) restoreEditorial(editorial model.Editorial) {
 }
 
 // PasteTags puts the tags copied out of another photo's dialog into the result
-// fields and nothing else: the place, the note and the editorial mark belong to
-// the photo in front of the user, not to the one the tags came from.
+// fields and nothing else: the place, the concept, the notes and the editorial
+// mark belong to the photo in front of the user, not to the one the tags came
+// from.
 func (d *TagsDialog) PasteTags(pasted model.Tags) {
 	d.showResult(pasted)
 }
@@ -585,6 +599,7 @@ func (d *TagsDialog) focusAfterRun(next fyne.Focusable) {
 func (d *TagsDialog) showTags(shown model.Tags) {
 	d.takePlace(shown.Place)
 	d.takeConcept(shown.Concept)
+	d.takeNotes(shown.Notes)
 	d.takeEditorial(shown.Editorial)
 	d.showResult(shown)
 }
@@ -610,6 +625,14 @@ func (d *TagsDialog) takePlace(place model.Place) {
 func (d *TagsDialog) takeConcept(concept string) {
 	if len(d.Concept()) == 0 {
 		d.concept.SetText(strings.TrimSpace(concept))
+	}
+}
+
+// Same rule as the concept: the note is the user's own, and one typed while the
+// read was in flight is the newer of the two.
+func (d *TagsDialog) takeNotes(notes string) {
+	if len(d.Notes()) == 0 {
+		d.notes.SetText(strings.TrimSpace(notes))
 	}
 }
 

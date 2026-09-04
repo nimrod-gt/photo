@@ -993,6 +993,129 @@ func TestWriteSidecar_Concept(t *testing.T) {
 	})
 }
 
+func notedTags() model.Tags {
+	return model.Tags{
+		Title:    "A tram climbs the hill.",
+		Keywords: []string{"lisbon", "tram"},
+		Notes:    "the tram is a replica, the line reopened in 2024",
+	}
+}
+
+func TestWriteSidecar_Notes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a new sidecar carries the notes back", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+
+		require.NoError(t, WriteSidecar(path, notedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, "<photo:Notes>the tram is a replica, the line reopened in 2024</photo:Notes>")
+		assert.Contains(t, content, `xmlns:photo="`+photoNamespace+`"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, notedTags(), read)
+	})
+
+	t.Run("keeps the develop settings of a Lightroom sidecar", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, lightroomSidecar)
+
+		require.NoError(t, WriteSidecar(path, notedTags()))
+
+		content := readFile(t, path)
+		assert.Contains(t, content, `crs:Exposure2012="+0.35"`)
+		requireWellFormed(t, []byte(content))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, notedTags(), read)
+	})
+
+	t.Run("notes already in the sidecar are replaced, not doubled", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, notedTags()))
+
+		rewritten := notedTags()
+		rewritten.Notes = "the line reopened in 2025"
+		require.NoError(t, WriteSidecar(path, rewritten))
+
+		content := readFile(t, path)
+		assert.Equal(t, 1, strings.Count(content, "<photo:Notes>"))
+		assert.NotContains(t, content, "replica")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, rewritten, read)
+	})
+
+	t.Run("notes cleared leave nothing behind", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		require.NoError(t, WriteSidecar(path, notedTags()))
+
+		cleared := notedTags()
+		cleared.Notes = ""
+		require.NoError(t, WriteSidecar(path, cleared))
+
+		content := readFile(t, path)
+		assert.NotContains(t, content, "photo:Notes")
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, cleared, read)
+	})
+
+	t.Run("notes alone are written without any tags to go with them", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := model.Tags{Notes: "the tram is a replica"}
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
+	// The notes stand beside the concept in the same namespace, so the two are
+	// written and read back together rather than one taking the other's value.
+	t.Run("the notes and the concept keep to themselves", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		both := conceivedTags()
+		both.Notes = "the tram is a replica"
+
+		require.NoError(t, WriteSidecar(path, both))
+
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, both, read)
+	})
+
+	t.Run("reads the notes an attribute writer left", func(t *testing.T) {
+		t.Parallel()
+		path := writeSidecarFile(t, `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:photo="`+photoNamespace+`"
+   photo:Notes="the tram is a replica"/>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+`)
+
+		read, err := ReadSidecar(path)
+
+		require.NoError(t, err)
+		assert.Equal(t, "the tram is a replica", read.Notes)
+	})
+}
+
 func editorialTags() model.Tags {
 	return model.Tags{
 		Title:     "A tram climbs the hill.",

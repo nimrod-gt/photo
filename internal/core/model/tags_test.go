@@ -156,6 +156,7 @@ func TestTags_IsEmpty(t *testing.T) {
 	assert.False(t, Tags{Keywords: []string{"lake"}}.IsEmpty())
 	assert.True(t, Tags{Place: Place{Location: "Cascais, Portugal"}}.IsEmpty(), "a place alone is not a result")
 	assert.True(t, Tags{Concept: "fog over the lake"}.IsEmpty(), "a concept alone is not a result")
+	assert.True(t, Tags{Notes: "the boat is a replica"}.IsEmpty(), "a note alone is not a result")
 	assert.True(t, Tags{Editorial: Editorial{Marked: true}}.IsEmpty(), "a mark alone is not a result")
 }
 
@@ -179,6 +180,11 @@ func TestTags_Equal(t *testing.T) {
 	assert.True(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the lake"}))
 	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Concept: "fog over the sea"}))
 	assert.False(t, conceived.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
+
+	noted := Tags{Title: "A title.", Keywords: []string{"lake"}, Notes: "the boat is a replica"}
+	assert.True(t, noted.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Notes: "the boat is a replica"}))
+	assert.False(t, noted.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}, Notes: "the boat is the original"}))
+	assert.False(t, noted.Equal(Tags{Title: "A title.", Keywords: []string{"lake"}}))
 
 	day := time.Date(2026, time.June, 13, 0, 0, 0, 0, time.UTC)
 	marked := Tags{Title: "A title.", Keywords: []string{"lake"}, Editorial: Editorial{Marked: true, Date: day}}
