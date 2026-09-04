@@ -46,7 +46,7 @@ Photos from cameras are saved as JPEG + RAW (.ARW) pairs. The app displays only 
 The Tags dialog handles its own keys instead of relying on nothing holding focus:
 
 - `Tab`/`Shift+Tab` — move between the fields and the buttons; Cancel and Stop are skipped, since `Esc` is their key
-- `Space`/`Enter` — press the focused button, and nothing else: `Enter` in a field never starts a generation, and in Title and Keywords it inserts a newline
+- `Space`/`Enter` — press the focused button, and nothing else: `Enter` in a field never starts a generation, and in Title, Keywords and Notes it inserts a newline
 - `Shift+Enter` — generate, from anywhere in the dialog
 - `Ctrl+Enter` — background the running generation, or start one and background it at once (`Cmd` counts as `Ctrl` here)
 - `Alt+C` — copy the title and the keywords on screen

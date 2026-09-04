@@ -1146,6 +1146,57 @@ func TestWriteSidecar_Notes(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "the tram is a replica", read.Notes)
 	})
+
+	t.Run("control characters pasted into the notes leave the file readable", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := notedTags()
+		written.Notes = "shot list\x0cpage two\x00\x0bend"
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		requireWellFormed(t, []byte(readFile(t, path)))
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, "shot listpage twoend", read.Notes)
+		assert.Equal(t, written.Title, read.Title, "the whole document must survive one bad character")
+		assert.Equal(t, written.Keywords, read.Keywords)
+	})
+
+	t.Run("control characters are dropped from every field, not only the notes", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := model.Tags{
+			Title:    "a tram\x0cclimbs",
+			Keywords: []string{"lis\x00bon", "tram"},
+			Concept:  "tram 28\x0bhead-on",
+			Place:    model.Place{City: "Lis\x0cbon"},
+		}
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		requireWellFormed(t, []byte(readFile(t, path)))
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, "a tramclimbs", read.Title)
+		assert.Equal(t, []string{"lisbon", "tram"}, read.Keywords)
+		assert.Equal(t, "tram 28head-on", read.Concept)
+		assert.Equal(t, "Lisbon", read.Place.City)
+	})
+
+	t.Run("tabs and newlines are not control characters to drop", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := notedTags()
+		written.Notes = "first line\n\tindented\nlast line"
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		requireWellFormed(t, []byte(readFile(t, path)))
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written.Notes, read.Notes)
+	})
 }
 
 func editorialTags() model.Tags {

@@ -23,8 +23,9 @@ func (s *tagsSession) copyTags() {
 		s.app.notifier.ShowWarning("No tags to copy")
 		return
 	}
-	// The place, the note and the editorial mark belong to the photo they were
-	// typed for; only what a generation produced travels to another one.
+	// The place, the concept, the notes and the editorial mark belong to the
+	// photo they were typed for; only what a generation produced travels to
+	// another one.
 	s.app.tagsCopy = model.Tags{Title: copied.Title, Keywords: copied.Keywords}
 	s.app.tagsCopied = true
 	s.app.notifier.ShowNotification("Tags copied")

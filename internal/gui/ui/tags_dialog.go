@@ -453,10 +453,11 @@ func (d *TagsDialog) SetPhotoInfo(existing model.Tags, taken time.Time) {
 	if !d.resultUntouched() {
 		return
 	}
-	// A file can carry a place or a concept and no tags at all - a Lightroom
-	// sidecar with a location in it, or a photo whose note was typed and never
-	// generated from. Those two are the user's own fields and are filled either
-	// way; the result fields stay hidden while there is nothing to put in them.
+	// A file can carry a place, a concept or the notes and no tags at all - a
+	// Lightroom sidecar with a location in it, or a photo whose note was typed
+	// and never generated from. Those three are the user's own fields and are
+	// filled either way; the result fields stay hidden while there is nothing to
+	// put in them.
 	if existing.IsEmpty() {
 		d.takePlace(existing.Place)
 		d.takeConcept(existing.Concept)
@@ -518,10 +519,10 @@ func (d *TagsDialog) dateUntouched() bool {
 	return d.date.Date.Equal(d.defaultDate)
 }
 
-// The location and the concept are left exactly as they are: a run echoes back
-// the free text it was asked with, so it has nothing to add to either, and
-// filling them again would undo an edit made in the minute it took to answer -
-// a note cleared while the run went would come straight back.
+// The location, the concept and the notes are left exactly as they are: a run
+// echoes back the free text it was asked with, so it has nothing to add to any
+// of them, and filling them again would undo an edit made in the minute it took
+// to answer - a note cleared while the run went would come straight back.
 func (d *TagsDialog) SetTags(generated model.Tags) {
 	d.finishRun()
 	d.split = generated.Place.Trimmed()

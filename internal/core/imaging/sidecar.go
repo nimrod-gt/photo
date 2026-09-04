@@ -693,6 +693,20 @@ func writeLine(out *strings.Builder, depth int, text string) {
 
 var xmlEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
 
+// Text pasted out of a PDF or a terminal carries control characters no XML
+// document may hold - a form feed, a vertical tab, a NUL. Written raw they cost
+// far more than the character itself: the document stops parsing, and every
+// later read of that file returns no title, no keywords, no rating and no mark,
+// so they are dropped on the way in rather than found once the file is already
+// unreadable.
 func escapeXML(text string) string {
-	return xmlEscaper.Replace(text)
+	return xmlEscaper.Replace(strings.Map(legalXMLRune, text))
+}
+
+func legalXMLRune(r rune) rune {
+	if r == '\t' || r == '\n' || r == '\r' ||
+		(r >= 0x20 && r <= 0xD7FF) || (r >= 0xE000 && r <= 0xFFFD) || r >= 0x10000 {
+		return r
+	}
+	return -1
 }
