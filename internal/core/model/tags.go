@@ -19,9 +19,9 @@ type Tags struct {
 	Keywords []string
 	Place    Place
 	Concept  string
-	// Notes is what the user tells the generator beyond the concept: standing
-	// information about the photo the tags have to take into account. It is
-	// never part of what the generator answers with.
+	// Standing information about the photo the generation has to take into
+	// account, beyond the concept it was asked for. Never part of what the
+	// generator answers with.
 	Notes     string
 	Editorial Editorial
 }

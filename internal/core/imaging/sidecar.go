@@ -306,11 +306,17 @@ var writtenProperties = []writtenProperty{
 		values: notesValues, emit: writeTextProperty},
 }
 
-func titleValues(tags model.Tags) []string {
-	if title := strings.TrimSpace(tags.Title); len(title) != 0 {
-		return []string{title}
+// No values means no property: an emptied field leaves nothing behind in the
+// document rather than an empty element of its own.
+func trimmedValues(text string) []string {
+	if trimmed := strings.TrimSpace(text); len(trimmed) != 0 {
+		return []string{trimmed}
 	}
 	return nil
+}
+
+func titleValues(tags model.Tags) []string {
+	return trimmedValues(tags.Title)
 }
 
 func keywordValues(tags model.Tags) []string {
@@ -318,17 +324,11 @@ func keywordValues(tags model.Tags) []string {
 }
 
 func conceptValues(tags model.Tags) []string {
-	if concept := strings.TrimSpace(tags.Concept); len(concept) != 0 {
-		return []string{concept}
-	}
-	return nil
+	return trimmedValues(tags.Concept)
 }
 
 func notesValues(tags model.Tags) []string {
-	if notes := strings.TrimSpace(tags.Notes); len(notes) != 0 {
-		return []string{notes}
-	}
-	return nil
+	return trimmedValues(tags.Notes)
 }
 
 // The mark is what says the photo is editorial, so an unmarked one writes

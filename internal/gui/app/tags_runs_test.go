@@ -23,23 +23,31 @@ import (
 // The generation answers only when the test lets it, so everything the runner
 // does while a run is in flight can be asserted from the test goroutine alone.
 type heldTagger struct {
-	started chan struct{}
-	release chan struct{}
-	tags    model.Tags
-	err     error
+	started  chan struct{}
+	requests chan tags.Request
+	release  chan struct{}
+	tags     model.Tags
+	err      error
 }
 
 func newHeldTagger(generated model.Tags, err error) *heldTagger {
 	return &heldTagger{
-		started: make(chan struct{}, 1),
-		release: make(chan struct{}),
-		tags:    generated,
-		err:     err,
+		started:  make(chan struct{}, 1),
+		requests: make(chan tags.Request, 1),
+		release:  make(chan struct{}),
+		tags:     generated,
+		err:      err,
 	}
 }
 
 func (h *heldTagger) Generate(ctx context.Context, req tags.Request) (model.Tags, error) {
 	h.started <- struct{}{}
+	// Never blocks: a tagger held by several runs at once would otherwise wait
+	// here for a request nobody in the test is reading.
+	select {
+	case h.requests <- req:
+	default:
+	}
 	select {
 	case <-h.release:
 	case <-ctx.Done():
@@ -48,6 +56,8 @@ func (h *heldTagger) Generate(ctx context.Context, req tags.Request) (model.Tags
 	// The real tagger carries the fields the dialog filled in back with the tags
 	// it generated, because a run writes what it answers with and nothing else.
 	generated := h.tags
+	generated.Concept = req.Concept
+	generated.Notes = req.Notes
 	generated.Editorial = req.Editorial.Normalized()
 	return generated, h.err
 }

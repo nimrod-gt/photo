@@ -16,7 +16,10 @@ import (
 	"photo/internal/core/tags"
 )
 
-const testConcept = "tram 28 seen head-on"
+const (
+	testConcept = "tram 28 seen head-on"
+	testNotes   = "the tram is a replica, the line reopened in 2024"
+)
 
 func TestNothingToWrite(t *testing.T) {
 	t.Parallel()
@@ -35,6 +38,8 @@ func TestNothingToWrite(t *testing.T) {
 		{name: "a blank location", tags: model.Tags{Place: model.Place{Location: "  "}}, want: true},
 		{name: "a concept the user typed", tags: model.Tags{Concept: testConcept}},
 		{name: "a blank concept", tags: model.Tags{Concept: "  "}, want: true},
+		{name: "notes the user typed", tags: model.Tags{Notes: testNotes}},
+		{name: "blank notes", tags: model.Tags{Notes: " \n "}, want: true},
 		{name: "an editorial mark", tags: model.Tags{Editorial: editorialMark()}},
 		{name: "a mark without a day", tags: model.Tags{Editorial: model.Editorial{Marked: true}}},
 		{name: "a day nobody marked", tags: model.Tags{Editorial: model.Editorial{Date: editorialDay()}}, want: true},
@@ -54,12 +59,15 @@ func TestWriteNote(t *testing.T) {
 	assert.Equal(t, rewrittenNote, writeNote(imaging.StockWrite{Rewritten: true}))
 	assert.Equal(t, placeDroppedNote, writeNote(imaging.StockWrite{PlaceDropped: true}))
 	assert.Equal(t, conceptDroppedNote, writeNote(imaging.StockWrite{ConceptDropped: true}))
+	assert.Equal(t, notesDroppedNote, writeNote(imaging.StockWrite{NotesDropped: true}))
 	assert.Equal(t, editorialDroppedNote, writeNote(imaging.StockWrite{EditorialDropped: true}))
-	assert.Equal(t, rewrittenNote+"; "+placeDroppedNote+"; "+conceptDroppedNote+"; "+editorialDroppedNote,
+	assert.Equal(t,
+		rewrittenNote+"; "+placeDroppedNote+"; "+conceptDroppedNote+"; "+notesDroppedNote+"; "+editorialDroppedNote,
 		writeNote(imaging.StockWrite{
 			Rewritten:        true,
 			PlaceDropped:     true,
 			ConceptDropped:   true,
+			NotesDropped:     true,
 			EditorialDropped: true,
 		}))
 }
@@ -117,6 +125,48 @@ func TestTagsSessionCloseWithAConceptAlone(t *testing.T) {
 
 	assert.Equal(t, testConcept, reopened.dialog.Concept(),
 		"the dialog opens on what the last one saved")
+}
+
+// The notes are told to the generation the same way the concept is, so on their
+// own they are worth a sidecar too.
+func TestTagsSessionCloseWithNotesAlone(t *testing.T) {
+	a := newTestApplication(t, newHeldTagger(model.Tags{}, nil))
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+
+	typeIntoDialog(session, model.Tags{Notes: testNotes})
+	session.close()
+
+	require.Eventually(t, func() bool {
+		written, err := imaging.ReadSidecar(photo.SidecarPath())
+		return err == nil && written.Notes == testNotes
+	}, time.Second, 5*time.Millisecond, "the sidecar was never written")
+
+	reopened := a.openTestTagsDialog(t, photo)
+	reopened.seed()
+
+	assert.Equal(t, testNotes, reopened.dialog.Notes(),
+		"the dialog opens on what the last one saved")
+}
+
+// The dialog is the only place the notes are typed, so a run that never sees
+// them generates without them - and writes them out of the file, since it comes
+// back with the fields it was given.
+func TestTagsSessionGenerateSendsTheNotes(t *testing.T) {
+	held := newHeldTagger(generatedTags(), nil)
+	a := newTestApplication(t, held)
+	photo := testPhoto(t, true)
+	session := a.openTestTagsDialog(t, photo)
+	typeIntoDialog(session, model.Tags{Concept: testConcept, Notes: testNotes})
+
+	session.generate()
+	<-held.started
+	request := <-held.requests
+	held.answerWithTags(t, a, photo.ImagePath)
+
+	assert.Equal(t, testNotes, request.Notes, "the generation was asked without the notes")
+	assert.Equal(t, testNotes, sidecarTags(t, photo).Notes, "the run wrote the notes out of the file")
+	settleRuns(t, a, photo.ImagePath)
 }
 
 // The mark is saved like the concept note: on its own it is worth a sidecar,

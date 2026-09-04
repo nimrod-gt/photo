@@ -1097,6 +1097,38 @@ func TestWriteSidecar_Notes(t *testing.T) {
 		assert.Equal(t, both, read)
 	})
 
+	// The field is a multi-line one, so a note of several lines is the ordinary
+	// case rather than an odd one, and the lines have to survive the document.
+	t.Run("notes of several lines come back whole", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := notedTags()
+		written.Notes = "the tram is a replica\nthe line reopened in 2024\n\nask before selling it as editorial"
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		requireWellFormed(t, []byte(readFile(t, path)))
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
+	// XML says nothing about what a & or a < mean in a note, so they are escaped
+	// on the way in and are the same characters again on the way out.
+	t.Run("notes with markup characters survive", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "DSC001.xmp")
+		written := notedTags()
+		written.Notes = `Tom & Jerry <the mural>, "quoted" & signed 'TM'`
+
+		require.NoError(t, WriteSidecar(path, written))
+
+		requireWellFormed(t, []byte(readFile(t, path)))
+		read, err := ReadSidecar(path)
+		require.NoError(t, err)
+		assert.Equal(t, written, read)
+	})
+
 	t.Run("reads the notes an attribute writer left", func(t *testing.T) {
 		t.Parallel()
 		path := writeSidecarFile(t, `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>

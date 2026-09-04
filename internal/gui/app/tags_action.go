@@ -154,6 +154,7 @@ func (s *tagsSession) generate() {
 		Photo:      s.photo,
 		Location:   s.dialog.Location(),
 		Concept:    s.dialog.Concept(),
+		Notes:      s.dialog.Notes(),
 		Editorial:  s.dialog.Editorial(),
 		ClaudePath: s.dialog.ClaudePath(),
 	})
@@ -361,13 +362,14 @@ func completed(path string, written model.Tags, known bool) (model.Tags, error) 
 	return imaging.FillMissing(written, existing), nil
 }
 
-// Tags.IsEmpty ignores the place, the concept and the editorial mark on purpose
-// - none of the three is a result the generator produced - but what the user
-// filled in there is worth a sidecar of its own, with or without tags to go
-// with it.
+// Tags.IsEmpty ignores the place, the concept, the notes and the editorial mark
+// on purpose - none of the four is a result the generator produced - but what
+// the user filled in there is worth a sidecar of its own, with or without tags
+// to go with it.
 func nothingToWrite(tags model.Tags) bool {
 	return tags.IsEmpty() && tags.Place.IsEmpty() &&
-		len(strings.TrimSpace(tags.Concept)) == 0 && tags.Editorial.IsEmpty()
+		len(strings.TrimSpace(tags.Concept)) == 0 && len(strings.TrimSpace(tags.Notes)) == 0 &&
+		tags.Editorial.IsEmpty()
 }
 
 // The JPEG is only replaced when its XMP packet has no room for the tags. A
@@ -376,12 +378,14 @@ func nothingToWrite(tags model.Tags) bool {
 // case is spelled out instead of passing as a plain success.
 const rewrittenNote = "the file was rewritten, a Sony camera shows it again after Recover Image DB"
 
-// No EXIF tag holds a place, a concept or an editorial mark, so the fallback the
-// note above describes carries the title and the keywords and leaves those three
-// behind.
+// No EXIF tag holds a place, a concept, the notes or an editorial mark, so the
+// fallback the note above describes carries the title and the keywords and
+// leaves those four behind.
 const placeDroppedNote = "the location was not written: the XMP packet had no room and the EXIF has no field for a place"
 
 const conceptDroppedNote = "the concept was not written: the XMP packet had no room and the EXIF has no field for it"
+
+const notesDroppedNote = "the notes were not written: the XMP packet had no room and the EXIF has no field for them"
 
 const editorialDroppedNote = "the editorial mark was not written: the XMP packet had no room and the EXIF has no field for it"
 
@@ -395,6 +399,9 @@ func writeNote(write imaging.StockWrite) string {
 	}
 	if write.ConceptDropped {
 		notes = append(notes, conceptDroppedNote)
+	}
+	if write.NotesDropped {
+		notes = append(notes, notesDroppedNote)
 	}
 	if write.EditorialDropped {
 		notes = append(notes, editorialDroppedNote)
